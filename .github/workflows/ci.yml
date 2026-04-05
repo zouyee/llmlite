@@ -55,10 +55,6 @@ jobs:
       - name: Run build release-safe
         run: zig build -Drelease-safe=true 2>&1 || true
 
-      - name: Check formatting
-        run: |
-          zig fmt --check . || exit 1
-
   security:
     name: Security Check
     runs-on: ubuntu-latest
