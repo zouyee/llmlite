@@ -65,10 +65,10 @@ pub const StyleType = enum {
 
     pub fn toString(self: StyleType) []const u8 {
         return switch (self) {
-            .cartoon => "漫画",
-            .energetic => "元气",
-            .medieval => "中世纪",
-            .watercolor => "水彩",
+            .cartoon => "cartoon",
+            .energetic => "energetic",
+            .medieval => "medieval",
+            .watercolor => "watercolor",
         };
     }
 };

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Build and Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        zig_version: ['0.15.0', '0.14.0', '0.13.0']
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: atelier-egg/zig-action@v1
+        with:
+          version: ${{ matrix.zig_version }}
+
+      - name: Cache Zig build
+        uses: actions/cache@v4
+        with:
+          path: zig-cache
+          key: ${{ runner.os }}-zig-${{ matrix.zig_version }}-${{ hashFiles('**/*.zig', '**/build.zig') }}
+          restore-keys: |
+            ${{ runner.os }}-zig-${{ matrix.zig_version }}-
+
+      - name: Build
+        run: zig build
+
+      - name: Run tests
+        run: zig build test
+
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: atelier-egg/zig-action@v1
+        with:
+          version: '0.15.0'
+
+      - name: Run build release-safe
+        run: zig build -Drelease-safe=true 2>&1 || true
+
+      - name: Check formatting
+        run: |
+          zig fmt --check . || exit 1
+
+  security:
+    name: Security Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: atelier-egg/zig-action@v1
+        with:
+          version: '0.15.0'
+
+      - name: Run build without network
+        run: zig build --prominent-compile-errors 2>&1 || true

@@ -4,14 +4,14 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // HTTP 模块 - 其他所有模块都依赖它
+    // HTTP module - all other modules depend on it
     const http_module = b.addModule("http", .{
         .root_source_file = b.path("src/http.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Chat 模块 - 依赖 http
+    // Chat module - depends on http
     const chat_module = b.addModule("chat", .{
         .root_source_file = b.path("src/chat.zig"),
         .target = target,
@@ -21,7 +21,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Responses 模块 - 新的主 API, 依赖 http
+    // Responses module - new primary API, depends on http
     const responses_module = b.addModule("responses", .{
         .root_source_file = b.path("src/responses.zig"),
         .target = target,
@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Tool 模块 - 函数调用支持, 依赖 http
+    // Tool module - function calling support, depends on http
     const tool_module = b.addModule("tool", .{
         .root_source_file = b.path("src/tool.zig"),
         .target = target,
@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Structured Output 模块 - JSON Schema 支持, 依赖 http
+    // Structured Output module - JSON Schema support, depends on http
     const structured_output_module = b.addModule("structured_output", .{
         .root_source_file = b.path("src/structured_output.zig"),
         .target = target,
@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Stream 模块 - SSE 流式处理, 依赖 http
+    // Stream module - SSE streaming, depends on http
     const stream_module = b.addModule("stream", .{
         .root_source_file = b.path("src/stream.zig"),
         .target = target,
@@ -61,7 +61,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Batch 模块 - 批量处理 API, 依赖 http
+    // Batch module - batch processing API, depends on http
     const batch_module = b.addModule("batch", .{
         .root_source_file = b.path("src/batch.zig"),
         .target = target,
@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Azure 模块 - Azure OpenAI 支持, 依赖 http
+    // Azure module - Azure OpenAI support, depends on http
     const azure_module = b.addModule("azure", .{
         .root_source_file = b.path("src/azure.zig"),
         .target = target,
@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Conversation 模块 - 多轮对话状态管理, 依赖 http
+    // Conversation module - multi-turn conversation state management, depends on http
     const conversation_module = b.addModule("conversation", .{
         .root_source_file = b.path("src/conversation.zig"),
         .target = target,
@@ -91,7 +91,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Webhook 模块 - Webhook 事件处理, 依赖 http
+    // Webhook module - webhook event handling, depends on http
     const webhook_module = b.addModule("webhook", .{
         .root_source_file = b.path("src/webhook.zig"),
         .target = target,
@@ -101,7 +101,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Realtime 模块 - WebSocket 实时通信, 依赖 http
+    // Realtime module - WebSocket real-time communication, depends on http
     const realtime_module = b.addModule("realtime", .{
         .root_source_file = b.path("src/realtime.zig"),
         .target = target,
@@ -111,7 +111,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Assistant 模块 - Assistants API (Beta), 依赖 http
+    // Assistant module - Assistants API (Beta), depends on http
     const assistant_module = b.addModule("assistant", .{
         .root_source_file = b.path("src/assistant.zig"),
         .target = target,
@@ -121,7 +121,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Embedding 模块 - 依赖 http
+    // Embedding module - depends on http
     const embedding_module = b.addModule("embedding", .{
         .root_source_file = b.path("src/embedding.zig"),
         .target = target,
@@ -131,7 +131,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Model 模块 - 依赖 http
+    // Model module - depends on http
     const model_module = b.addModule("model", .{
         .root_source_file = b.path("src/model.zig"),
         .target = target,
@@ -141,7 +141,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // File 模块 - 依赖 http
+    // File module - depends on http
     const file_module = b.addModule("file", .{
         .root_source_file = b.path("src/file.zig"),
         .target = target,
@@ -151,7 +151,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Image 模块 - 依赖 http
+    // Image module - depends on http
     const image_module = b.addModule("image", .{
         .root_source_file = b.path("src/image.zig"),
         .target = target,
@@ -161,7 +161,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Audio 模块 - 依赖 http
+    // Audio module - depends on http
     const audio_module = b.addModule("audio", .{
         .root_source_file = b.path("src/audio.zig"),
         .target = target,
@@ -171,7 +171,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Moderation 模块 - 依赖 http
+    // Moderation module - depends on http
     const moderation_module = b.addModule("moderation", .{
         .root_source_file = b.path("src/moderation.zig"),
         .target = target,
@@ -181,7 +181,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Finetune 模块 - 依赖 http
+    // Finetune module - depends on http
     const finetune_module = b.addModule("finetune", .{
         .root_source_file = b.path("src/finetune.zig"),
         .target = target,
@@ -191,7 +191,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Pagination 模块 - 游标分页助手, 依赖 http
+    // Pagination module - cursor pagination helper, depends on http
     const pagination_module = b.addModule("pagination", .{
         .root_source_file = b.path("src/pagination.zig"),
         .target = target,
@@ -201,7 +201,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Completion 模块 - Legacy 文本补全 API, 依赖 http
+    // Completion module - legacy text completion API, depends on http
     const completion_module = b.addModule("completion", .{
         .root_source_file = b.path("src/completion.zig"),
         .target = target,
@@ -211,7 +211,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Container 模块 - 容器管理 API, 依赖 http
+    // Container module - container management API, depends on http
     const container_module = b.addModule("container", .{
         .root_source_file = b.path("src/container.zig"),
         .target = target,
@@ -221,7 +221,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Grader 模块 - 评分服务, 依赖 http
+    // Grader module - grading service, depends on http
     const grader_module = b.addModule("grader", .{
         .root_source_file = b.path("src/grader.zig"),
         .target = target,
@@ -231,7 +231,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Skill 模块 - 技能管理 API, 依赖 http
+    // Skill module - skill management API, depends on http
     const skill_module = b.addModule("skill", .{
         .root_source_file = b.path("src/skill.zig"),
         .target = target,
@@ -241,7 +241,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // BetaThread 模块 - Beta 线程管理 (已弃用), 依赖 http
+    // BetaThread module - Beta thread management (deprecated), depends on http
     const betathread_module = b.addModule("betathread", .{
         .root_source_file = b.path("src/betathread.zig"),
         .target = target,
@@ -251,8 +251,8 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Provider 子模块 - 每个文件作为独立模块
-    // provider_types - 依赖 http 和 chat
+    // Provider submodules - each file is an independent module
+    // provider_types - depends on http and chat
     const provider_types_module = b.addModule("provider_types", .{
         .root_source_file = b.path("src/provider/types.zig"),
         .target = target,
@@ -263,7 +263,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // provider_registry - 依赖 provider_types
+    // provider_registry - depends on provider_types
     const provider_registry_module = b.addModule("provider_registry", .{
         .root_source_file = b.path("src/provider/registry.zig"),
         .target = target,
@@ -273,7 +273,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // provider_openai - 依赖 http 和 chat
+    // provider_openai - depends on http and chat
     const provider_openai_module = b.addModule("provider_openai", .{
         .root_source_file = b.path("src/provider/openai.zig"),
         .target = target,
@@ -285,7 +285,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // provider_anthropic - 依赖 http 和 chat
+    // provider_anthropic - depends on http and chat
     const provider_anthropic_module = b.addModule("provider_anthropic", .{
         .root_source_file = b.path("src/provider/anthropic.zig"),
         .target = target,
@@ -297,7 +297,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // provider_google - 依赖 http 和 chat
+    // provider_google - depends on http and chat
     const provider_google_module = b.addModule("provider_google", .{
         .root_source_file = b.path("src/provider/google.zig"),
         .target = target,
@@ -309,7 +309,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Gemini Caches API - 上下文缓存
+    // Gemini Caches API - context caching
     const gemini_caches_module = b.addModule("gemini_caches", .{
         .root_source_file = b.path("src/provider/gemini_caches.zig"),
         .target = target,
@@ -319,7 +319,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Gemini Tunings API - 模型微调
+    // Gemini Tunings API - model tuning
     const gemini_tunings_module = b.addModule("gemini_tunings", .{
         .root_source_file = b.path("src/provider/gemini_tunings.zig"),
         .target = target,
@@ -329,7 +329,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Gemini Documents API - 文档管理
+    // Gemini Documents API - document management
     const gemini_documents_module = b.addModule("gemini_documents", .{
         .root_source_file = b.path("src/provider/gemini_documents.zig"),
         .target = target,
@@ -339,7 +339,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Gemini FileSearchStores API - 向量搜索存储
+    // Gemini FileSearchStores API - vector search storage
     const gemini_file_search_stores_module = b.addModule("gemini_file_search_stores", .{
         .root_source_file = b.path("src/provider/gemini_file_search_stores.zig"),
         .target = target,
@@ -349,7 +349,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Gemini Operations API - 异步操作管理
+    // Gemini Operations API - async operations management
     const gemini_operations_module = b.addModule("gemini_operations", .{
         .root_source_file = b.path("src/provider/gemini_operations.zig"),
         .target = target,
@@ -359,7 +359,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Gemini Tokens API - Token计数
+    // Gemini Tokens API - token counting
     const gemini_tokens_module = b.addModule("gemini_tokens", .{
         .root_source_file = b.path("src/provider/gemini_tokens.zig"),
         .target = target,
@@ -369,7 +369,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // provider_language_model - 依赖所有 provider 子模块
+    // provider_language_model - depends on all provider submodules
     const provider_language_model_module = b.addModule("provider_language_model", .{
         .root_source_file = b.path("src/provider/language_model.zig"),
         .target = target,
@@ -384,7 +384,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // provider_provider - 依赖 http, chat, types, registry, language_model
+    // provider_provider - depends on http, chat, types, registry, language_model
     const provider_provider_module = b.addModule("provider_provider", .{
         .root_source_file = b.path("src/provider/provider.zig"),
         .target = target,
@@ -398,7 +398,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // Provider 模块 - 重新导出所有子模块，保持向后兼容
+    // Provider module - re-exports all submodules, maintains backward compatibility
     const provider_module = b.addModule("provider", .{
         .root_source_file = b.path("src/provider/mod.zig"),
         .target = target,
@@ -418,7 +418,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "audio", .module = audio_module },
             .{ .name = "moderation", .module = moderation_module },
             .{ .name = "embedding", .module = embedding_module },
-            // Gemini 高级 API
+            // Gemini advanced API
             .{ .name = "gemini_caches", .module = gemini_caches_module },
             .{ .name = "gemini_tunings", .module = gemini_tunings_module },
             .{ .name = "gemini_documents", .module = gemini_documents_module },
@@ -428,7 +428,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // 主模块 - 依赖所有子模块
+    // Main module - depends on all submodules
     const main_module = b.addModule("main", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -480,7 +480,7 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the program");
     run_step.dependOn(&run_cmd.step);
 
-    // Kimi 测试示例 - 独立模块，依赖 main 和 chat
+    // Kimi test example - independent module, depends on main and chat
     const kimi_module = b.addModule("kimi_test", .{
         .root_source_file = b.path("src/kimi_test.zig"),
         .target = target,
@@ -500,7 +500,7 @@ pub fn build(b: *std.Build) void {
     const kimi_run_step = b.step("kimi-test", "Run Kimi integration test");
     kimi_run_step.dependOn(&kimi_run_cmd.step);
 
-    // Gemma 测试示例 - 独立模块，依赖 main 和 chat 模块
+    // Gemma test example - independent module, depends on main and chat module
     const gemma_module = b.addModule("gemma_test", .{
         .root_source_file = b.path("src/gemma_test.zig"),
         .target = target,
@@ -521,7 +521,7 @@ pub fn build(b: *std.Build) void {
     const gemma_run_step = b.step("gemma-test", "Run Gemma integration test");
     gemma_run_step.dependOn(&gemma_run_cmd.step);
 
-    // MiniMax Runner 测试 - 独立模块，依赖 main 和所有子模块
+    // MiniMax Runner test - independent module, depends on main and all submodules
     const minimax_runner_module = b.addModule("minimax_runner", .{
         .root_source_file = b.path("src/test/minimax_runner.zig"),
         .target = target,
@@ -550,7 +550,7 @@ pub fn build(b: *std.Build) void {
     const minimax_runner_step = b.step("minimax-test", "Run MiniMax integration test");
     minimax_runner_step.dependOn(&minimax_runner_cmd.step);
 
-    // OpenAI Runner 测试 - 独立模块，依赖 main 和所有子模块
+    // OpenAI Runner test - independent module, depends on main and all submodules
     const openai_runner_module = b.addModule("openai_runner", .{
         .root_source_file = b.path("src/test/openai_runner.zig"),
         .target = target,
@@ -579,7 +579,7 @@ pub fn build(b: *std.Build) void {
     const openai_runner_step = b.step("openai-test", "Run OpenAI integration test");
     openai_runner_step.dependOn(&openai_runner_cmd.step);
 
-    // Gemini Advanced APIs 测试 - 独立模块
+    // Gemini Advanced APIs test - independent module
     const gemini_advanced_module = b.addModule("gemini_advanced_test", .{
         .root_source_file = b.path("src/test/gemini_advanced_test.zig"),
         .target = target,
@@ -606,7 +606,7 @@ pub fn build(b: *std.Build) void {
     const gemini_advanced_step = b.step("gemini-advanced-test", "Run Gemini advanced APIs test");
     gemini_advanced_step.dependOn(&gemini_advanced_exe.step);
 
-    // 单元测试模块 - 自己作为根，导入需要的模块
+    // Unit test module - uses itself as root, imports required modules
     const test_module = b.addModule("test", .{
         .root_source_file = b.path("src/test/openai_test.zig"),
         .target = target,
@@ -628,7 +628,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    // 单元测试 - 使用独立的 test_module
+    // Unit test - uses separate test_module
     const test_exe = b.addTest(.{
         .name = "openai_test",
         .root_module = test_module,
@@ -637,7 +637,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&test_exe.step);
 
-    // Chat Only Runner 测试 - 只测试 Chat Completions
+    // Chat Only Runner test - tests only Chat Completions
     const chat_runner_module = b.addModule("chat_runner", .{
         .root_source_file = b.path("src/test/chat_only_runner.zig"),
         .target = target,
