@@ -1,15 +1,7 @@
-//! Provider Types - ProviderType enum and core types
-//!
-//! This file defines the core types used across all providers.
-
 const std = @import("std");
 
 pub const http_mod = @import("http");
 pub const chat_pkg = @import("chat");
-
-// ============================================================================
-// ProviderType Enum - Supported LLM Providers
-// ============================================================================
 
 pub const ProviderType = enum {
     openai,
@@ -56,29 +48,16 @@ pub const ProviderType = enum {
     }
 };
 
-// ============================================================================
-// ProviderConfig - Provider Base Configuration
-// ============================================================================
-
 pub const ProviderConfig = struct {
     base_url: []const u8,
     auth_type: http_mod.AuthType,
-    /// Default endpoint path (can be overridden per-request)
     default_endpoint: ?[]const u8 = null,
 };
-
-// ============================================================================
-// Model - Model Structure (includes provider info)
-// ============================================================================
 
 pub const Model = struct {
     provider: ProviderType,
     name: []const u8,
 
-    /// Parse model string
-    /// Supported formats:
-    ///   - "provider/model" (e.g., "openai/gpt-4o")
-    ///   - "model" (default provider is openai)
     pub fn parse(model_str: []const u8) !Model {
         if (std.mem.indexOf(u8, model_str, "/")) |idx| {
             const provider_str = model_str[0..idx];
@@ -98,7 +77,6 @@ pub const Model = struct {
         }
     }
 
-    /// Get full string representation of the model
     pub fn toString(self: Model) []const u8 {
         return std.fmt.comptimePrint("{s}/{s}", .{
             self.provider.toString(),
@@ -107,18 +85,12 @@ pub const Model = struct {
     }
 };
 
-// ============================================================================
-// Middleware - Similar to Vercel AI SDK's wrapLanguageModel
-// ============================================================================
-
-/// Middleware function type - transforms parameters before sending request
 pub const PreRequestMiddleware = fn (
     allocator: std.mem.Allocator,
     params: *chat_pkg.CreateChatCompletionParams,
     model_name: []const u8,
 ) anyerror!void;
 
-/// Middleware function type - transforms results after response is received
 pub const PostResponseMiddleware = fn (
     allocator: std.mem.Allocator,
     response: *chat_pkg.ChatCompletion,

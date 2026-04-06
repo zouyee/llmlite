@@ -1,21 +1,12 @@
-//! HTTP Client Wrapper
-//! Supports multiple authentication methods: Bearer Token, API Key (URL param)
-
 const std = @import("std");
 const Http = std.http;
 const Uri = std.Uri;
 
-// ============================================================================
-// Auth Type
-// ============================================================================
-
-/// Authentication type
 pub const AuthType = enum {
-    bearer, // Authorization: Bearer {key} (default)
-    api_key, // URL query parameter ?key={key}
+    bearer,
+    api_key,
 };
 
-/// API error information
 pub const ApiError = struct {
     message: []const u8,
     error_type: []const u8,
@@ -44,10 +35,6 @@ pub const ApiError = struct {
     }
 };
 
-// ============================================================================
-// HttpClient
-// ============================================================================
-
 pub const HttpClient = struct {
     allocator: std.mem.Allocator,
     base_url: []const u8,
@@ -56,7 +43,6 @@ pub const HttpClient = struct {
     timeout_ms: u32,
     auth_type: AuthType,
 
-    /// Default initialization (using Bearer auth)
     pub fn init(allocator: std.mem.Allocator, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32) HttpClient {
         return .{
             .allocator = allocator,
@@ -68,7 +54,6 @@ pub const HttpClient = struct {
         };
     }
 
-    /// Initialize with specified auth type
     pub fn initWithAuthType(allocator: std.mem.Allocator, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32, auth_type: AuthType) HttpClient {
         return .{
             .allocator = allocator,
@@ -103,15 +88,14 @@ pub const HttpClient = struct {
     pub fn delete(self: *HttpClient, path: []const u8) ![]u8 {
         return self.sendRequest("DELETE", path, "", "application/json");
     }
+
     fn sendRequest(self: *HttpClient, method: []const u8, path: []const u8, body: []const u8, content_type: []const u8) ![]u8 {
-        // Build URL and headers based on auth type
         var url: []u8 = undefined;
         var headers: [2]Http.Header = undefined;
         var header_count: usize = 0;
 
         switch (self.auth_type) {
             .bearer => {
-                // Bearer: Authorization header
                 url = try std.mem.concat(self.allocator, u8, &.{ self.base_url, path });
                 errdefer self.allocator.free(url);
 
@@ -123,7 +107,6 @@ pub const HttpClient = struct {
                 header_count = 2;
             },
             .api_key => {
-                // API Key: URL query parameter (Google AI, etc.)
                 url = try std.fmt.allocPrint(self.allocator, "{s}{s}?key={s}", .{ self.base_url, path, self.api_key });
                 errdefer self.allocator.free(url);
 
@@ -151,8 +134,7 @@ pub const HttpClient = struct {
         else
             return error.InvalidUrl;
 
-        // Use Io.Writer.Allocating to capture the response body
-        var response_writer = std.Io.Writer.Allocating.init(self.allocator);
+        var response_writer = std.io.Writer.Allocating.init(self.allocator);
         defer response_writer.deinit();
 
         const fetch_result = http_client.fetch(.{
