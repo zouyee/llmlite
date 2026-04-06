@@ -428,6 +428,13 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // Version module
+    const version_module = b.addModule("version", .{
+        .root_source_file = b.path("src/version.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Main module - depends on all submodules
     const main_module = b.addModule("main", .{
         .root_source_file = b.path("src/main.zig"),
@@ -460,12 +467,14 @@ pub fn build(b: *std.Build) void {
             .{ .name = "skill", .module = skill_module },
             .{ .name = "betathread", .module = betathread_module },
             .{ .name = "provider", .module = provider_module },
+            .{ .name = "version", .module = version_module },
         },
     });
 
     const exe = b.addExecutable(.{
         .name = "llmlite",
         .root_module = main_module,
+        .version = .{ .major = 0, .minor = 1, .patch = 0 },
     });
 
     b.installArtifact(exe);
