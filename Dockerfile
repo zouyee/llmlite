@@ -35,6 +35,6 @@ CMD ["/bin/sh"]
 
 FROM development AS test
 
-COPY .env.test .env 2>/dev/null || true
+RUN test -f .env.test && cp .env.test .env || true
 
 CMD ["zig", "build", "test"]
