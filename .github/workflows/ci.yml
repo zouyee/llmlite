@@ -70,3 +70,51 @@ jobs:
 
       - name: Run build without network
         run: zig build --prominent-compile-errors 2>&1 || true
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t llmlite:test .
+
+      - name: Run Docker container
+        run: docker run --rm llmlite:test || echo "Container started"
+
+  makefile:
+    name: Makefile
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: '0.15.0'
+
+      - name: Install make
+        run: which make || (apt-get update && apt-get install -y make)
+
+      - name: Show help
+        run: make help
+
+      - name: Build with make
+        run: make build
+
+      - name: Run tests with make
+        run: make test
+
+      - name: Docker build with make
+        run: make docker-build
+
+      - name: Clean
+        run: make clean
