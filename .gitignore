@@ -16,3 +16,5 @@ Thumbs.db
 # Build artifacts
 .zig-cache/
 zig-out
+.sisyphus/
+.sisyphus.json
