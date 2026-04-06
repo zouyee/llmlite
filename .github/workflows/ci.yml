@@ -53,7 +53,7 @@ jobs:
           version: '0.15.0'
 
       - name: Run build release-safe
-        run: zig build -Drelease-safe=true 2>&1 || true
+        run: zig build --release=safe
 
   security:
     name: Security Check
@@ -68,8 +68,8 @@ jobs:
         with:
           version: '0.15.0'
 
-      - name: Run build without network
-        run: zig build --prominent-compile-errors 2>&1 || true
+      - name: Run build
+        run: zig build
 
   docker:
     name: Docker Build
@@ -85,8 +85,8 @@ jobs:
       - name: Build Docker image
         run: docker build -t llmlite:test .
 
-      - name: Run Docker container
-        run: docker run --rm llmlite:test || echo "Container started"
+      - name: Verify image exists
+        run: docker image inspect llmlite:test
 
   makefile:
     name: Makefile
@@ -102,7 +102,10 @@ jobs:
           version: '0.15.0'
 
       - name: Install make
-        run: which make || (apt-get update && apt-get install -y make)
+        run: |
+          if ! command -v make &> /dev/null; then
+            apt-get update && apt-get install -y make
+          fi
 
       - name: Show help
         run: make help
