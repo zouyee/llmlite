@@ -1,44 +1,43 @@
-FROM zig:0.15 AS builder
+# Stage 1: Build static binary targeting musl
+FROM alpine:3.19 AS builder
 
-WORKDIR /
+RUN apk add --no-cache curl xz
 
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install Zig
+RUN curl -L https://ziglang.org/download/0.15.0/zig-linux-x86_64-0.15.0.tar.xz | \
+    tar -xJ -C /usr/local && \
+    ln -s /usr/local/zig-linux-x86_64-0.15.0/zig /usr/local/bin/zig
 
-COPY . .
+WORKDIR /app
 
-RUN zig build
+COPY build.zig build.zig.zon* ./
+COPY src/ src/
 
-FROM alpine:3.19 AS runtime
+# Build targeting musl for static linking (recommended for containers)
+RUN zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
 
-RUN apk add --no-cache ca-certificates curl
+# Stage 2: Minimal scratch image with just the binary (~1-3MB)
+FROM scratch
 
-WORKDIR /
+COPY --from=builder /app/zig-out/bin/llmlite /llmlite
 
-COPY --from=builder /zig-out/bin/llmlite /
-COPY --from=builder /src/*.zig /src/
-COPY --from=builder /README.md /
-COPY --from=builder /LICENSE /
+EXPOSE 8080
 
 CMD ["/llmlite"]
 
-# Alternative: Development stage with full build tools
+# Development stage with full build tools
 FROM builder AS development
 
-RUN apt-get update && apt-get install -y \
-    git \
-    vim \
-    && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache git vim
 
-WORKDIR /
+WORKDIR /app
 
 COPY . .
 RUN zig build
 
 CMD ["/bin/sh"]
 
+# Test stage
 FROM development AS test
 
 COPY .env.test .env 2>/dev/null || true
