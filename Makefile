@@ -44,8 +44,7 @@ test-minimax-native: build ## Run Minimax native API tests
 ##@ Cleaning
 
 clean: ## Clean build artifacts
-	$(ZIG) build clean
-	rm -rf .zig-cache zig-out
+	rm -rf .zig-cache zig-out zig-cache
 
 ##@ Code Quality
 
