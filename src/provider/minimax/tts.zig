@@ -232,21 +232,34 @@ pub const Service = struct {
         _ = self;
         // Response format: {"data":{"audio":"...","status":2},"extra_info":{...},"base_resp":{...}}
         // First extract the data object, then get audio from it
+
+        var status: u32 = 0;
+        var audio: ?[]const u8 = null;
+
         const data_obj = extractJsonObject(response, "data");
         if (data_obj) |data_str| {
-            const audio = parseJsonField(data_str, "audio");
+            audio = parseJsonField(data_str, "audio");
             const status_str = parseJsonField(data_str, "status") orelse "0";
-            const status = std.fmt.parseInt(u32, status_str, 10) catch 0;
-            return T2AResponse{
-                .audio = audio,
-                .status = status,
-                .extra_info = null,
-            };
+            status = std.fmt.parseInt(u32, status_str, 10) catch 0;
+        } else {
+            // Fallback: try to find audio at top level (legacy format)
+            audio = parseJsonField(response, "audio");
+            const status_str = parseJsonField(response, "status") orelse "0";
+            status = std.fmt.parseInt(u32, status_str, 10) catch 0;
         }
-        // Fallback: try to find audio at top level (legacy format)
-        const audio = parseJsonField(response, "audio");
-        const status_str = parseJsonField(response, "status") orelse "0";
-        const status = std.fmt.parseInt(u32, status_str, 10) catch 0;
+
+        // Check base_resp for error status if status is not 0
+        if (status != 0) {
+            if (extractJsonObject(response, "base_resp")) |base_resp| {
+                const base_status_str = parseJsonField(base_resp, "status_code") orelse "0";
+                const base_status = std.fmt.parseInt(u32, base_status_str, 10) catch 0;
+                // If base_resp has a non-zero status, use that
+                if (base_status != 0) {
+                    status = base_status;
+                }
+            }
+        }
+
         return T2AResponse{
             .audio = audio,
             .status = status,

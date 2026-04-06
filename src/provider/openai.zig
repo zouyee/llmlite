@@ -27,24 +27,117 @@ pub fn transformRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateCha
     }
     try messages_json.appendSlice(allocator, "]");
 
-    // Build the full JSON
-    const result = try std.fmt.allocPrint(allocator,
-        \\{{"model":"{s}","messages":{s},"stream":{s}{s}{s}}}
-    , .{
-        params.model,
-        try messages_json.toOwnedSlice(allocator),
-        if (params.stream) "true" else "false",
-        if (params.temperature) |v| try std.fmt.allocPrint(allocator, ",\"temperature\":{d}", .{v}) else "",
-        if (params.max_tokens) |v| try std.fmt.allocPrint(allocator, ",\"max_tokens\":{d}", .{v}) else "",
-    });
-    return result;
+    // Build the full JSON with all optional parameters
+    var json_parts = std.ArrayListUnmanaged(u8){};
+    defer json_parts.deinit(allocator);
+
+    try json_parts.appendSlice(allocator, "{\"model\":\"");
+    try json_parts.appendSlice(allocator, params.model);
+    try json_parts.appendSlice(allocator, "\",\"messages\":");
+    try json_parts.appendSlice(allocator, try messages_json.toOwnedSlice(allocator));
+    try json_parts.appendSlice(allocator, ",\"stream\":");
+    try json_parts.appendSlice(allocator, if (params.stream) "true" else "false");
+
+    // Optional parameters
+    if (params.temperature) |v| {
+        try json_parts.appendSlice(allocator, ",\"temperature\":");
+        try json_parts.appendSlice(allocator, try std.fmt.allocPrint(allocator, "{d}", .{v}));
+    }
+
+    if (params.max_tokens) |v| {
+        try json_parts.appendSlice(allocator, ",\"max_tokens\":");
+        try json_parts.appendSlice(allocator, try std.fmt.allocPrint(allocator, "{d}", .{v}));
+    }
+
+    if (params.max_completion_tokens) |v| {
+        try json_parts.appendSlice(allocator, ",\"max_completion_tokens\":");
+        try json_parts.appendSlice(allocator, try std.fmt.allocPrint(allocator, "{d}", .{v}));
+    }
+
+    // Kimi-specific: thinking parameter
+    if (params.thinking) |t| {
+        try json_parts.appendSlice(allocator, ",\"thinking\":{\"type\":\"");
+        try json_parts.appendSlice(allocator, t.type);
+        try json_parts.appendSlice(allocator, "\"}");
+    }
+
+    try json_parts.appendSlice(allocator, "}");
+
+    return try json_parts.toOwnedSlice(allocator);
 }
 
 fn serializeMessageToJson(allocator: std.mem.Allocator, msg: chat_pkg.Message) ![]u8 {
-    if (msg.content) |c| {
-        return std.fmt.allocPrint(allocator, "{{\"role\":\"{s}\",\"content\":\"{s}\"}}", .{ msg.role.toString(), c });
-    } else {
-        return std.fmt.allocPrint(allocator, "{{\"role\":\"{s}\"}}", .{msg.role.toString()});
+    var parts = std.ArrayListUnmanaged(u8){};
+    defer parts.deinit(allocator);
+
+    // Role field (required)
+    try parts.appendSlice(allocator, "{\"role\":\"");
+    try parts.appendSlice(allocator, msg.role.toString());
+    try parts.appendSlice(allocator, "\"");
+
+    // Name field (Kimi-specific, for role-playing consistency)
+    if (msg.name) |n| {
+        try parts.appendSlice(allocator, ",\"name\":\"");
+        try parts.appendSlice(allocator, n);
+        try parts.appendSlice(allocator, "\"");
+    }
+
+    // Content field - handle both simple text and Vision content array
+    if (msg.parts) |content_parts| {
+        // Vision content array
+        try parts.appendSlice(allocator, ",\"content\":[");
+        for (content_parts, 0..) |part, idx| {
+            if (idx > 0) try parts.appendSlice(allocator, ",");
+            try parts.appendSlice(allocator, try serializeContentPart(allocator, part));
+        }
+        try parts.appendSlice(allocator, "]");
+    } else if (msg.content) |text| {
+        // Simple text content
+        try parts.appendSlice(allocator, ",\"content\":\"");
+        try parts.appendSlice(allocator, text);
+        try parts.appendSlice(allocator, "\"");
+    }
+
+    // Partial mode (Kimi-specific)
+    if (msg.partial) {
+        try parts.appendSlice(allocator, ",\"partial\":true");
+    }
+
+    // Reasoning content (Kimi K2.5 thinking)
+    if (msg.reasoning_content) |rc| {
+        try parts.appendSlice(allocator, ",\"reasoning_content\":\"");
+        try parts.appendSlice(allocator, rc);
+        try parts.appendSlice(allocator, "\"");
+    }
+
+    try parts.appendSlice(allocator, "}");
+
+    return try parts.toOwnedSlice(allocator);
+}
+
+/// Serialize a MessageContentPart to JSON string
+fn serializeContentPart(allocator: std.mem.Allocator, part: chat_pkg.MessageContentPart) ![]u8 {
+    switch (part) {
+        .text => |text_part| {
+            return std.fmt.allocPrint(allocator,
+                \\{{"type":"text","text":"{s}"}}
+            , .{text_part.text});
+        },
+        .image_url => |image_part| {
+            return std.fmt.allocPrint(allocator,
+                \\{{"type":"image_url","image_url":{{"url":"{s}"}}}}
+            , .{image_part.image_url.url});
+        },
+        .video_url => |video_part| {
+            return std.fmt.allocPrint(allocator,
+                \\{{"type":"video_url","video_url":{{"url":"{s}"}}}}
+            , .{video_part.video_url.url});
+        },
+        .refusal => |refusal_part| {
+            return std.fmt.allocPrint(allocator,
+                \\{{"type":"refusal","refusal":"{s}"}}
+            , .{refusal_part.refusal});
+        },
     }
 }
 

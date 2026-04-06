@@ -235,6 +235,10 @@ pub const FilePurpose = enum {
     fine_tune,
     vision,
     user_data,
+    // Kimi-specific purposes
+    file_extract,
+    image,
+    video,
 
     pub fn toString(self: FilePurpose) []const u8 {
         return switch (self) {
@@ -243,6 +247,9 @@ pub const FilePurpose = enum {
             .fine_tune => "fine-tune",
             .vision => "vision",
             .user_data => "user_data",
+            .file_extract => "file-extract",
+            .image => "image",
+            .video => "video",
         };
     }
 };

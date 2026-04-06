@@ -19,6 +19,7 @@ pub const anthropic = @import("anthropic");
 pub const google = @import("google");
 pub const language_model = @import("language_model");
 pub const provider = @import("provider");
+pub const kimi = @import("kimi");
 
 // Re-export Gemini advanced APIs
 pub const gemini_caches = @import("gemini_caches");

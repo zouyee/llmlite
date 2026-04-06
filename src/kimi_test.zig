@@ -1,5 +1,14 @@
-//! MiniMax Integration Test - Provider-based API (Vercel AI SDK Style)
-//! Uses: OpenAI.create(allocator, api_key, "minimax/MiniMax-M2.7")
+//! Kimi Integration Test - Provider-based API (Vercel AI SDK Style)
+//! Uses: OpenAI.create(allocator, api_key, "moonshot/kimi-k2.5")
+//!
+//! Supported models:
+//! - kimi-k2.5 (multimodal, supports vision)
+//! - kimi-k2-turbo-preview
+//! - kimi-k2-thinking
+//! - moonshot-v1-8k/32k/128k
+//! - moonshot-v1-8k/32k/128k-vision-preview
+//!
+//! API Docs: https://platform.moonshot.cn/docs/api/chat
 
 const std = @import("std");
 const OpenAI = @import("main").OpenAI;
@@ -7,26 +16,35 @@ const chat_mod = @import("chat");
 
 pub fn main() void {
     const allocator = std.heap.c_allocator;
-    const api_key = std.process.getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch null;
+
+    // Try KIMI_API_KEY first, then fall back to MOONSHOT_API_KEY
+    const api_key = std.process.getEnvVarOwned(allocator, "KIMI_API_KEY") catch blk: {
+        const fallback = std.process.getEnvVarOwned(allocator, "MOONSHOT_API_KEY") catch {
+            std.debug.print("Error: KIMI_API_KEY or MOONSHOT_API_KEY environment variable not set\n", .{});
+            std.debug.print("Please set it in your .env file or export it:\n", .{});
+            std.debug.print("  export KIMI_API_KEY=your_api_key_here\n", .{});
+            std.debug.print("  export MOONSHOT_API_KEY=your_api_key_here\n", .{});
+            break :blk null;
+        };
+        break :blk fallback;
+    };
 
     if (api_key) |key| {
         defer allocator.free(key);
         runTest(key) catch |e| {
             std.debug.print("[Test] Error: {}\n", .{e});
         };
-    } else {
-        std.debug.print("Error: MINIMAX_API_KEY not set\n", .{});
     }
 }
 
 fn runTest(api_key: []const u8) !void {
-    std.debug.print("=== MiniMax Provider-based API Test ===\n\n", .{});
+    std.debug.print("=== Kimi Provider-based API Test ===\n\n", .{});
 
-    // Using provider-based API: "minimax/MiniMax-M2.7"
+    // Using provider-based API: "moonshot/kimi-k2.5"
     var client = try OpenAI.create(
         std.heap.c_allocator,
         api_key,
-        "minimax/MiniMax-M2.7",
+        "moonshot/kimi-k2.5",
     );
     defer client.deinit();
 
@@ -35,7 +53,7 @@ fn runTest(api_key: []const u8) !void {
 
     // New Vercel AI SDK style API: client.complete(messages)
     const messages = &[1]chat_mod.Message{
-        .{ .role = .user, .content = "Hello" },
+        .{ .role = .user, .content = "Hello, who are you?" },
     };
 
     const response = try client.complete(messages);

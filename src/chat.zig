@@ -257,17 +257,32 @@ pub const Role = enum {
 };
 
 // ============================================================================
-// Message Content (supports multiple formats)
+// Message Content Parts (for Vision with images/video)
 // ============================================================================
 
-pub const MessageContent = union(enum) {
-    text: []const u8,
-    array: []MessageContentPart,
+pub const MessageContentPartType = enum {
+    text,
+    image_url,
+    video_url,
+    refusal,
 };
 
-pub const MessageContentPart = union(enum) {
-    text: TextPart,
-    refusal: RefusalPart,
+pub const ImageUrlPart = struct {
+    type: []const u8 = "image_url",
+    image_url: ImageUrl,
+};
+
+pub const ImageUrl = struct {
+    url: []const u8, // base64 data URI or ms://<file_id>
+};
+
+pub const VideoUrlPart = struct {
+    type: []const u8 = "video_url",
+    video_url: VideoUrl,
+};
+
+pub const VideoUrl = struct {
+    url: []const u8, // base64 data URI or ms://<file_id>
 };
 
 pub const TextPart = struct {
@@ -280,17 +295,34 @@ pub const RefusalPart = struct {
     refusal: []const u8,
 };
 
+pub const MessageContentPart = union(MessageContentPartType) {
+    text: TextPart,
+    image_url: ImageUrlPart,
+    video_url: VideoUrlPart,
+    refusal: RefusalPart,
+};
+
 // ============================================================================
 // Chat Message
 // ============================================================================
 
 pub const Message = struct {
     role: Role,
+    /// Simple text content (for backward compatibility)
+    /// Use .parts for Vision content with images/video
     content: ?[]const u8 = null,
+    /// Vision content parts: array of image_url, video_url, and/or text parts
+    /// When set, .content should be null
+    parts: ?[]MessageContentPart = null,
     name: ?[]const u8 = null,
     audio: ?AudioContent = null,
     tool_calls: ?[]ToolCall = null,
     tool_call_id: ?[]const u8 = null,
+    /// Partial mode (Kimi-specific): when true, guides model output
+    /// Used for JSON Mode, role-playing, and controlling output format
+    partial: bool = false,
+    /// Reasoning content (Kimi K2.5): chain of thought from model's thinking process
+    reasoning_content: ?[]const u8 = null,
 };
 
 pub const AudioContent = struct {
@@ -344,6 +376,7 @@ pub const CreateChatCompletionParams = struct {
     logprobs: bool = false,
     top_logprobs: ?u32 = null,
     max_tokens: ?u32 = null,
+    max_completion_tokens: ?u32 = null, // Kimi uses this instead of max_tokens
     n: ?u32 = 1,
     presence_penalty: ?f32 = null,
     response_format: ?ResponseFormat = null,
@@ -359,6 +392,13 @@ pub const CreateChatCompletionParams = struct {
     user: ?[]const u8 = null,
     store: bool = false,
     metadata: ?[]const u8 = null,
+    /// Kimi-specific: thinking mode for K2.5 models
+    thinking: ?ThinkingConfig = null,
+};
+
+/// Kimi-specific thinking configuration for K2.5 models
+pub const ThinkingConfig = struct {
+    type: []const u8, // "enabled" or "disabled"
 };
 
 pub const FunctionDefinition = struct {

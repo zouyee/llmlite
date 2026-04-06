@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/zouyee/llmlite/actions/workflows/ci.yml/badge.svg)](https://github.com/zouyee/llmlite/actions)
 [![Zig](https://img.shields.io/badge/Zig-0.15+-orange.svg)](https://ziglang.org/)
-[![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 
 ## Overview
 
@@ -24,26 +24,58 @@ llmlite is a lightweight, type-safe LLM SDK for Zig that provides a unified inte
 
 | Provider | Core API | Advanced APIs | Status |
 |----------|----------|---------------|--------|
-| **Google Gemini** | ✓ Chat, Embeddings | ✓ Caches, Tunings, Documents, Tokens, FileSearch | ✓ Full |
-| **OpenAI** | ✓ Chat, Embeddings, Files | - | ✓ Full |
-| **Minimax** | ✓ Chat, Embeddings, TTS | ✓ Video, Image, Music | ✓ Full |
+| **Google Gemini** | ✓ Chat, Embeddings | ✓ Caches, Tunings, Documents, Tokens, FileSearch, Operations, Live | ✓ Stable |
+| **OpenAI** | ✓ Chat, Embeddings, Files | ✓ Streaming, Tools | ✓ Stable |
+| **Minimax** | ✓ Chat, Embeddings, TTS | ✓ Video, Image, Music | ✓ Stable |
+| **Kimi (Moonshot)** | ✓ Chat, Files | ✓ Token Estimation, Balance, Thinking, Partial Mode | ✓ Stable |
 | **OpenAI-Compatible** | ✓ Via OpenAI compatibility layer | - | ✓ Via Proxy |
+
+### Provider Features Matrix
+
+| Feature | OpenAI | Gemini | Minimax | Kimi |
+|---------|--------|--------|---------|------|
+| **Chat Completions** | ✓ | ✓ | ✓ | ✓ |
+| **Streaming** | ✓ | ✓ | ✓ | ✓ |
+| **Embeddings** | ✓ | ✓ | ✓ | - |
+| **Vision/Images** | ✓ | ✓ | - | ✓ |
+| **Files API** | ✓ | - | - | ✓ |
+| **Function Calling** | ✓ | - | - | ✓ |
+| **JSON Mode** | ✓ | ✓ | - | ✓ |
+| **Context Caching** | - | ✓ | - | - |
+| **Model Tuning** | - | ✓ | - | - |
+| **Token Counting** | - | ✓ | - | ✓ |
+| **TTS/Audio** | - | - | ✓ | - |
+| **Video Generation** | - | - | ✓ | - |
+| **Image Generation** | - | - | ✓ | - |
+| **Music Generation** | - | - | ✓ | - |
+| **Thinking Mode** | - | - | - | ✓ |
+| **Partial Mode** | - | - | - | ✓ |
+| **Balance Query** | - | - | - | ✓ |
 
 ### OpenAI-Compatible Providers
 
 Any OpenAI-compatible API endpoint works out of the box. The following providers are pre-configured:
 
-| Provider | Base URL |
-|----------|----------|
-| Anthropic | api.anthropic.com |
-| Moonshot | api.moonshot.cn |
-| DeepSeek | api.deepseek.com |
-| Cohere | api.cohere.ai |
-| Fireworks | api.fireworks.ai |
-| Cerebras | api.cerebras.ai |
-| Groq | api.groq.com |
-| Mistral | api.mistral.ai |
-| Perplexity | api.perplexity.ai |
+| Provider | Base URL | Notes |
+|----------|----------|-------|
+| **Anthropic** | api.anthropic.com | Claude models |
+| **Moonshot/Kimi** | api.moonshot.cn | Kimi models |
+| **DeepSeek** | api.deepseek.com | DeepSeek models |
+| **Cohere** | api.cohere.ai | Command models |
+| **Fireworks** | api.fireworks.ai | Fireworks models |
+| **Cerebras** | api.cerebras.ai | Fast inference |
+| **Groq** | api.groq.com | Fast inference |
+| **Mistral** | api.mistral.ai | Mistral models |
+| **Perplexity** | api.perplexity.ai | Real-time models |
+
+### API Documentation
+
+Detailed provider documentation available in [docs/providers/](docs/providers/):
+
+- [OpenAI](docs/providers/openai.md) - Chat, Embeddings, Files, Tools
+- [Google Gemini](docs/providers/google-gemini.md) - Chat, Embeddings, Caches, Tunings, Documents, Tokens
+- [Minimax](docs/providers/minimax.md) - Chat, TTS, Video, Image, Music
+- [Kimi](docs/providers/kimi.md) - Chat, Files, Token Estimation, Balance, Thinking Mode
 
 ## Features
 
@@ -75,7 +107,7 @@ Add llmlite to your `build.zig`:
 
 ```zig
 const llmlite = .{
-    .url = "https://github.com/your-org/llmlite",
+    .url = "https://github.com/zouyee/llmlite",
     .hash = "...",
 };
 ```
@@ -172,12 +204,15 @@ const tuning = try provider.tunings().create(.{
 │  • gemini          │   • complete()                        │
 │  • openai          │   • completeStream()                  │
 │  • anthropic       │   • embeddings()                     │
-│  • minimax         │                                      │
+│  • minimax         │   • live() (Gemini)                  │
+│  • moonshot        │                                      │
 ├─────────────────────────────────────────────────────────────┤
-│  Advanced APIs (Gemini)                                     │
+│  Advanced APIs                                              │
 │  ─────────────────────────                                   │
-│  • Caches • Tunings • Documents • FileSearchStores       │
-│  • Operations • Tokens • Batch • Live                     │
+│  Gemini: Caches • Tunings • Documents • FileSearchStores  │
+│          Operations • Tokens • Batch • Live                │
+│  Minimax: TTS • Video • Image • Music                    │
+│  Kimi: Token Estimation • Balance                         │
 ├─────────────────────────────────────────────────────────────┤
 │  HTTP Client                                                │
 │  ───────────                                                │
@@ -201,8 +236,56 @@ See the `examples/` directory for complete examples:
 
 - `chat_basic.zig` - Basic chat completion
 - `chat_stream.zig` - Streaming chat
-- `gemini_advanced.zig` - Gemini-specific features
+- `gemini_advanced.zig` - Gemini-specific features (caching, tuning)
 - `minimax_media.zig` - TTS and video generation
+- `kimi_test.zig` - Kimi API features (thinking, partial mode)
+
+## Documentation
+
+### [Provider API Documentation](docs/providers/)
+
+Detailed documentation for each provider:
+
+| Provider | Core Capabilities | Advanced Features |
+|----------|------------------|-------------------|
+| **OpenAI** | Chat, Embeddings, Files, Tools | Streaming |
+| **Gemini** | Chat, Embeddings | Caches, Tunings, Documents, Tokens, Live |
+| **Minimax** | Chat, Embeddings, TTS | Video, Image, Music |
+| **Kimi** | Chat, Files | Token Estimation, Balance, Thinking, Partial Mode |
+
+### Quick Reference
+
+**Chat Completion**:
+```zig
+const response = try lm.complete(.{
+    .model = "gpt-4o",
+    .messages = &.{.{ .role = .user, .content = "Hello!" }},
+});
+```
+
+**Streaming**:
+```zig
+const stream = try lm.completeStream(params);
+while (try stream.next()) |chunk| {
+    if (chunk.delta.content) |c| std.debug.print("{s}", .{c});
+}
+```
+
+**Vision**:
+```zig
+const response = try lm.complete(.{
+    .model = "gpt-4o",
+    .messages = &.{
+        .{
+            .role = .user,
+            .parts = &[_]MessageContentPart{
+                .{ .image_url = .{ .image_url = .{ .url = "data:image/png;base64,..." } } },
+                .{ .text = .{ .text = "Describe this" } },
+            },
+        },
+    },
+});
+```
 
 ## Contributing
 
@@ -210,11 +293,11 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) for details.
+AGPL-3.0 - see [LICENSE](LICENSE) for details.
 
 ## Links
 
-- [Documentation](docs/)
-- [API Reference](docs/)
+- [Provider Documentation](docs/providers/)
+- [API Reference](docs/providers/)
 - [Examples](examples/)
 - [Changelog](CHANGELOG.md)
