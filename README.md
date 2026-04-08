@@ -93,14 +93,14 @@ curl http://localhost:4000/metrics/latency  # Per-provider latency
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Comparison with Other SDKs
+## Comparison with Other Solutions
 
-| Feature | llmlite | go-genai | litellm |
-|---------|---------|----------|---------|
-| **Binary Size** | 672KB | ~5MB | 50MB+ |
-| **Runtime Deps** | None | None | Python + pip |
-| **Type Safety** | Full | Full | Partial |
-| **Edge Deploy** | ✅ Native | ⚠️ Go binary | ❌ Python |
+| Feature | llmlite | vLLM Semantic Router | LiteLLM |
+|---------|---------|---------------------|---------|
+| **Binary Size** | 672KB | ~500MB (Docker) | 50MB+ |
+| **Runtime Deps** | None | Docker/K8s | Python + pip |
+| **Type Safety** | Full | Partial | Partial |
+| **Edge Deploy** | ✅ Native | ❌ | ❌ |
 | **Circuit Breaker** | ✅ Built-in | ❌ | ❌ |
 | **Latency Metrics** | ✅ P50/P95/P99 | ❌ | ⚠️ |
 | **Hot Reload** | ✅ | ❌ | ⚠️ |
@@ -368,19 +368,6 @@ const tuning = try provider.tunings().create(.{
 │  • Cost Tracker: per-key/team/model tracking               │
 └─────────────────────────────────────────────────────────────┘
 ```
-
-## Comparison with Other Solutions
-
-| Feature | llmlite | vLLM Semantic Router | LiteLLM | go-genai |
-|---------|---------|---------------------|---------|----------|
-| **Binary Size** | 672KB | ~500MB (Docker) | 50MB+ | ~5MB |
-| **Runtime Deps** | None | Docker/K8s | Python + pip | Go |
-| **Type Safety** | Full | Python partial | Partial | Full |
-| **Edge Deploy** | ✅ Native | ❌ | ❌ | ⚠️ |
-| **Circuit Breaker** | ✅ | ❌ | ❌ | ❌ |
-| **Latency Metrics** | ✅ P50/P95/P99 | ❌ | ⚠️ | ❌ |
-| **Hot Reload** | ✅ | ❌ | ⚠️ | ❌ |
-| **Providers** | 12+ | 1 | 100+ | 5+ |
 
 ## Examples
 
