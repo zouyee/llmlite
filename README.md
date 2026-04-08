@@ -93,6 +93,61 @@ curl http://localhost:4000/metrics/latency  # Per-provider latency
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Hermes Agent Integration
+
+llmlite-proxy serves as a lightweight OpenAI-compatible gateway for AI agents like [Hermes Agent](https://github.com/NousResearch/Hermes-Agent).
+
+### Architecture
+
+```
+┌──────────────────┐     ┌─────────────────────────┐     ┌──────────────────────────┐
+│  Hermes Agent    │────▶│  llmlite-proxy:4000    │────▶│  OpenAI/Gemini/Kimi/...  │
+│  (Nous Research) │     │  672KB, zero deps       │     │                          │
+└──────────────────┘     └─────────────────────────┘     └──────────────────────────┘
+```
+
+### Quick Setup
+
+```bash
+# 1. Build llmlite-proxy
+zig build -Doptimize=ReleaseSmall
+
+# 2. Deploy proxy
+./zig-out/bin/llmlite-proxy
+
+# 3. Configure Hermes Agent
+# Add to your Hermes config or environment:
+export OPENAI_BASE_URL=http://localhost:4000/v1
+export OPENAI_API_KEY=sk-your-virtual-key
+
+# 4. Run Hermes with llmlite
+hermes model gpt-4o
+# or with provider prefix
+hermes model llmlite:gpt-4o
+```
+
+### Virtual Key Setup
+
+```bash
+# Create a virtual key for Hermes
+curl -X POST http://localhost:4000/key/create \
+  -H "Content-Type: application/json" \
+  -d '{"key_id": "sk-hermes", "team_id": "hermes-team"}'
+
+# Use in Hermes Agent
+export OPENAI_API_KEY=sk-hermes
+```
+
+### Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| **Multi-Provider Routing** | Hermes can route to OpenAI, Gemini, Kimi, DeepSeek via single endpoint |
+| **Circuit Breaker** | Automatic failover when a provider is down |
+| **Latency Routing** | Requests go to fastest healthy provider |
+| **Cost Tracking** | Monitor spend per team/project |
+| **Edge Deploy** | Run on any device - no Docker/K8s needed |
+
 ## Comparison with Other Solutions
 
 | Feature | llmlite | vLLM Semantic Router | LiteLLM |
