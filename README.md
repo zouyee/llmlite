@@ -4,21 +4,106 @@
 
 # llmlite
 
-**A lightweight, high-performance LLM SDK written in Zig**
+**A lightweight, high-performance LLM SDK & Edge Router written in Zig**
 
 [![CI](https://github.com/zouyee/llmlite/actions/workflows/ci.yml/badge.svg)](https://github.com/zouyee/llmlite/actions)
 [![Zig](https://img.shields.io/badge/Zig-0.15+-orange.svg)](https://ziglang.org/)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Binary Size](https://img.shields.io/badge/Binary%20Size-672KB-success)](build.zig)
 
 ## Overview
 
-llmlite is a lightweight, type-safe LLM SDK for Zig that provides a unified interface to multiple LLM providers. Inspired by [litellm](https://github.com/BerriAI/litellm), llmlite offers:
+llmlite is a **zero-dependency, edge-ready LLM SDK and AI gateway** written in Zig. Unlike Python-based solutions (LiteLLM ~50MB, vLLM Semantic Router requires K8s/Docker), llmlite delivers:
 
-- **Unified API** - Call any OpenAI-compatible LLM through a consistent interface
-- **Native Providers** - First-class support for Google Gemini, OpenAI, and Minimax
-- **Native Zig** - Built with Zig 0.15+ for maximum performance
-- **Type Safety** - Full type safety with compile-time checks
-- **Zero Dependencies** - No external runtime dependencies
+- **Edge-Ready Binary** - 672KB single binary, no Docker/K8s required
+- **Edge Scenarios** - Deploy on IoT devices, CLI tools, WASM, embedded systems
+- **Zig Native** - Built with Zig 0.15+ for maximum performance and memory safety
+- **Zero Dependencies** - Fully self-contained, no Python/Node.js runtime needed
+- **Type Safety** - Compile-time checks eliminate runtime type errors
+
+### Key Differentiators
+
+| vs | llmlite Advantage |
+|----|-------------------|
+| **vLLM Semantic Router** | Native binary, no K8s/Docker, 672KB vs hundreds of MB |
+| **LiteLLM** | 100x smaller (672KB vs 50MB+), zero runtime deps |
+| **go-genai** | 7x smaller (672KB vs ~5MB), native Zig type safety |
+
+## Quick Start
+
+```bash
+# Build for edge (672KB)
+zig build -Doptimize=ReleaseSmall
+
+# Run the proxy
+./zig-out/bin/llmlite-proxy
+
+# Or use as SDK
+const llmlite = @import("llmlite");
+```
+
+## Edge Routing Features
+
+llmlite-proxy includes production-grade edge routing:
+
+| Feature | Description |
+|---------|-------------|
+| **Connection Pooling** | Per-provider HTTP connection reuse |
+| **Latency Tracking** | Moving average, P50/P95/P99 percentiles |
+| **Circuit Breaker** | CLOSED→OPEN→HALF_OPEN state machine |
+| **Active Health Check** | Periodic provider probing |
+| **Hot Reload** | Zero-downtime config updates |
+| **Virtual Keys** | API key management with spend tracking |
+
+### Edge Endpoints
+
+```bash
+# Health checks (K8s-compatible)
+curl http://localhost:4000/health/live   # Liveness
+curl http://localhost:4000/health/ready  # Readiness
+
+# Prometheus metrics
+curl http://localhost:4000/metrics
+curl http://localhost:4000/metrics/latency  # Per-provider latency
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  llmlite-proxy (672KB, zero dependencies)                    │
+├─────────────────────────────────────────────────────────────┤
+│  Edge Router                                               │
+│  ├── Connection Pool (per-provider)                       │
+│  ├── Latency Tracker (P50/P95/P99)                       │
+│  ├── Circuit Breaker (auto-failover)                     │
+│  ├── Active Health Checker                               │
+│  └── Hot Config Reload                                   │
+├─────────────────────────────────────────────────────────────┤
+│  Gateway                                                   │
+│  ├── Virtual Keys (sk-xxx)                               │
+│  ├── Rate Limiting                                        │
+│  ├── Cost Tracking                                        │
+│  └── Simple + Semantic Cache                             │
+├─────────────────────────────────────────────────────────────┤
+│  Providers (12+ supported)                                 │
+│  ├── OpenAI, Anthropic, Google Gemini                    │
+│  ├── Moonshot/Kimi, Minimax, DeepSeek                    │
+│  └── + 6 more OpenAI-compatible                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Comparison with Other SDKs
+
+| Feature | llmlite | go-genai | litellm |
+|---------|---------|----------|---------|
+| **Binary Size** | 672KB | ~5MB | 50MB+ |
+| **Runtime Deps** | None | None | Python + pip |
+| **Type Safety** | Full | Full | Partial |
+| **Edge Deploy** | ✅ Native | ⚠️ Go binary | ❌ Python |
+| **Circuit Breaker** | ✅ Built-in | ❌ | ❌ |
+| **Latency Metrics** | ✅ P50/P95/P99 | ❌ | ⚠️ |
+| **Hot Reload** | ✅ | ❌ | ⚠️ |
 
 ## Supported Providers
 
@@ -64,9 +149,10 @@ Any OpenAI-compatible API endpoint works out of the box. The following providers
 | **Cohere** | api.cohere.ai | Command models |
 | **Fireworks** | api.fireworks.ai | Fireworks models |
 | **Cerebras** | api.cerebras.ai | Fast inference |
-| **Groq** | api.groq.com | Fast inference |
 | **Mistral** | api.mistral.ai | Mistral models |
 | **Perplexity** | api.perplexity.ai | Real-time models |
+
+> **Note**: All above providers use OpenAI-compatible API format via the unified `language_model.zig` handler. They work out-of-the-box with the proxy server.
 
 ### API Documentation
 
@@ -84,6 +170,21 @@ Detailed provider documentation available in [docs/providers/](docs/providers/):
 - **Streaming Responses** - Real-time streaming with SSE support
 - **Embeddings** - Generate text embeddings for RAG applications
 - **Chat Completions** - Multi-turn conversational AI
+
+### Proxy Server (AI Gateway / Edge Router)
+- **Edge Routing** - Connection pooling, latency tracking, circuit breaker
+- **Virtual Key Management** - Create, revoke, track API keys
+- **Multi-Provider Router** - Automatic failover, health tracking
+- **Rate Limiting** - Per-key QPS and quota controls
+- **Cost Tracking** - Real-time spend monitoring by key/team/model
+- **Team/Project Management** - Multi-tenancy with budget limits
+- **Simple Cache** - TTL-based in-memory response caching
+- **Semantic Cache** - Embedding-based similarity caching for duplicate detection
+- **Hot Reload** - Zero-downtime configuration updates
+
+### Local Model Support (Planned)
+- **Ollama Integration** - Connect to local Ollama servers via OpenAI-compatible API
+- **llama.cpp Binding** - Direct GGUF model loading (future)
 
 ### Advanced APIs (Gemini)
 - **Context Caching** - Cache frequently used context for cost savings
@@ -148,6 +249,45 @@ while (try stream.next()) |chunk| {
 }
 ```
 
+### Proxy Server (AI Gateway)
+
+```bash
+# Build and run proxy
+zig build proxy
+./zig-out/bin/llmlite-proxy
+
+# Or with config file
+./zig-out/bin/llmlite-proxy config.json
+```
+
+**Proxy API Endpoints:**
+
+```bash
+# Chat completions (OpenAI compatible)
+curl -X POST http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer sk-xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hi"}]}'
+
+# Embeddings
+curl -X POST http://localhost:4000/v1/embeddings \
+  -H "Authorization: Bearer sk-xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "text-embedding-ada-002", "input": "Hello world"}'
+
+# Health checks (K8s-compatible)
+curl http://localhost:4000/health       # Basic health
+curl http://localhost:4000/health/live   # Liveness probe
+curl http://localhost:4000/health/ready  # Readiness probe
+
+# Metrics
+curl http://localhost:4000/metrics             # Prometheus format
+curl http://localhost:4000/metrics/latency      # Per-provider latency
+
+# Key management (admin)
+curl -X POST http://localhost:4000/key/create -d '{"key_id": "sk-test"}'
+```
+
 ### Gemini Advanced APIs
 
 ```zig
@@ -199,36 +339,48 @@ const tuning = try provider.tunings().create(.{
 ┌─────────────────────────────────────────────────────────────┐
 │                        llmlite                              │
 ├─────────────────────────────────────────────────────────────┤
+│  SDK (Library)                                              │
+│  ────────────────                                          │
 │  Provider Layer    │   Language Model Wrapper              │
-│  ─────────────     │   ──────────────────────              │
-│  • gemini          │   • complete()                        │
-│  • openai          │   • completeStream()                  │
-│  • anthropic       │   • embeddings()                     │
-│  • minimax         │   • live() (Gemini)                  │
-│  • moonshot        │                                      │
+│  • openai          │   • complete()                        │
+│  • anthropic       │   • completeStream()                  │
+│  • google/gemini   │   • embeddings()                      │
+│  • minimax         │   • live() (Gemini)                   │
+│  • moonshot/kimi   │                                      │
+│  • deepseek        │                                      │
+│  • + 6 more...     │                                      │
 ├─────────────────────────────────────────────────────────────┤
-│  Advanced APIs                                              │
-│  ─────────────────────────                                   │
-│  Gemini: Caches • Tunings • Documents • FileSearchStores  │
-│          Operations • Tokens • Batch • Live                │
-│  Minimax: TTS • Video • Image • Music                    │
-│  Kimi: Token Estimation • Balance                         │
+│  Proxy Server (llmlite-proxy)                              │
+│  ─────────────────────────────────                          │
+│  • HTTP Server on port 4000                                 │
+│  • Virtual Key Management (sk-xxx)                         │
+│  • Multi-Provider Router with Fallback                     │
+│  • Rate Limiting • Cost Tracking                            │
+│  • Team/Project Multi-tenancy                              │
+│  • Simple & Semantic Cache                                 │
+│  • JSON File Persistence                                   │
 ├─────────────────────────────────────────────────────────────┤
-│  HTTP Client                                                │
-│  ───────────                                                │
-│  • Bearer Auth • API Key • SSE Streaming                  │
+│  Plugin System (Zero Dependency by Default)                 │
+│  ───────────────────────────────────────────                │
+│  • KV Store: memory (default), sqlite (optional)           │
+│  • Cache: simple (TTL), semantic (embedding-based)         │
+│  • Guardrails: content filter, PII detection               │
+│  • Cost Tracker: per-key/team/model tracking               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Comparison with Other SDKs
+## Comparison with Other Solutions
 
-| Feature | llmlite | go-genai | litellm |
-|---------|---------|----------|---------|
-| Language | Zig | Go | Python |
-| Bundle Size | ~500KB | ~5MB | ~50MB |
-| Runtime Deps | None | None | Many |
-| Type Safety | Full | Full | Partial |
-| Gemini APIs | Full | Full | Partial |
+| Feature | llmlite | vLLM Semantic Router | LiteLLM | go-genai |
+|---------|---------|---------------------|---------|----------|
+| **Binary Size** | 672KB | ~500MB (Docker) | 50MB+ | ~5MB |
+| **Runtime Deps** | None | Docker/K8s | Python + pip | Go |
+| **Type Safety** | Full | Python partial | Partial | Full |
+| **Edge Deploy** | ✅ Native | ❌ | ❌ | ⚠️ |
+| **Circuit Breaker** | ✅ | ❌ | ❌ | ❌ |
+| **Latency Metrics** | ✅ P50/P95/P99 | ❌ | ⚠️ | ❌ |
+| **Hot Reload** | ✅ | ❌ | ⚠️ | ❌ |
+| **Providers** | 12+ | 1 | 100+ | 5+ |
 
 ## Examples
 

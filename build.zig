@@ -727,4 +727,183 @@ pub fn build(b: *std.Build) void {
     const minimax_native_cmd = b.addRunArtifact(minimax_native_exe);
     const minimax_native_step = b.step("minimax-native-test", "Run MiniMax Native APIs test");
     minimax_native_step.dependOn(&minimax_native_cmd.step);
+
+    // Virtual Key module (must be declared before proxy_module)
+    const virtual_key_module = b.addModule("virtual_key", .{
+        .root_source_file = b.path("src/proxy/virtual_key.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Rate Limit module
+    const proxy_rate_limit_module = b.addModule("proxy_rate_limit", .{
+        .root_source_file = b.path("src/proxy/rate_limit.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Logger module
+    const proxy_logger_module = b.addModule("proxy_logger", .{
+        .root_source_file = b.path("src/proxy/logger.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Config module
+    const proxy_config_module = b.addModule("proxy_config", .{
+        .root_source_file = b.path("src/proxy/config.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = provider_types_module },
+        },
+    });
+
+    // Proxy Middleware module
+    const proxy_middleware_module = b.addModule("proxy_middleware", .{
+        .root_source_file = b.path("src/proxy/middleware.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "virtual_key", .module = virtual_key_module },
+            .{ .name = "proxy_rate_limit", .module = proxy_rate_limit_module },
+        },
+    });
+
+    // Proxy Error Handler module
+    const proxy_error_handler_module = b.addModule("proxy_error_handler", .{
+        .root_source_file = b.path("src/proxy/error_handler.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Connection Pool module - HTTP connection reuse for edge routing
+    const proxy_connection_pool_module = b.addModule("proxy_connection_pool", .{
+        .root_source_file = b.path("src/proxy/connection_pool.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "http", .module = http_module },
+            .{ .name = "types", .module = provider_types_module },
+            .{ .name = "registry", .module = provider_registry_module },
+        },
+    });
+
+    // Proxy Latency Health module - Latency tracking and health checking
+    const proxy_latency_health_module = b.addModule("proxy_latency_health", .{
+        .root_source_file = b.path("src/proxy/latency_health.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = provider_types_module },
+        },
+    });
+
+    // Proxy Hot Reload module - Config file watching for edge scenarios
+    const proxy_hot_reload_module = b.addModule("proxy_hot_reload", .{
+        .root_source_file = b.path("src/proxy/hot_reload.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Circuit Breaker module - Circuit breaker pattern for edge routing
+    const proxy_circuit_breaker_module = b.addModule("proxy_circuit_breaker", .{
+        .root_source_file = b.path("src/proxy/circuit_breaker.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = provider_types_module },
+        },
+    });
+
+    // Proxy Active Health Checker module - Active health probing for edge routing
+    const proxy_active_health_module = b.addModule("proxy_active_health", .{
+        .root_source_file = b.path("src/proxy/active_health.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = provider_types_module },
+        },
+    });
+
+    // Proxy Server module
+    const proxy_module = b.addModule("proxy", .{
+        .root_source_file = b.path("src/proxy/server.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "virtual_key", .module = virtual_key_module },
+            .{ .name = "proxy_rate_limit", .module = proxy_rate_limit_module },
+            .{ .name = "proxy_logger", .module = proxy_logger_module },
+            .{ .name = "proxy_config", .module = proxy_config_module },
+            .{ .name = "proxy_middleware", .module = proxy_middleware_module },
+            .{ .name = "error_handler", .module = proxy_error_handler_module },
+            .{ .name = "connection_pool", .module = proxy_connection_pool_module },
+            .{ .name = "latency_health", .module = proxy_latency_health_module },
+            .{ .name = "hot_reload", .module = proxy_hot_reload_module },
+            .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
+            .{ .name = "active_health", .module = proxy_active_health_module },
+            .{ .name = "types", .module = provider_types_module },
+            .{ .name = "registry", .module = provider_registry_module },
+            .{ .name = "http", .module = http_module },
+            .{ .name = "chat", .module = chat_module },
+            .{ .name = "stream", .module = stream_module },
+        },
+    });
+
+    // Proxy server executable
+    const proxy_main_module = b.addModule("proxy_main", .{
+        .root_source_file = b.path("src/proxy_main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "proxy", .module = proxy_module },
+            .{ .name = "virtual_key", .module = virtual_key_module },
+            .{ .name = "proxy_rate_limit", .module = proxy_rate_limit_module },
+            .{ .name = "proxy_logger", .module = proxy_logger_module },
+            .{ .name = "connection_pool", .module = proxy_connection_pool_module },
+            .{ .name = "latency_health", .module = proxy_latency_health_module },
+            .{ .name = "hot_reload", .module = proxy_hot_reload_module },
+            .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
+            .{ .name = "active_health", .module = proxy_active_health_module },
+        },
+    });
+
+    const proxy_exe = b.addExecutable(.{
+        .name = "llmlite-proxy",
+        .root_module = proxy_main_module,
+        .version = .{ .major = 0, .minor = 2, .patch = 0 },
+    });
+
+    b.installArtifact(proxy_exe);
+
+    const proxy_run_cmd = b.addRunArtifact(proxy_exe);
+    const proxy_run_step = b.step("proxy", "Run the proxy server");
+    proxy_run_step.dependOn(&proxy_run_cmd.step);
+
+    // Proxy Test module - runs all proxy component inline tests
+    const proxy_test_module = b.addModule("proxy_test_runner", .{
+        .root_source_file = b.path("src/test/proxy_test_runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "proxy_error_handler", .module = proxy_error_handler_module },
+            .{ .name = "proxy_rate_limit", .module = proxy_rate_limit_module },
+            .{ .name = "virtual_key", .module = virtual_key_module },
+            .{ .name = "connection_pool", .module = proxy_connection_pool_module },
+            .{ .name = "latency_health", .module = proxy_latency_health_module },
+            .{ .name = "hot_reload", .module = proxy_hot_reload_module },
+            .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
+            .{ .name = "active_health", .module = proxy_active_health_module },
+            .{ .name = "types", .module = provider_types_module },
+        },
+    });
+
+    const proxy_test_exe = b.addTest(.{
+        .name = "proxy_test",
+        .root_module = proxy_test_module,
+    });
+
+    const proxy_test_step = b.step("proxy-test", "Run proxy component tests");
+    proxy_test_step.dependOn(&proxy_test_exe.step);
 }

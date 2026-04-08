@@ -32,22 +32,33 @@ llmlite 是一个轻量级、类型安全的 Zig LLM SDK，提供统一的接口
 | 提供商 | Base URL |
 |--------|----------|
 | Anthropic | api.anthropic.com |
-| Moonshot | api.moonshot.cn |
+| Moonshot/Kimi | api.moonshot.cn |
 | DeepSeek | api.deepseek.com |
 | Cohere | api.cohere.ai |
 | Fireworks | api.fireworks.ai |
 | Cerebras | api.cerebras.ai |
-| Groq | api.groq.com |
 | Mistral | api.mistral.ai |
 | Perplexity | api.perplexity.ai |
+
+> **注意**: 所有通过 OpenAI 兼容格式的提供商都使用统一的 `language_model.zig` 处理。它们可与代理服务器开箱即用。
 
 ## 功能特性
 
 ### 核心能力
+
 - **文本生成** - 可自定义参数生成内容
 - **流式响应** - SSE 支持实时流式输出
 - **向量嵌入** - 为 RAG 应用生成文本向量
 - **对话补全** - 多轮对话 AI
+
+### 代理服务器 (AI Gateway)
+- **Virtual Key 管理** - 创建、撤销、跟踪 API keys
+- **多提供商路由** - 自动故障转移、健康追踪
+- **速率限制** - 每 key QPS 和配额控制
+- **成本追踪** - 按 key/team/model 实时监控
+- **Team/项目管理** - 多租户与预算限制
+- **简单缓存** - 基于 TTL 的内存响应缓存
+- **语义缓存** - 基于 embedding 的相似度缓存
 
 ### 高级 API (Gemini)
 - **上下文缓存** - 缓存常用上下文以节省成本
@@ -57,6 +68,10 @@ llmlite 是一个轻量级、类型安全的 Zig LLM SDK，提供统一的接口
 - **Token 计数** - API 调用前计算 token
 - **批量处理** - 高效处理多个请求
 - **实时 Live** - 双向流式直播应用
+
+### 本地模型支持 (计划中)
+- **Ollama 集成** - 通过 OpenAI 兼容 API 连接本地 Ollama
+- **llama.cpp 绑定** - 直接加载 GGUF 模型 (未来)
 
 ### 提供商特定功能
 - **OpenAI Files API** - 上传、下载、列出文件
@@ -163,21 +178,33 @@ const tuning = try provider.tunings().create(.{
 ┌─────────────────────────────────────────────────────────────┐
 │                        llmlite                              │
 ├─────────────────────────────────────────────────────────────┤
+│  SDK (库)                                                   │
+│  ────────────────                                          │
 │  Provider 层          │   Language Model 包装器             │
-│  ─────────────       │   ──────────────────────            │
-│  • gemini            │   • complete()                       │
-│  • openai           │   • completeStream()                  │
-│  • anthropic        │   • embeddings()                     │
-│  • minimax          │                                      │
+│  • openai            │   • complete()                       │
+│  • anthropic        │   • completeStream()                  │
+│  • google/gemini    │   • embeddings()                      │
+│  • minimax          │   • live() (Gemini)                   │
+│  • moonshot/kimi    │                                      │
+│  • deepseek         │                                      │
+│  • + 6 more...     │                                      │
 ├─────────────────────────────────────────────────────────────┤
-│  高级 API (Gemini)                                        │
-│  ─────────────────────────                                   │
-│  • Caches • Tunings • Documents • FileSearchStores          │
-│  • Operations • Tokens • Batch • Live                      │
+│  代理服务器 (llmlite-proxy)                                │
+│  ─────────────────────────────────                          │
+│  • 端口 4000 的 HTTP 服务器                                 │
+│  • Virtual Key 管理 (sk-xxx)                              │
+│  • 多提供商路由与故障转移                                   │
+│  • 速率限制 • 成本追踪                                     │
+│  • Team/项目 多租户                                        │
+│  • 简单 & 语义缓存                                        │
+│  • JSON 文件持久化                                         │
 ├─────────────────────────────────────────────────────────────┤
-│  HTTP 客户端                                               │
-│  ───────────                                                │
-│  • Bearer Auth • API Key • SSE 流式                        │
+│  插件系统 (默认零依赖)                                      │
+│  ───────────────────────────────────────────                │
+│  • KV Store: memory (默认), sqlite (可选)                 │
+│  • Cache: simple (TTL), semantic (基于 embedding)         │
+│  • Guardrails: 内容过滤, PII 检测                          │
+│  • Cost Tracker: 按 key/team/model 追踪                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
