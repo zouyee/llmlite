@@ -210,12 +210,12 @@ const tuning = try provider.tunings().create(.{
 
 ## 与其他 SDK 对比
 
-| 特性 | llmlite | go-genai | litellm |
-|------|---------|----------|---------|
-| 语言 | Zig | Go | Python |
-| 体积 | ~500KB | ~5MB | ~50MB |
-| 运行时依赖 | 无 | 无 | 多个 |
-| 类型安全 | 完整 | 完整 | 部分 |
+| 特性 | llmlite | litellm |
+|------|---------|---------|
+| 语言 | Zig | Python |
+| 体积 | ~500KB | ~50MB |
+| 运行时依赖 | 无 | 多个 |
+| 类型安全 | 完整 | 部分 |
 
 ## 示例
 

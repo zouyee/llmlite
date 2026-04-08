@@ -27,7 +27,6 @@ llmlite is a **zero-dependency, edge-ready LLM SDK and AI gateway** written in Z
 |----|-------------------|
 | **vLLM Semantic Router** | Native binary, no K8s/Docker, 672KB vs hundreds of MB |
 | **LiteLLM** | 100x smaller (672KB vs 50MB+), zero runtime deps |
-| **go-genai** | 7x smaller (672KB vs ~5MB), native Zig type safety |
 
 ## Quick Start
 
