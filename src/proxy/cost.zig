@@ -74,11 +74,6 @@ pub const CostTracker = struct {
         self.addPricing("mistral", "mistral-large", 2.00, 6.00);
         self.addPricing("mistral", "mistral-small", 0.20, 0.60);
 
-        // Groq models
-        self.addPricing("groq", "llama-3.1-70b-versatile", 0.59, 0.79);
-        self.addPricing("groq", "llama-3.1-8b-instant", 0.05, 0.08);
-        self.addPricing("groq", "mixtral-8x7b-32768", 0.24, 0.24);
-
         // Cohere models
         self.addPricing("cohere", "command-r-plus", 3.00, 15.00);
         self.addPricing("cohere", "command-r", 0.50, 1.50);

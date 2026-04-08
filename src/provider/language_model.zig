@@ -135,7 +135,7 @@ pub const LanguageModel = struct {
 
 fn transformRequest(allocator: std.mem.Allocator, provider: ProviderType, params: chat_pkg.CreateChatCompletionParams) ![]u8 {
     return switch (provider) {
-        .openai, .moonshot, .minimax, .deepseek, .cohere, .fireworks, .cerebras, .groq, .mistral, .perplexity, .openai_compatible => openai.transformRequest(allocator, params),
+        .openai, .moonshot, .minimax, .deepseek, .cohere, .fireworks, .cerebras, .mistral, .perplexity, .openai_compatible => openai.transformRequest(allocator, params),
         .anthropic => anthropic.transformRequest(allocator, params),
         .google => google.transformRequest(allocator, params),
         .custom => openai.transformRequest(allocator, params), // Custom defaults to OpenAI format
@@ -176,7 +176,7 @@ fn parseResponseWithFallback(allocator: std.mem.Allocator, provider: ProviderTyp
 /// Main response parsing function
 fn parseResponse(allocator: std.mem.Allocator, provider: ProviderType, response: []const u8) !chat_pkg.ChatCompletion {
     return switch (provider) {
-        .openai, .moonshot, .minimax, .deepseek, .cohere, .fireworks, .cerebras, .groq, .mistral, .perplexity, .openai_compatible, .google => openai.parseResponse(allocator, response),
+        .openai, .moonshot, .minimax, .deepseek, .cohere, .fireworks, .cerebras, .mistral, .perplexity, .openai_compatible, .google => openai.parseResponse(allocator, response),
         .anthropic => anthropic.parseResponse(allocator, response),
         .custom => openai.parseResponse(allocator, response),
     };

@@ -71,10 +71,6 @@ pub const MemoryCostTracker = struct {
 
         // Mistral models
         self.addPricing("mistral", "mistral-large", 2.00, 6.00);
-
-        // Groq models
-        self.addPricing("groq", "llama-3.1-70b-versatile", 0.59, 0.79);
-        self.addPricing("groq", "llama-3.1-8b-instant", 0.05, 0.08);
     }
 
     pub fn addPricing(self: *MemoryCostTracker, provider: []const u8, model: []const u8, input_cost: f64, output_cost: f64) void {

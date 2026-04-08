@@ -50,10 +50,6 @@ const PROVIDER_CONFIGS: []const struct { provider: ProviderType, config: Provide
         .base_url = "https://api.cerebras.ai/v1",
         .auth_type = .bearer,
     } },
-    .{ .provider = .groq, .config = ProviderConfig{
-        .base_url = "https://api.groq.com/openai/v1",
-        .auth_type = .bearer,
-    } },
     .{ .provider = .mistral, .config = ProviderConfig{
         .base_url = "https://api.mistral.ai/v1",
         .auth_type = .bearer,
