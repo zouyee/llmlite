@@ -147,6 +147,7 @@ pub const ActiveHealthChecker = struct {
             .cohere => "/v1/models",
             .fireworks => "/v1/models",
             .cerebras => "/v1/models",
+            .groq => "/v1/models",
             .mistral => "/v1/models",
             .perplexity => "/v1/models",
             .openai_compatible => "/v1/models",
