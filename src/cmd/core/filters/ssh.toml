@@ -1,0 +1,17 @@
+schema_version = 1
+
+[filters.ssh]
+description = "Compact ssh output"
+match_command = "^ssh\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^Warning:.*$",
+  "^\\s*$",
+]
+max_lines = 10
+on_empty = "ssh: connected"
+
+[[tests.ssh]]
+name = "basic ssh"
+input = "Warning: Permanently added 'server' (ECDSA) to the known hosts."
+expected = "ssh: connected"

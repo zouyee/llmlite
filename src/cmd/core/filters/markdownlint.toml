@@ -1,0 +1,21 @@
+schema_version = 1
+
+[filters.markdownlint]
+description = "Compact markdownlint output"
+match_command = "^markdownlint\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.markdownlint]]
+name = "basic markdownlint"
+input = """
+README.md:1: MD013/line-length Line length exceeds 120 characters
+README.md:5: MD022/blanks-around-headings Headings should be surrounded by blank lines
+README.md:10: MD033/no-inline-html Inline HTML
+"""
+expected = """README.md:1: MD013/line-length Line length exceeds 120 characters
+README.md:5: MD022/blanks-around-headings Headings should be surrounded by blank lines
+README.md:10: MD033/no-inline-html Inline HTML"""

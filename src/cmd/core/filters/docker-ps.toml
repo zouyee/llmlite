@@ -1,0 +1,21 @@
+schema_version = 1
+
+[filters.docker-ps]
+description = "Compact docker ps output"
+match_command = "^docker\\s+ps"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 30
+
+[[tests.docker-ps]]
+name = "basic docker ps"
+input = """
+CONTAINER ID   IMAGE          COMMAND                  CREATED        STATUS        PORTS                    NAMES
+abc123def456   nginx:latest   "/docker-entrypoint.…"   2 hours ago    Up 2 hours    0.0.0.0:80->80/tcp       web
+def456abc789   redis:alpine   "docker-entrypoint.sh"   5 hours ago    Up 5 hours    6379/tcp                 cache
+"""
+expected = """CONTAINER ID   IMAGE          COMMAND                  CREATED        STATUS        PORTS                    NAMES
+abc123def456   nginx:latest   "/docker-entrypoint.…"   2 hours ago    Up 2 hours    0.0.0.0:80->80/tcp       web
+def456abc789   redis:alpine   "docker-entrypoint.sh"   5 hours ago    Up 5 hours    6379/tcp                 cache"""

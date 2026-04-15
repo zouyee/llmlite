@@ -1,0 +1,21 @@
+schema_version = 1
+
+[filters.mix-format]
+description = "Compact mix format output - strip formatting noise"
+match_command = "^mix\\s+format"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 40
+on_empty = "mix format: ok"
+
+[[tests.mix-format]]
+name = "format check - all clean"
+input = "lib/foo.ex:9:7: unexpected token: (火)\n"
+expected = "lib/foo.ex:9:7: unexpected token: (火)"
+
+[[tests.mix-format]]
+name = "format check - all clean"
+input = ""
+expected = "mix format: ok"

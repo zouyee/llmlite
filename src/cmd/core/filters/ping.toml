@@ -1,0 +1,35 @@
+schema_version = 1
+
+[filters.ping]
+description = "Compact ping output - show summary only"
+match_command = "^ping\\b"
+strip_ansi = true
+match_output = [
+  { pattern = "^\\d+ packets transmitted", message = "ping: ok", unless = "100% packet loss" },
+]
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 20
+
+[[tests.ping]]
+name = "successful ping"
+input = """
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=118 time=10.5 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=118 time=10.3 ms
+
+--- 8.8.8.8 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss
+"""
+expected = "ping: ok"
+
+[[tests.ping]]
+name = "packet loss"
+input = """
+PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
+
+--- 8.8.8.8 ping statistics ---
+2 packets transmitted, 0 received, 100% packet loss
+"""
+expected = """2 packets transmitted, 0 received, 100% packet loss"""

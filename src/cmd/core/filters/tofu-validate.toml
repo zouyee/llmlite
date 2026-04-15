@@ -1,0 +1,18 @@
+schema_version = 1
+
+[filters.tofu-validate]
+description = "Compact OpenTofu validate output"
+match_command = "^tofu\\s+validate"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 30
+on_empty = "tofu validate: valid"
+
+[[tests.tofu-validate]]
+name = "valid config"
+input = """
+Success! The configuration is valid.
+"""
+expected = "Success! The configuration is valid."

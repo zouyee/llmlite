@@ -1,0 +1,55 @@
+{
+  "app": {
+    "title": "llmlite Web",
+    "loading": "読み込み中..."
+  },
+  "nav": {
+    "providers": "プロバイダー",
+    "mcp": "MCPサーバー",
+    "sessions": "セッション",
+    "settings": "設定"
+  },
+  "provider": {
+    "title": "プロバイダー管理",
+    "add": "追加",
+    "edit": "編集",
+    "delete": "削除",
+    "setActive": "デフォルトに設定",
+    "test": "テスト",
+    "searchPlaceholder": "プロバイダーを検索...",
+    "noProviders": "プロバイダーが設定されていません",
+    "form": {
+      "name": "名前",
+      "baseUrl": "URL",
+      "apiKey": "API Key",
+      "model": "モデル"
+    }
+  },
+  "mcp": {
+    "title": "MCPサーバー管理",
+    "add": "追加",
+    "start": "起動",
+    "stop": "停止",
+    "restart": "再起動",
+    "noServers": "MCPサーバーが設定されていません"
+  },
+  "session": {
+    "title": "セッション履歴",
+    "searchPlaceholder": "セッションを検索...",
+    "noSessions": "セッションが見つかりません",
+    "archived": "アーカイブ済み",
+    "delete": "削除"
+  },
+  "settings": {
+    "title": "設定",
+    "port": "ポート",
+    "save": "保存",
+    "reload": "設定を再読み込み",
+    "apiKey": "API Key"
+  },
+  "health": {
+    "healthy": "正常",
+    "degraded": "低下",
+    "unhealthy": "異常"
+  }
+}

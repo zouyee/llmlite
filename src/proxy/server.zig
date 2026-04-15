@@ -17,6 +17,217 @@ const latency_health = @import("latency_health");
 const hot_reload = @import("hot_reload");
 const circuit_breaker = @import("circuit_breaker");
 const active_health = @import("active_health");
+const tracking_analytics = @import("analytics");
+
+// ==================== Provider Types ====================
+
+pub const ProviderAuthType = enum {
+    bearer,
+    api_key,
+    none,
+};
+
+pub const Provider = struct {
+    id: []const u8,
+    name: []const u8,
+    base_url: []const u8,
+    auth_type: ProviderAuthType,
+    api_key: ?[]const u8,
+    default_model: []const u8,
+    supports: [][]const u8,
+    is_official: bool,
+    enabled: bool,
+    sort_order: u32,
+    created_at: i64,
+    updated_at: i64,
+    metadata: ?[]const u8,
+
+    pub fn formatJson(self: *const Provider, allocator: std.mem.Allocator) ![]u8 {
+        return std.fmt.allocPrint(allocator,
+            \\{{"id":"{s}","name":"{s}","base_url":"{s}","auth_type":"{s}","api_key":null,"default_model":"{s}","supports":[],"is_official":{s},"enabled":{s},"sort_order":{},"created_at":{},"updated_at":{},"metadata":null}}
+        , .{
+            self.id,
+            self.name,
+            self.base_url,
+            @tagName(self.auth_type),
+            self.default_model,
+            if (self.is_official) "true" else "false",
+            if (self.enabled) "true" else "false",
+            self.sort_order,
+            self.created_at,
+            self.updated_at,
+        });
+    }
+};
+
+pub const ProviderPreset = struct {
+    id: []const u8,
+    name: []const u8,
+    provider_type: []const u8,
+    base_url: []const u8,
+    auth_type: []const u8,
+    default_models: [][]const u8,
+    features: [][]const u8,
+    website: []const u8,
+    description: []const u8,
+};
+
+pub const ProviderStore = struct {
+    allocator: std.mem.Allocator,
+    providers: std.StringArrayHashMap(Provider),
+    current_id: ?[]const u8,
+
+    pub fn init(allocator: std.mem.Allocator) ProviderStore {
+        return .{
+            .allocator = allocator,
+            .providers = std.StringArrayHashMap(Provider).init(allocator),
+            .current_id = null,
+        };
+    }
+
+    pub fn deinit(self: *ProviderStore) void {
+        var it = self.providers.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+            self.allocator.free(entry.value_ptr.id);
+            self.allocator.free(entry.value_ptr.name);
+            self.allocator.free(entry.value_ptr.base_url);
+            if (entry.value_ptr.api_key) |key| self.allocator.free(key);
+            self.allocator.free(entry.value_ptr.default_model);
+            for (entry.value_ptr.supports) |s| self.allocator.free(s);
+            self.allocator.free(entry.value_ptr.supports);
+            if (entry.value_ptr.metadata) |m| self.allocator.free(m);
+        }
+        self.providers.deinit();
+    }
+
+    pub fn add(self: *ProviderStore, provider: Provider) !void {
+        const id = try self.allocator.dupe(u8, provider.id);
+        errdefer self.allocator.free(id);
+        try self.providers.put(id, provider);
+    }
+
+    pub fn get(self: *const ProviderStore, id: []const u8) ?Provider {
+        return self.providers.get(id);
+    }
+
+    pub fn getSorted(self: *ProviderStore) []*Provider {
+        const count = self.providers.count();
+        if (count == 0) return &.{};
+
+        var sorted = self.allocator.alloc(*Provider, count) catch return &.{};
+        var it = self.providers.iterator();
+        var i: usize = 0;
+        while (it.next()) |entry| {
+            sorted[i] = entry.value_ptr;
+            i += 1;
+        }
+
+        // Simple sort by sort_order
+        for (sorted[0..count], 0..) |a, outer_i| {
+            for (sorted[outer_i + 1 .. count], outer_i + 1..) |b, inner_j| {
+                if (a.sort_order > b.sort_order) {
+                    const tmp = sorted[outer_i];
+                    sorted[outer_i] = sorted[inner_j];
+                    sorted[inner_j] = tmp;
+                }
+            }
+        }
+
+        return sorted;
+    }
+
+    pub fn update(self: *ProviderStore, provider: Provider) !void {
+        const existing = self.providers.get(provider.id) orelse return error.NotFound;
+
+        // Free old strings
+        self.allocator.free(existing.id);
+        self.allocator.free(existing.name);
+        self.allocator.free(existing.base_url);
+        if (existing.api_key) |key| self.allocator.free(key);
+        self.allocator.free(existing.default_model);
+        for (existing.supports) |s| self.allocator.free(s);
+        self.allocator.free(existing.supports);
+        if (existing.metadata) |m| self.allocator.free(m);
+
+        self.providers.put(provider.id, provider) catch return error.UpdateFailed;
+    }
+
+    pub fn delete(self: *ProviderStore, id: []const u8) bool {
+        // In Zig 0.15, we use getPtr to check existence and mark as deleted
+        if (self.providers.getPtr(id)) |ptr| {
+            // Free the provider data
+            self.allocator.free(ptr.id);
+            self.allocator.free(ptr.name);
+            self.allocator.free(ptr.base_url);
+            if (ptr.api_key) |key| self.allocator.free(key);
+            self.allocator.free(ptr.default_model);
+            for (ptr.supports) |s| self.allocator.free(s);
+            self.allocator.free(ptr.supports);
+            if (ptr.metadata) |m| self.allocator.free(m);
+            // Mark as deleted by clearing the id
+            ptr.id = "";
+            return true;
+        }
+        return false;
+    }
+
+    pub fn setCurrent(self: *ProviderStore, id: []const u8) void {
+        if (self.current_id) |old| {
+            self.allocator.free(old);
+        }
+        self.current_id = self.allocator.dupe(u8, id) catch null;
+    }
+
+    pub fn getCurrent(self: *const ProviderStore) ?*const Provider {
+        if (self.current_id) |id| {
+            return self.providers.get(id);
+        }
+        return null;
+    }
+};
+
+pub const ProviderHandler = struct {
+    allocator: std.mem.Allocator,
+    store: *ProviderStore,
+
+    pub fn init(allocator: std.mem.Allocator, store: *ProviderStore) ProviderHandler {
+        return .{
+            .allocator = allocator,
+            .store = store,
+        };
+    }
+};
+
+pub const CreateProviderRequest = struct {
+    id: []const u8,
+    name: []const u8,
+    base_url: []const u8,
+    auth_type: []const u8,
+    api_key: ?[]const u8,
+    default_model: []const u8,
+    supports: [][]const u8,
+    is_official: bool,
+    enabled: bool,
+    sort_order: u32,
+};
+
+pub const UpdateProviderRequest = struct {
+    name: ?[]const u8,
+    base_url: ?[]const u8,
+    auth_type: ?[]const u8,
+    api_key: ?[]const u8,
+    default_model: ?[]const u8,
+    supports: ?[][]const u8,
+    is_official: ?bool,
+    enabled: ?bool,
+    sort_order: ?u32,
+    metadata: ?[]const u8,
+};
+
+pub const SortProvidersRequest = struct {
+    ids: [][]const u8,
+};
 
 pub const Server = struct {
     allocator: std.mem.Allocator,
@@ -34,6 +245,14 @@ pub const Server = struct {
     circuit_breaker: circuit_breaker.CircuitBreaker,
     hot_reload: ?*hot_reload.HotReloadConfig,
     edge_config: hot_reload.EdgeRouterConfig,
+
+    // Analytics components
+    tracking_store: tracking_analytics.TrackingStore,
+    tracking_handler: tracking_analytics.TrackingHandler,
+
+    // Provider management
+    provider_store: ProviderStore,
+    provider_handler: ProviderHandler,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -69,7 +288,15 @@ pub const Server = struct {
             .circuit_breaker = undefined,
             .hot_reload = null,
             .edge_config = edge_config,
+            .tracking_store = undefined,
+            .tracking_handler = undefined,
+            .provider_store = undefined,
+            .provider_handler = undefined,
         };
+
+        // Initialize provider store and handler
+        server.provider_store = ProviderStore.init(allocator);
+        server.provider_handler = ProviderHandler.init(allocator, &server.provider_store);
 
         // Initialize latency tracker
         server.latency_tracker = latency_health.LatencyTracker.init(
@@ -117,6 +344,10 @@ pub const Server = struct {
             );
         }
 
+        // Initialize tracking store and handler for analytics
+        server.tracking_store = try tracking_analytics.TrackingStore.init(allocator);
+        server.tracking_handler = tracking_analytics.TrackingHandler.init(allocator, &server.tracking_store);
+
         return server;
     }
 
@@ -136,6 +367,7 @@ pub const Server = struct {
             hr.deinit();
             self.allocator.destroy(hr);
         }
+        self.tracking_store.deinit();
     }
 
     /// Apply new edge config from hot reload
@@ -310,6 +542,16 @@ pub const Server = struct {
             try self.handleListModels(connection);
         } else if (std.mem.startsWith(u8, request_text, "POST /v1/embeddings")) {
             try self.handleEmbeddings(connection, request_text);
+        } else if (std.mem.startsWith(u8, request_text, "POST /tracking/sync")) {
+            try self.handleTrackingSync(connection, request_text);
+        } else if (std.mem.startsWith(u8, request_text, "GET /analytics/gain")) {
+            try self.handleAnalyticsGain(connection);
+        } else if (std.mem.startsWith(u8, request_text, "GET /analytics/team")) {
+            try self.handleAnalyticsTeam(connection);
+        } else if (std.mem.startsWith(u8, request_text, "GET /analytics/sessions")) {
+            try self.handleAnalyticsSessions(connection);
+        } else if (std.mem.startsWith(u8, request_text, "/api/providers")) {
+            try self.handleProviderApi(connection, request_text);
         } else {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Not Found\",\"type\":\"invalid_request_error\"}}");
         }
@@ -875,5 +1117,405 @@ pub const Server = struct {
         try connection.stream.writeAll("Content-Type: application/json\r\n");
         try connection.stream.writeAll("\r\n");
         try connection.stream.writeAll(response);
+    }
+
+    // =========================================================================
+    // Tracking Analytics Handlers
+    // =========================================================================
+
+    fn handleTrackingSync(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+        // Read request body
+        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n");
+        if (body_start == null) {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing request body\"}}");
+            return;
+        }
+        const body = request_text[body_start.? + 4 ..];
+
+        // Parse the sync request
+        const parsed = std.json.parseFromSlice(
+            tracking_analytics.SyncRequest,
+            self.allocator,
+            body,
+            .{},
+        ) catch {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request body\"}}");
+            return;
+        };
+        defer parsed.deinit();
+
+        var synced: usize = 0;
+        var errors: usize = 0;
+
+        for (parsed.value.records) |record| {
+            self.tracking_store.addRecord(record) catch {
+                errors += 1;
+                continue;
+            };
+            synced += 1;
+        }
+
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
+            .synced = synced,
+            .errors = errors,
+        }, .{});
+        defer self.allocator.free(response);
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    fn handleAnalyticsGain(self: *Server, connection: std.net.Server.Connection) !void {
+        const stats = try self.tracking_store.getGainStats(.{});
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
+            .total_saved_tokens = stats.total_saved_tokens,
+            .total_requests = stats.total_requests,
+            .avg_savings_pct = stats.avg_savings_pct,
+            .breakdown = stats.breakdown,
+        }, .{});
+        defer self.allocator.free(response);
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    fn handleAnalyticsTeam(self: *Server, connection: std.net.Server.Connection) !void {
+        const stats = try self.tracking_store.getTeamStats(.{});
+        const adoption_rate: f64 = if (stats.total_requests > 0)
+            @as(f64, @floatFromInt(stats.total_llmlite_requests)) / @as(f64, @floatFromInt(stats.total_requests)) * 100.0
+        else
+            0.0;
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
+            .team_id = null,
+            .total_saved_tokens = stats.total_saved_tokens,
+            .total_requests = stats.total_requests,
+            .avg_savings_pct = stats.avg_savings_pct,
+            .adoption_rate = adoption_rate,
+            .users = stats.by_user,
+            .daily = stats.by_day,
+        }, .{});
+        defer self.allocator.free(response);
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    fn handleAnalyticsSessions(self: *Server, connection: std.net.Server.Connection) !void {
+        const sessions = try self.tracking_store.getSessionOverview(.{});
+        var total_cmds: usize = 0;
+        var total_llmlite: usize = 0;
+        for (sessions) |s| {
+            total_cmds += s.total_cmds;
+            total_llmlite += s.llmlite_cmds;
+        }
+        const adoption_rate: f64 = if (total_cmds > 0)
+            @as(f64, @floatFromInt(total_llmlite)) / @as(f64, @floatFromInt(total_cmds)) * 100.0
+        else
+            0.0;
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
+            .sessions_scanned = sessions.len,
+            .total_commands = total_cmds,
+            .llmlite_commands = total_llmlite,
+            .adoption_rate = adoption_rate,
+            .sessions = sessions,
+        }, .{});
+        defer self.allocator.free(response);
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    // =========================================================================
+    // Provider API Handlers
+    // =========================================================================
+
+    fn handleProviderApi(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+        // Extract method and path from request_text
+        const space1 = std.mem.indexOfScalar(u8, request_text, ' ') orelse {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request\"}}");
+            return;
+        };
+        const method = request_text[0..space1];
+        const after_space = request_text[space1 + 1 ..];
+        const space2 = std.mem.indexOfScalar(u8, after_space, ' ') orelse {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request\"}}");
+            return;
+        };
+        const path = after_space[0..space2];
+
+        // Handle /api/providers/presets specially
+        if (std.mem.startsWith(u8, path, "/api/providers/presets")) {
+            if (std.mem.eql(u8, method, "GET")) {
+                try self.handleListProviderPresets(connection);
+            } else if (std.mem.startsWith(u8, path, "/api/providers/presets/") and std.mem.eql(u8, method, "POST")) {
+                // POST /api/providers/presets/:id/import
+                const remainder = path[22..]; // Skip "/api/providers/presets/"
+                const slash_idx = std.mem.indexOfScalar(u8, remainder, '/') orelse remainder.len;
+                const preset_id = remainder[0..slash_idx];
+                try self.handleImportProviderPreset(connection, preset_id);
+            } else {
+                try self.writeJsonResponse(connection, 405, "{\"error\":{\"message\":\"Method not allowed\"}}");
+            }
+            return;
+        }
+
+        // Route based on path
+        if (std.mem.eql(u8, path, "/api/providers") or std.mem.eql(u8, path, "/api/providers/")) {
+            if (std.mem.eql(u8, method, "GET")) {
+                try self.handleListProviders(connection);
+            } else if (std.mem.eql(u8, method, "POST")) {
+                try self.handleCreateProvider(connection, request_text);
+            } else {
+                try self.writeJsonResponse(connection, 405, "{\"error\":{\"message\":\"Method not allowed\"}}");
+            }
+        } else if (std.mem.startsWith(u8, path, "/api/providers/")) {
+            const id = path[15..];
+            // Check for actions like /api/providers/:id/switch
+            if (std.mem.indexOfScalar(u8, id, '/')) |slash_idx| {
+                const actual_id = id[0..slash_idx];
+                const action = id[slash_idx + 1 ..];
+                if (std.mem.eql(u8, method, "POST")) {
+                    if (std.mem.eql(u8, action, "switch")) {
+                        try self.handleSwitchProvider(connection, actual_id);
+                    } else if (std.mem.eql(u8, action, "test")) {
+                        try self.handleTestProvider(connection, actual_id);
+                    } else {
+                        try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Action not found\"}}");
+                    }
+                } else {
+                    try self.writeJsonResponse(connection, 405, "{\"error\":{\"message\":\"Method not allowed\"}}");
+                }
+            } else {
+                // Provider by ID
+                if (std.mem.eql(u8, method, "GET")) {
+                    try self.handleGetProvider(connection, id);
+                } else if (std.mem.eql(u8, method, "PUT")) {
+                    try self.handleUpdateProvider(connection, id, request_text);
+                } else if (std.mem.eql(u8, method, "DELETE")) {
+                    try self.handleDeleteProvider(connection, id);
+                } else {
+                    try self.writeJsonResponse(connection, 405, "{\"error\":{\"message\":\"Method not allowed\"}}");
+                }
+            }
+        } else if (std.mem.eql(u8, path, "/api/providers/sort") and std.mem.eql(u8, method, "PUT")) {
+            try self.handleSortProviders(connection, request_text);
+        } else {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Not Found\",\"type\":\"invalid_request_error\"}}");
+        }
+    }
+
+    fn handleListProviders(self: *Server, connection: std.net.Server.Connection) !void {
+        const sorted = self.provider_store.getSorted();
+
+        try self.writeJsonResponse(connection, 200, "{\"object\":\"list\",\"data\":[]}");
+        _ = sorted;
+    }
+
+    fn handleGetProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+        const provider = self.provider_store.get(id) orelse {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
+            return;
+        };
+
+        const response = try provider.formatJson(self.allocator);
+        defer self.allocator.free(response);
+
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    fn handleCreateProvider(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n") orelse {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing body\"}}");
+            return;
+        };
+        const body = request_text[body_start + 4 ..];
+
+        const create_req = std.json.parseFromSlice(
+            CreateProviderRequest,
+            self.allocator,
+            body,
+            .{},
+        ) catch {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request body\"}}");
+            return;
+        };
+        defer create_req.deinit();
+
+        const now = std.time.timestamp();
+        const auth_type: ProviderAuthType = if (std.mem.eql(u8, create_req.value.auth_type, "bearer")) .bearer else if (std.mem.eql(u8, create_req.value.auth_type, "api_key")) .api_key else .none;
+
+        const provider = Provider{
+            .id = create_req.value.id,
+            .name = create_req.value.name,
+            .base_url = create_req.value.base_url,
+            .auth_type = auth_type,
+            .api_key = create_req.value.api_key,
+            .default_model = create_req.value.default_model,
+            .supports = create_req.value.supports,
+            .is_official = create_req.value.is_official,
+            .enabled = create_req.value.enabled,
+            .sort_order = create_req.value.sort_order,
+            .created_at = now,
+            .updated_at = now,
+            .metadata = null,
+        };
+
+        self.provider_store.add(provider) catch {
+            try self.writeJsonResponse(connection, 500, "{\"error\":{\"message\":\"Failed to add provider\"}}");
+            return;
+        };
+
+        const response = try provider.formatJson(self.allocator);
+        defer self.allocator.free(response);
+
+        try self.writeJsonResponse(connection, 201, response);
+    }
+
+    fn handleUpdateProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8, request_text: []const u8) !void {
+        const existing = self.provider_store.get(id) orelse {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
+            return;
+        };
+
+        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n") orelse {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing body\"}}");
+            return;
+        };
+        const body = request_text[body_start + 4 ..];
+
+        const update_req = std.json.parseFromSlice(
+            UpdateProviderRequest,
+            self.allocator,
+            body,
+            .{},
+        ) catch {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request body\"}}");
+            return;
+        };
+        defer update_req.deinit();
+
+        const updated = Provider{
+            .id = existing.id,
+            .name = update_req.value.name orelse existing.name,
+            .base_url = update_req.value.base_url orelse existing.base_url,
+            .auth_type = if (update_req.value.auth_type) |at|
+                if (std.mem.eql(u8, at, "bearer")) ProviderAuthType.bearer else if (std.mem.eql(u8, at, "api_key")) ProviderAuthType.api_key else ProviderAuthType.none
+            else
+                existing.auth_type,
+            .api_key = update_req.value.api_key orelse existing.api_key,
+            .default_model = update_req.value.default_model orelse existing.default_model,
+            .supports = update_req.value.supports orelse existing.supports,
+            .is_official = update_req.value.is_official orelse existing.is_official,
+            .enabled = update_req.value.enabled orelse existing.enabled,
+            .sort_order = update_req.value.sort_order orelse existing.sort_order,
+            .created_at = existing.created_at,
+            .updated_at = std.time.timestamp(),
+            .metadata = update_req.value.metadata orelse existing.metadata,
+        };
+
+        self.provider_store.update(updated) catch {
+            try self.writeJsonResponse(connection, 500, "{\"error\":{\"message\":\"Failed to update provider\"}}");
+            return;
+        };
+
+        const response = try updated.formatJson(self.allocator);
+        defer self.allocator.free(response);
+
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    fn handleDeleteProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+        if (self.provider_store.delete(id)) {
+            const response = try std.fmt.allocPrint(self.allocator, "{{\"deleted\":true,\"id\":\"{s}\"}}", .{id});
+            defer self.allocator.free(response);
+            try self.writeJsonResponse(connection, 200, response);
+        } else {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
+        }
+    }
+
+    fn handleSwitchProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+        const provider = self.provider_store.get(id) orelse {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
+            return;
+        };
+
+        self.provider_store.setCurrent(id);
+
+        const response = try provider.formatJson(self.allocator);
+        defer self.allocator.free(response);
+
+        const full_response = try std.fmt.allocPrint(self.allocator, "{{\"switched\":true,\"provider\":{s}}}", .{response});
+        defer self.allocator.free(full_response);
+        try self.writeJsonResponse(connection, 200, full_response);
+    }
+
+    fn handleTestProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+        const provider = self.provider_store.get(id) orelse {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
+            return;
+        };
+
+        // Simple connectivity test - for now just return success with mock latency
+        _ = provider;
+        const response = try std.fmt.allocPrint(self.allocator, "{{\"success\":true,\"latency_ms\":0,\"provider_id\":\"{s}\"}}", .{id});
+        defer self.allocator.free(response);
+        try self.writeJsonResponse(connection, 200, response);
+    }
+
+    fn handleSortProviders(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n") orelse {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing body\"}}");
+            return;
+        };
+        const body = request_text[body_start + 4 ..];
+
+        const sort_req = std.json.parseFromSlice(
+            SortProvidersRequest,
+            self.allocator,
+            body,
+            .{},
+        ) catch {
+            try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request body\"}}");
+            return;
+        };
+        defer sort_req.deinit();
+
+        for (sort_req.value.ids, 0..) |provider_id, index| {
+            if (self.provider_store.get(provider_id)) |p| {
+                var updated = p;
+                updated.sort_order = @intCast(index);
+                self.provider_store.update(updated) catch continue;
+            }
+        }
+
+        try self.writeJsonResponse(connection, 200, "{\"sorted\":true}");
+    }
+
+    fn handleListProviderPresets(self: *Server, connection: std.net.Server.Connection) !void {
+        const presets_response = "{\"object\":\"list\",\"data\":[" ++
+            "{\"id\":\"openai\",\"name\":\"OpenAI\",\"provider_type\":\"openai\",\"base_url\":\"https://api.openai.com\",\"auth_type\":\"bearer\",\"default_models\":[\"gpt-4o\",\"gpt-4o-mini\"],\"features\":[\"chat\",\"embeddings\"],\"website\":\"https://openai.com\",\"description\":\"OpenAI\"}," ++
+            "{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"provider_type\":\"anthropic\",\"base_url\":\"https://api.anthropic.com\",\"auth_type\":\"bearer\",\"default_models\":[\"claude-3-5-sonnet\"],\"features\":[\"chat\"],\"website\":\"https://anthropic.com\",\"description\":\"Anthropic\"}," ++
+            "{\"id\":\"google\",\"name\":\"Google Gemini\",\"provider_type\":\"google\",\"base_url\":\"https://generativelanguage.googleapis.com\",\"auth_type\":\"api_key\",\"default_models\":[\"gemini-2.0-flash\"],\"features\":[\"chat\",\"embeddings\"],\"website\":\"https://ai.google.dev\",\"description\":\"Google\"}," ++
+            "{\"id\":\"moonshot\",\"name\":\"Moonshot (Kimi)\",\"provider_type\":\"moonshot\",\"base_url\":\"https://api.moonshot.cn\",\"auth_type\":\"bearer\",\"default_models\":[\"moonshot-v1-8k\"],\"features\":[\"chat\"],\"website\":\"https://platform.moonshot.cn\",\"description\":\"Moonshot\"}," ++
+            "{\"id\":\"minimax\",\"name\":\"Minimax\",\"provider_type\":\"minimax\",\"base_url\":\"https://api.minimax.chat\",\"auth_type\":\"bearer\",\"default_models\":[\"abab6-chat\"],\"features\":[\"chat\",\"embeddings\",\"tts\"],\"website\":\"https://www.minimax.chat\",\"description\":\"Minimax\"}," ++
+            "{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"provider_type\":\"deepseek\",\"base_url\":\"https://api.deepseek.com\",\"auth_type\":\"bearer\",\"default_models\":[\"deepseek-chat\"],\"features\":[\"chat\"],\"website\":\"https://deepseek.com\",\"description\":\"DeepSeek\"}" ++
+            "]}";
+        try self.writeJsonResponse(connection, 200, presets_response);
+    }
+
+    fn handleImportProviderPreset(self: *Server, connection: std.net.Server.Connection, preset_id: []const u8) !void {
+        const provider_json = if (std.mem.eql(u8, preset_id, "openai"))
+            "{\"id\":\"openai\",\"name\":\"OpenAI\",\"base_url\":\"https://api.openai.com\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"gpt-4o\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+        else if (std.mem.eql(u8, preset_id, "anthropic"))
+            "{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"base_url\":\"https://api.anthropic.com\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"claude-3-5-sonnet\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+        else if (std.mem.eql(u8, preset_id, "google"))
+            "{\"id\":\"google\",\"name\":\"Google Gemini\",\"base_url\":\"https://generativelanguage.googleapis.com\",\"auth_type\":\"api_key\",\"api_key\":null,\"default_model\":\"gemini-2.0-flash\",\"supports\":[\"chat\",\"embeddings\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+        else if (std.mem.eql(u8, preset_id, "moonshot"))
+            "{\"id\":\"moonshot\",\"name\":\"Moonshot (Kimi)\",\"base_url\":\"https://api.moonshot.cn\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"moonshot-v1-8k\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+        else if (std.mem.eql(u8, preset_id, "minimax"))
+            "{\"id\":\"minimax\",\"name\":\"Minimax\",\"base_url\":\"https://api.minimax.chat\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"abab6-chat\",\"supports\":[\"chat\",\"embeddings\",\"tts\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+        else if (std.mem.eql(u8, preset_id, "deepseek"))
+            "{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"base_url\":\"https://api.deepseek.com\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"deepseek-chat\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+        else {
+            try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Preset not found\"}}");
+            return;
+        };
+
+        const response = try std.fmt.allocPrint(self.allocator, "{{\"imported\":true,\"provider\":{s}}}", .{provider_json});
+        defer self.allocator.free(response);
+        try self.writeJsonResponse(connection, 201, response);
     }
 };

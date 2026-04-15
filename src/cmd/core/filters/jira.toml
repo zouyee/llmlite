@@ -1,0 +1,18 @@
+[filters.jira]
+description = "Compact Jira CLI output"
+match_command = "^jira\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 30
+
+[[tests.jira]]
+name = "strips blank lines"
+input = "PROJ-123 - Implement login feature\n\nStatus: Done\nAssignee: john"
+expected = "PROJ-123 - Implement login feature\nStatus: Done\nAssignee: john"
+
+[[tests.jira]]
+name = "preserves single line"
+input = "PROJ-456 - Bug fix"
+expected = "PROJ-456 - Bug fix"

@@ -1,0 +1,31 @@
+[filters.quarto-render]
+description = "Compact Quarto render output"
+match_command = "^quarto\\s+render"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^\\s*Rendering:",
+  "^\\s*Preview server started:",
+]
+max_lines = 40
+on_empty = "quarto render: ok"
+
+[[tests.quarto-render]]
+name = "strips rendering noise"
+input = """
+Rendering: document.qmd
+Rendering: references.bib
+
+Output created: _build/index.html
+
+Preview server started on http://localhost:4200
+"""
+expected = "Output created: _build/index.html"
+
+[[tests.quarto-render]]
+name = "preserves errors"
+input = """
+Rendering: document.qmd
+ERROR: Cannot find file 'missing.qmd'
+"""
+expected = "Rendering: document.qmd\nERROR: Cannot find file 'missing.qmd'"

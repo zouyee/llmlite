@@ -1,0 +1,23 @@
+schema_version = 1
+
+[filters.df]
+description = "Compact df output - human readable"
+match_command = "^df\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 20
+
+[[tests.df]]
+name = "basic df"
+input = """
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1       100G   50G   50G  50% /
+tmpfs            16G   10G    6G  63% /dev/shm
+/dev/sdb1       500G  200G  300G  40% /data
+"""
+expected = """Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1       100G   50G   50G  50% /
+tmpfs            16G   10G    6G  63% /dev/shm
+/dev/sdb1       500G  200G  300G  40% /data"""

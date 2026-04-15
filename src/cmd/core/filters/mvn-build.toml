@@ -1,0 +1,40 @@
+schema_version = 1
+
+[filters.mvn-build]
+description = "Compact Maven build output"
+match_command = "^mvn\\s+(compile|package|install|deploy)"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\[INFO\\] Building\\s",
+  "^\\[INFO\\] ---\\s",
+  "^\\[INFO\\] Downloaded from\\s",
+  "^\\[INFO\\] --- maven",
+  "^\\s*$",
+]
+max_lines = 60
+on_empty = "mvn: ok"
+
+[[tests.mvn-build]]
+name = "basic mvn compile"
+input = """
+[INFO] Building myapp 1.0.0
+[INFO] --- maven-compiler-plugin:3.11.0:compile ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 5 source files
+[INFO] --- maven-resources-plugin:3.3.0:resources ---
+[INFO] BUILD SUCCESS
+"""
+expected = """[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 5 source files
+[INFO] BUILD SUCCESS"""
+
+[[tests.mvn-build]]
+name = "build failure"
+input = """
+[INFO] Building myapp 1.0.0
+[INFO] --- maven-compiler-plugin:3.11.0:compile ---
+[ERROR] COMPILATION ERROR
+[ERROR] /src/main/java/App.java:10: error: cannot find symbol
+"""
+expected = """[ERROR] COMPILATION ERROR
+[ERROR] /src/main/java/App.java:10: error: cannot find symbol"""

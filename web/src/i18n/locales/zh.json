@@ -1,0 +1,55 @@
+{
+  "app": {
+    "title": "llmlite Web",
+    "loading": "加载中..."
+  },
+  "nav": {
+    "providers": "供应商",
+    "mcp": "MCP 服务器",
+    "sessions": "会话",
+    "settings": "设置"
+  },
+  "provider": {
+    "title": "供应商管理",
+    "add": "添加供应商",
+    "edit": "编辑供应商",
+    "delete": "删除",
+    "setActive": "设为默认",
+    "test": "测试",
+    "searchPlaceholder": "搜索供应商...",
+    "noProviders": "暂无供应商配置",
+    "form": {
+      "name": "供应商名称",
+      "baseUrl": "接口地址",
+      "apiKey": "API Key",
+      "model": "默认模型"
+    }
+  },
+  "mcp": {
+    "title": "MCP 服务器管理",
+    "add": "添加服务器",
+    "start": "启动",
+    "stop": "停止",
+    "restart": "重启",
+    "noServers": "暂无 MCP 服务器配置"
+  },
+  "session": {
+    "title": "会话历史",
+    "searchPlaceholder": "搜索会话...",
+    "noSessions": "暂无会话",
+    "archived": "已归档",
+    "delete": "删除"
+  },
+  "settings": {
+    "title": "设置",
+    "port": "代理端口",
+    "save": "保存",
+    "reload": "重载配置",
+    "apiKey": "API Key"
+  },
+  "health": {
+    "healthy": "健康",
+    "degraded": "降级",
+    "unhealthy": "不健康"
+  }
+}

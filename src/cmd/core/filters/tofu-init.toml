@@ -1,0 +1,25 @@
+schema_version = 1
+
+[filters.tofu-init]
+description = "Compact OpenTofu init output"
+match_command = "^tofu\\s+init"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^Initializing the backend...\\s",
+  "^Initializing provider plugins...\\s",
+]
+max_lines = 40
+on_empty = "tofu init: ok"
+
+[[tests.tofu-init]]
+name = "basic tofu init"
+input = """
+Initializing the backend...
+Initializing provider plugins...
+- Reusing previous version of hashicorp/aws from the dependency lock file
+- Using hashicorp/aws v5.0.0 from the shared directory
+
+OpenTofu has been successfully initialized!
+"""
+expected = "OpenTofu has been successfully initialized!"

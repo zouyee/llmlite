@@ -1,0 +1,24 @@
+schema_version = 1
+
+[filters.poetry-install]
+description = "Compact poetry install output"
+match_command = "^poetry\\s+install"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^Updating\\s",
+  "^Resolving\\s",
+  "^Installing\\s",
+]
+max_lines = 40
+on_empty = "poetry install: ok"
+
+[[tests.poetry-install]]
+name = "basic poetry install"
+input = """
+Updating dependencies
+Resolving dependencies...
+Installing dependencies from lock file
+Installing the current project dependencies...Done!
+"""
+expected = "poetry install: ok"

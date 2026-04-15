@@ -1,0 +1,38 @@
+schema_version = 1
+
+[filters.composer-install]
+description = "Compact composer install output"
+match_command = "^composer\\s+install"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^Loading composer repositories with package information\\s",
+  "^Installing dependencies from lock file\\s",
+  "^Lock file operations:\\s",
+  "^Reading composer.json\\s",
+  "^Analyzing package dimensions\\s",
+]
+max_lines = 50
+on_empty = "composer install: ok"
+
+[[tests.composer-install]]
+name = "basic composer install"
+input = """
+Loading composer repositories with package information
+Installing dependencies from lock file
+Lock file operations: 5 installs, 0 updates, 0 removers
+  - Installing laravel/framework (v10.0.0)
+  - Installing monolog/monolog (v3.0.0)
+Writing lock file
+Installing dependencies from lock file
+"""
+expected = "composer install: ok"
+
+[[tests.composer-install]]
+name = "with errors"
+input = """
+Loading composer repositories with package information
+Installing dependencies from lock file
+./composer.json does not match the expected JSON schema
+"""
+expected = "./composer.json does not match the expected JSON schema"

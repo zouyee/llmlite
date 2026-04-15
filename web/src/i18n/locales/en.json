@@ -1,0 +1,55 @@
+{
+  "app": {
+    "title": "llmlite Web",
+    "loading": "Loading..."
+  },
+  "nav": {
+    "providers": "Providers",
+    "mcp": "MCP Servers",
+    "sessions": "Sessions",
+    "settings": "Settings"
+  },
+  "provider": {
+    "title": "Provider Management",
+    "add": "Add Provider",
+    "edit": "Edit Provider",
+    "delete": "Delete",
+    "setActive": "Set Active",
+    "test": "Test",
+    "searchPlaceholder": "Search providers...",
+    "noProviders": "No providers configured",
+    "form": {
+      "name": "Provider Name",
+      "baseUrl": "Base URL",
+      "apiKey": "API Key",
+      "model": "Default Model"
+    }
+  },
+  "mcp": {
+    "title": "MCP Server Management",
+    "add": "Add Server",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "noServers": "No MCP servers configured"
+  },
+  "session": {
+    "title": "Session History",
+    "searchPlaceholder": "Search sessions...",
+    "noSessions": "No sessions found",
+    "archived": "Archived",
+    "delete": "Delete"
+  },
+  "settings": {
+    "title": "Settings",
+    "port": "Proxy Port",
+    "save": "Save",
+    "reload": "Reload Config",
+    "apiKey": "API Key"
+  },
+  "health": {
+    "healthy": "Healthy",
+    "degraded": "Degraded",
+    "unhealthy": "Unhealthy"
+  }
+}

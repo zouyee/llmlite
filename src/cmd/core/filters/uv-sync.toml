@@ -1,0 +1,33 @@
+schema_version = 1
+
+[filters.uv-sync]
+description = "Compact uv sync output"
+match_command = "^uv\\s+sync"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^Using\\s",
+  "^Resolved\\s",
+  "^Downloading\\s",
+  "^Installed\\s",
+]
+max_lines = 40
+on_empty = "uv sync: ok"
+
+[[tests.uv-sync]]
+name = "basic uv sync"
+input = """
+Using Python 3.11.0
+Resolved Python 3.12.0
+Using pip 24.0 from /usr/lib/python3.11/site-packages/pip
+Installed 5 packages in 123ms
+"""
+expected = "uv sync: ok"
+
+[[tests.uv-sync]]
+name = "with errors"
+input = """
+Using Python 3.11.0
+error: Failed to resolve dependencies
+"""
+expected = "error: Failed to resolve dependencies"

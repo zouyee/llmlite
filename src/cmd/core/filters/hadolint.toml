@@ -1,0 +1,19 @@
+schema_version = 1
+
+[filters.hadolint]
+description = "Compact hadolint output"
+match_command = "^hadolint\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.hadolint]]
+name = "basic hadolint"
+input = """
+Dockerfile:3:0: Pin versions in apt-get install (DL3008)
+Dockerfile:5:1: Use COPY instead of ADD for copying files (DL3020)
+"""
+expected = """Dockerfile:3:0: Pin versions in apt-get install (DL3008)
+Dockerfile:5:1: Use COPY instead of ADD for copying files (DL3020)"""

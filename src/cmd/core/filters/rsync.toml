@@ -1,0 +1,23 @@
+schema_version = 1
+
+[filters.rsync]
+description = "Compact rsync output with match_output short-circuit"
+match_command = "^rsync\\b"
+strip_ansi = true
+match_output = [
+  { pattern = "total size is", message = "rsync: ok (synced)", unless = "error|failed" },
+]
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.rsync]]
+name = "successful sync"
+input = "file.txt\ntotal size is 98765  speedup is 77.31\n"
+expected = "rsync: ok (synced)"
+
+[[tests.rsync]]
+name = "error during sync"
+input = "rsync: [sender] error\ntotal size is 1000  speedup is 3.33\n"
+expected = "rsync: [sender] error\ntotal size is 1000  speedup is 3.33"

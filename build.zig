@@ -826,6 +826,372 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // Proxy Analytics Types module - Shared types for tracking, gain stats, sessions
+    const proxy_analytics_types_module = b.addModule("proxy_analytics_types", .{
+        .root_source_file = b.path("src/proxy/analytics/types.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Analytics Tracking module - Tracking store and handler
+    const proxy_analytics_tracking_module = b.addModule("proxy_analytics_tracking", .{
+        .root_source_file = b.path("src/proxy/analytics/tracking.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = proxy_analytics_types_module },
+        },
+    });
+
+    // ============================================================================
+    // llmlite-cmd modules - CLI Tool for LLM Token Optimization
+    // ============================================================================
+
+    // cmd_core submodules - each file becomes a module
+    // Note: Modules are ordered so dependencies come before dependents
+    const cmd_core_filter_module = b.addModule("filter", .{
+        .root_source_file = b.path("src/cmd/core/filter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_tracking_module = b.addModule("tracking", .{
+        .root_source_file = b.path("src/cmd/core/tracking.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_lexer_module = b.addModule("lexer", .{
+        .root_source_file = b.path("src/cmd/core/lexer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_tee_module = b.addModule("tee", .{
+        .root_source_file = b.path("src/cmd/core/tee.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_runner_module = b.addModule("runner", .{
+        .root_source_file = b.path("src/cmd/core/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "filter", .module = cmd_core_filter_module },
+            .{ .name = "tracking", .module = cmd_core_tracking_module },
+            .{ .name = "tee", .module = cmd_core_tee_module },
+        },
+    });
+    const cmd_core_utils_module = b.addModule("utils", .{
+        .root_source_file = b.path("src/cmd/core/utils.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_gain_module = b.addModule("gain", .{
+        .root_source_file = b.path("src/cmd/core/gain.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_rules_module = b.addModule("rules", .{
+        .root_source_file = b.path("src/cmd/core/rules.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_hook_module = b.addModule("hook", .{
+        .root_source_file = b.path("src/cmd/core/hook.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "rules", .module = cmd_core_rules_module },
+        },
+    });
+    const cmd_core_discover_module = b.addModule("discover", .{
+        .root_source_file = b.path("src/cmd/core/discover.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "rules", .module = cmd_core_rules_module },
+            .{ .name = "lexer", .module = cmd_core_lexer_module },
+            .{ .name = "tracking", .module = cmd_core_tracking_module },
+        },
+    });
+    const cmd_core_session_module = b.addModule("session", .{
+        .root_source_file = b.path("src/cmd/core/session.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "rules", .module = cmd_core_rules_module },
+            .{ .name = "lexer", .module = cmd_core_lexer_module },
+        },
+    });
+    const cmd_core_config_module = b.addModule("config", .{
+        .root_source_file = b.path("src/cmd/core/config.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_audit_module = b.addModule("audit", .{
+        .root_source_file = b.path("src/cmd/core/audit.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_integrity_module = b.addModule("integrity", .{
+        .root_source_file = b.path("src/cmd/core/integrity.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_learn_module = b.addModule("learn", .{
+        .root_source_file = b.path("src/cmd/core/learn.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_cc_economics_module = b.addModule("cc_economics", .{
+        .root_source_file = b.path("src/cmd/core/cc_economics.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_trust_module = b.addModule("trust", .{
+        .root_source_file = b.path("src/cmd/core/trust.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_pytest_module = b.addModule("pytest", .{
+        .root_source_file = b.path("src/cmd/core/pytest.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_cargo_module = b.addModule("cargo", .{
+        .root_source_file = b.path("src/cmd/core/cargo.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_go_test_module = b.addModule("go_test", .{
+        .root_source_file = b.path("src/cmd/core/go_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_java_module = b.addModule("java", .{
+        .root_source_file = b.path("src/cmd/core/java.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_json_module = b.addModule("json", .{
+        .root_source_file = b.path("src/cmd/core/json.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_ruff_module = b.addModule("ruff", .{
+        .root_source_file = b.path("src/cmd/core/ruff.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_npm_module = b.addModule("npm", .{
+        .root_source_file = b.path("src/cmd/core/npm.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_pnpm_module = b.addModule("pnpm", .{
+        .root_source_file = b.path("src/cmd/core/pnpm.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_tsc_module = b.addModule("tsc", .{
+        .root_source_file = b.path("src/cmd/core/tsc.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_golangci_lint_module = b.addModule("golangci_lint", .{
+        .root_source_file = b.path("src/cmd/core/golangci_lint.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_vitest_module = b.addModule("vitest", .{
+        .root_source_file = b.path("src/cmd/core/vitest.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_docker_module = b.addModule("docker", .{
+        .root_source_file = b.path("src/cmd/core/docker.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_kubectl_module = b.addModule("kubectl", .{
+        .root_source_file = b.path("src/cmd/core/kubectl.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_prettier_module = b.addModule("prettier", .{
+        .root_source_file = b.path("src/cmd/core/prettier.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_mypy_module = b.addModule("mypy", .{
+        .root_source_file = b.path("src/cmd/core/mypy.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_pip_module = b.addModule("pip", .{
+        .root_source_file = b.path("src/cmd/core/pip.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_rspec_module = b.addModule("rspec", .{
+        .root_source_file = b.path("src/cmd/core/rspec.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_rake_module = b.addModule("rake", .{
+        .root_source_file = b.path("src/cmd/core/rake.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_rubocop_module = b.addModule("rubocop", .{
+        .root_source_file = b.path("src/cmd/core/rubocop.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_dotnet_module = b.addModule("dotnet", .{
+        .root_source_file = b.path("src/cmd/core/dotnet.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_playwright_module = b.addModule("playwright", .{
+        .root_source_file = b.path("src/cmd/core/playwright.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_prisma_module = b.addModule("prisma", .{
+        .root_source_file = b.path("src/cmd/core/prisma.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_nextjs_module = b.addModule("nextjs", .{
+        .root_source_file = b.path("src/cmd/core/nextjs.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_eslint_module = b.addModule("eslint", .{
+        .root_source_file = b.path("src/cmd/core/eslint.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_aws_module = b.addModule("aws", .{
+        .root_source_file = b.path("src/cmd/core/aws.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_curl_module = b.addModule("curl", .{
+        .root_source_file = b.path("src/cmd/core/curl.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_sync_module = b.addModule("sync", .{
+        .root_source_file = b.path("src/cmd/core/sync.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_key_module = b.addModule("key", .{
+        .root_source_file = b.path("src/cmd/core/key.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_ccusage_module = b.addModule("ccusage", .{
+        .root_source_file = b.path("src/cmd/core/ccusage.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const cmd_core_toml_filter_module = b.addModule("toml_filter", .{
+        .root_source_file = b.path("src/cmd/core/toml_filter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // cmd_core module - Core infrastructure for llmlite-cmd
+    const cmd_core_module = b.addModule("cmd_core", .{
+        .root_source_file = b.path("src/cmd/core/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "runner", .module = cmd_core_runner_module },
+            .{ .name = "filter", .module = cmd_core_filter_module },
+            .{ .name = "tracking", .module = cmd_core_tracking_module },
+            .{ .name = "tee", .module = cmd_core_tee_module },
+            .{ .name = "utils", .module = cmd_core_utils_module },
+            .{ .name = "gain", .module = cmd_core_gain_module },
+            .{ .name = "hook", .module = cmd_core_hook_module },
+            .{ .name = "discover", .module = cmd_core_discover_module },
+            .{ .name = "session", .module = cmd_core_session_module },
+            .{ .name = "config", .module = cmd_core_config_module },
+            .{ .name = "audit", .module = cmd_core_audit_module },
+            .{ .name = "integrity", .module = cmd_core_integrity_module },
+            .{ .name = "learn", .module = cmd_core_learn_module },
+            .{ .name = "cc_economics", .module = cmd_core_cc_economics_module },
+            .{ .name = "trust", .module = cmd_core_trust_module },
+            .{ .name = "rules", .module = cmd_core_rules_module },
+            .{ .name = "lexer", .module = cmd_core_lexer_module },
+            .{ .name = "pytest", .module = cmd_core_pytest_module },
+            .{ .name = "cargo", .module = cmd_core_cargo_module },
+            .{ .name = "go_test", .module = cmd_core_go_test_module },
+            .{ .name = "java", .module = cmd_core_java_module },
+            .{ .name = "json", .module = cmd_core_json_module },
+            .{ .name = "ruff", .module = cmd_core_ruff_module },
+            .{ .name = "npm", .module = cmd_core_npm_module },
+            .{ .name = "pnpm", .module = cmd_core_pnpm_module },
+            .{ .name = "tsc", .module = cmd_core_tsc_module },
+            .{ .name = "golangci_lint", .module = cmd_core_golangci_lint_module },
+            .{ .name = "vitest", .module = cmd_core_vitest_module },
+            .{ .name = "docker", .module = cmd_core_docker_module },
+            .{ .name = "kubectl", .module = cmd_core_kubectl_module },
+            .{ .name = "prettier", .module = cmd_core_prettier_module },
+            .{ .name = "mypy", .module = cmd_core_mypy_module },
+            .{ .name = "pip", .module = cmd_core_pip_module },
+            .{ .name = "rspec", .module = cmd_core_rspec_module },
+            .{ .name = "rake", .module = cmd_core_rake_module },
+            .{ .name = "rubocop", .module = cmd_core_rubocop_module },
+            .{ .name = "dotnet", .module = cmd_core_dotnet_module },
+            .{ .name = "playwright", .module = cmd_core_playwright_module },
+            .{ .name = "prisma", .module = cmd_core_prisma_module },
+            .{ .name = "nextjs", .module = cmd_core_nextjs_module },
+            .{ .name = "eslint", .module = cmd_core_eslint_module },
+            .{ .name = "aws", .module = cmd_core_aws_module },
+            .{ .name = "curl", .module = cmd_core_curl_module },
+            .{ .name = "sync", .module = cmd_core_sync_module },
+            .{ .name = "key", .module = cmd_core_key_module },
+            .{ .name = "ccusage", .module = cmd_core_ccusage_module },
+            .{ .name = "toml_filter", .module = cmd_core_toml_filter_module },
+        },
+    });
+
+    // cmd module - Command dispatcher
+    const cmd_module = b.addModule("cmd", .{
+        .root_source_file = b.path("src/cmd/cmd.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "cmd_core", .module = cmd_core_module },
+        },
+    });
+
+    // cmd_main module - CLI entry point
+    const cmd_main_module = b.addModule("cmd_main", .{
+        .root_source_file = b.path("src/cmd/cmd_main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "cmd", .module = cmd_module },
+            .{ .name = "cmd_core", .module = cmd_core_module },
+        },
+    });
+
+    // llmlite-cmd executable
+    const cmd_exe = b.addExecutable(.{
+        .name = "llmlite-cmd",
+        .root_module = cmd_main_module,
+        .version = .{ .major = 0, .minor = 1, .patch = 0 },
+    });
+
+    b.installArtifact(cmd_exe);
+
+    const cmd_run_cmd = b.addRunArtifact(cmd_exe);
+    const cmd_run_step = b.step("cmd", "Run llmlite-cmd");
+    cmd_run_step.dependOn(&cmd_run_cmd.step);
+
     // Proxy Server module
     const proxy_module = b.addModule("proxy", .{
         .root_source_file = b.path("src/proxy/server.zig"),
@@ -843,6 +1209,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "hot_reload", .module = proxy_hot_reload_module },
             .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
             .{ .name = "active_health", .module = proxy_active_health_module },
+            .{ .name = "analytics", .module = proxy_analytics_tracking_module },
             .{ .name = "types", .module = provider_types_module },
             .{ .name = "registry", .module = provider_registry_module },
             .{ .name = "http", .module = http_module },
@@ -906,4 +1273,22 @@ pub fn build(b: *std.Build) void {
 
     const proxy_test_step = b.step("proxy-test", "Run proxy component tests");
     proxy_test_step.dependOn(&proxy_test_exe.step);
+
+    // Tracking and Analytics test module
+    const tracking_test_module = b.addModule("tracking_test", .{
+        .root_source_file = b.path("src/test/tracking_test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "proxy_analytics_types", .module = proxy_analytics_types_module },
+        },
+    });
+
+    const tracking_test_exe = b.addTest(.{
+        .name = "tracking_test",
+        .root_module = tracking_test_module,
+    });
+
+    const tracking_test_step = b.step("tracking-test", "Run tracking and analytics tests");
+    tracking_test_step.dependOn(&tracking_test_exe.step);
 }

@@ -1,0 +1,25 @@
+schema_version = 1
+
+[filters.systemctl-status]
+description = "Compact systemctl status output"
+match_command = "^systemctl\\s+status"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^\\s*Loaded:.*$",
+]
+max_lines = 30
+
+[[tests.systemctl-status]]
+name = "basic systemctl status"
+input = """
+● nginx.service - A high performance web server
+   Loaded: loaded (/lib/systemd/system/nginx.service; enabled)
+   Active: active (running) since Mon 2024-01-15 10:00:00 UTC; 2h ago
+     Docs: man:nginx(8)
+  Process: 123 ExecStart=/usr/sbin/nginx -g daemon on; (code=exited, status=0/SUCCESS)
+ Main PID: 456 (nginx)
+"""
+expected = """● nginx.service - A high performance web server
+   Active: active (running) since Mon 2024-01-15 10:00:00 UTC; 2h ago
+ Main PID: 456 (nginx)"""

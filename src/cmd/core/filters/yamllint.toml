@@ -1,0 +1,23 @@
+schema_version = 1
+
+[filters.yamllint]
+description = "Compact yamllint output"
+match_command = "^yamllint\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.yamllint]]
+name = "basic yamllint"
+input = """
+.yaml.yml:
+  1:81      error    line too long (81 > 80 characters)  (line-length)
+  3:1       warning  missing document start "---"         (document-start)
+  7:7       warning  missing key order                    (key-ordering)
+"""
+expected = """.yaml.yml:
+  1:81      error    line too long (81 > 80 characters)  (line-length)
+  3:1       warning  missing document start "---"         (document-start)
+  7:7       warning  missing key order                    (key-ordering)"""

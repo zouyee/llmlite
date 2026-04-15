@@ -1,0 +1,23 @@
+schema_version = 1
+
+[filters.just]
+description = "Compact just output"
+match_command = "^just\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 30
+
+[[tests.just]]
+name = "just --list"
+input = """
+Available recipes:
+    build   # Build the project
+    test    # Run tests
+    clean   # Remove build artifacts
+"""
+expected = """Available recipes:
+    build   # Build the project
+    test    # Run tests
+    clean   # Remove build artifacts"""

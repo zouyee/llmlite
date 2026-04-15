@@ -1,0 +1,21 @@
+schema_version = 1
+
+[filters.du]
+description = "Compact du output - summarize"
+match_command = "^du\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 30
+
+[[tests.du]]
+name = "basic du"
+input = """
+4.0K    ./src
+8.0K    ./tests
+12K     .
+"""
+expected = """4.0K    ./src
+8.0K    ./tests
+12K     ."""

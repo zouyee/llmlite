@@ -1,0 +1,38 @@
+schema_version = 1
+
+[filters.gradle]
+description = "Compact Gradle build output"
+match_command = "^gradle\\b|^./gradlew"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^BUILD SUCCESSFUL\\s",
+  "^\\d+ tasks? executed\\s",
+]
+max_lines = 60
+on_empty = "gradle: ok"
+
+[[tests.gradle]]
+name = "basic gradle build"
+input = """
+> Task :app:compileJava
+> Task :app:processResources
+> Task :app:classes
+BUILD SUCCESSFUL in 5s
+12 tasks executed
+"""
+expected = """> Task :app:compileJava
+> Task :app:processResources
+> Task :app:classes
+BUILD SUCCESSFUL in 5s"""
+
+[[tests.gradle]]
+name = "build failure"
+input = """
+> Task :app:compileJava FAILED
+> Task :app:processResources
+FAILURE: Build failed with an exception.
+"""
+expected = """> Task :app:compileJava FAILED
+> Task :app:processResources
+FAILURE: Build failed with an exception."""

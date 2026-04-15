@@ -1,0 +1,24 @@
+schema_version = 1
+
+[filters.brew-install]
+description = "Compact brew install output"
+match_command = "^brew\\s+install"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^==> Downloading\\s",
+  "^==> Installing\\s",
+  "^🍺\\s",
+]
+max_lines = 30
+on_empty = "brew install: ok"
+
+[[tests.brew-install]]
+name = "basic brew install"
+input = """
+==> Downloading https://example.com/node-20.0.0.tar.gz
+==> Installing node
+==> Pouring node-20.0.0.big_sur.bottle.tar.gz
+🍺  Installed node v20.0.0
+"""
+expected = "brew install: ok"

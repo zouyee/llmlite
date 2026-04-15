@@ -1,0 +1,23 @@
+schema_version = 1
+
+[filters.docker-logs]
+description = "Compact docker logs output - deduplicate repeated lines"
+match_command = "^docker\\s+logs"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 100
+
+[[tests.docker-logs]]
+name = "basic docker logs"
+input = """
+2024-01-15T10:00:00.000Z INFO  - Application started
+2024-01-15T10:00:01.000Z DEBUG - Processing request
+2024-01-15T10:00:02.000Z DEBUG - Processing request
+2024-01-15T10:00:03.000Z DEBUG - Processing request
+2024-01-15T10:00:04.000Z INFO  - Request completed
+"""
+expected = """2024-01-15T10:00:00.000Z INFO  - Application started
+2024-01-15T10:00:01.000Z DEBUG - Processing request
+2024-01-15T10:00:04.000Z INFO  - Request completed"""

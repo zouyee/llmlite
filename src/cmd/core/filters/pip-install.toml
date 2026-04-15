@@ -1,0 +1,33 @@
+schema_version = 1
+
+[filters.pip-install]
+description = "Compact pip install output"
+match_command = "^pip\\s+install"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^Collecting\\s",
+  "^Using\\s",
+  "^Installing\\s",
+  "^Successfully installed\\s",
+]
+max_lines = 50
+on_empty = "pip install: ok"
+
+[[tests.pip-install]]
+name = "basic pip install"
+input = """
+Collecting requests
+Using cached requests-2.31.0-py3.py3.10.egg
+Installing collected packages: requests, urllib3
+Successfully installed requests-2.31.0
+"""
+expected = "pip install: ok"
+
+[[tests.pip-install]]
+name = "with error"
+input = """
+Collecting invalid-package
+ERROR: Could not find a version that satisfies the requirement invalid-package
+"""
+expected = "ERROR: Could not find a version that satisfies the requirement invalid-package"

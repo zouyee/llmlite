@@ -1,0 +1,21 @@
+schema_version = 1
+
+[filters.helm]
+description = "Compact helm output"
+match_command = "^helm\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.helm]]
+name = "helm list"
+input = """
+NAME         NAMESPACE   REVISION  UPDATED                             STATUS   CHART
+myapp        default     1         2024-01-15 10:00:00.000000 +0000  deployed  myapp-1.0.0
+redis        default     1         2024-01-15 10:00:00.000000 +0000  deployed  redis-6.0.0
+"""
+expected = """NAME         NAMESPACE   REVISION  UPDATED                             STATUS   CHART
+myapp        default     1         2024-01-15 10:00:00.000000 +0000  deployed  myapp-1.0.0
+redis        default     1         2024-01-15 10:00:00.000000 +0000  deployed  redis-6.0.0"""

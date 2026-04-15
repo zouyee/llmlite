@@ -1,0 +1,21 @@
+schema_version = 1
+
+[filters.gcloud]
+description = "Compact gcloud output"
+match_command = "^gcloud\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.gcloud]]
+name = "gcloud compute instances list"
+input = """
+NAME        ZONE          MACHINE_TYPE  PREEMPTIBLE  INTERNAL_IP  STATUS
+instance-1  us-central1-a  n1-standard   <none>        10.128.0.2   RUNNING
+instance-2  us-central1-b  n2-standard   <none>        10.128.0.3   RUNNING
+"""
+expected = """NAME        ZONE          MACHINE_TYPE  PREEMPTIBLE  INTERNAL_IP  STATUS
+instance-1  us-central1-a  n1-standard   <none>        10.128.0.2   RUNNING
+instance-2  us-central1-b  n2-standard   <none>        10.128.0.3   RUNNING"""

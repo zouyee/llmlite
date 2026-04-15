@@ -1,0 +1,23 @@
+schema_version = 1
+
+[filters.ps]
+description = "Compact ps output - strip unnecessary columns"
+match_command = "^ps\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 50
+
+[[tests.ps]]
+name = "basic ps"
+input = """
+  PID TTY          TIME CMD
+    1 pts/0    00:00:00 bash
+  123 pts/0    00:00:00 ps
+  456 pts/1    00:00:01 vim
+"""
+expected = """  PID TTY          TIME CMD
+    1 pts/0    00:00:00 bash
+  123 pts/0    00:00:00 ps
+  456 pts/1    00:00:01 vim"""
