@@ -51,8 +51,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Prerequisites
 
-- Zig 0.15 or later
+- Zig 0.15+
 - Git
+- Node.js 18+ (Web Dashboard development only)
 
 ### Building
 
@@ -66,18 +67,39 @@ zig build
 
 # Run tests
 zig build test
+
+# Build release version
+zig build -Doptimize=ReleaseSmall
 ```
 
 ### Running Specific Tests
 
 ```bash
-# Run provider-specific tests
-zig build kimi-test
-zig build minimax-test
-zig build test
+# Provider-specific tests
+zig build kimi-test              # Kimi tests
+zig build minimax-test           # Minimax tests
+zig build minimax-native-test    # Minimax native API tests
+zig build openai-test            # OpenAI tests
+zig build gemini-advanced-test   # Gemini advanced API tests
+zig build gemma-test             # Gemma tests
+zig build chat-test              # Chat completions tests
 
-# Run all tests
+# All tests
 zig build test
+```
+
+### Using the Makefile
+
+```bash
+make build              # Build the project
+make build-release      # Build all release variants
+make test               # Run all tests
+make fmt                # Format code
+make lint               # Run lint checks
+make check              # Run all checks (fmt, lint, build)
+make clean              # Clean build artifacts
+make docker-build       # Build Docker image
+make docker-test        # Run tests in Docker
 ```
 
 ## Project Structure
@@ -85,28 +107,154 @@ zig build test
 ```
 llmlite/
 ├── src/
-│   ├── provider/          # Provider implementations
-│   │   ├── openai.zig
-│   │   ├── google.zig
-│   │   ├── minimax/
-│   │   │   ├── mod.zig
-│   │   │   ├── tts.zig
-│   │   │   ├── video.zig
-│   │   │   ├── image.zig
-│   │   │   └── music.zig
-│   │   └── kimi/
-│   │       └── mod.zig
-│   ├── chat.zig           # Chat completion types
-│   ├── http.zig           # HTTP client
+│   ├── main.zig                # SDK entry point, re-exports public API
+│   ├── client.zig              # Main OpenAI client implementation
+│   ├── http.zig                # HTTP client (Bearer, API Key auth)
+│   ├── chat.zig                # Chat completion types
+│   ├── embedding.zig           # Embedding API
+│   ├── stream.zig              # SSE streaming responses
+│   ├── tool.zig                # Function calling
+│   ├── structured_output.zig   # JSON Schema support
+│   ├── batch.zig               # Batch processing
+│   ├── responses.zig           # Responses API
+│   ├── conversation.zig        # Multi-turn conversation state
+│   ├── realtime.zig            # WebSocket real-time communication
+│   ├── webhook.zig             # Webhook event handling
+│   ├── azure.zig               # Azure OpenAI support
+│   ├── assistant.zig           # Assistants API (Beta)
+│   ├── file.zig                # File management
+│   ├── image.zig               # Image generation
+│   ├── audio.zig               # Audio/TTS
+│   ├── moderation.zig          # Content moderation
+│   ├── finetune.zig            # Model fine-tuning
+│   ├── model.zig               # Model listing
+│   ├── completion.zig          # Text completions
+│   ├── pagination.zig          # Cursor pagination
+│   ├── container.zig           # Container management
+│   ├── grader.zig              # Grading service
+│   ├── skill.zig               # Skill management
+│   ├── betathread.zig          # Beta Thread (deprecated)
+│   ├── version.zig             # Version info
+│   ├── types.zig               # Common types
+│   ├── vector_stores.zig       # Vector stores
+│   ├── proxy_main.zig          # Proxy entry point
+│   ├── mcp_main.zig            # MCP entry point
+│   │
+│   ├── provider/               # Provider implementations
+│   │   ├── mod.zig             # Provider module re-exports
+│   │   ├── types.zig           # Provider common types
+│   │   ├── registry.zig        # Provider registry
+│   │   ├── provider.zig        # Provider factory
+│   │   ├── language_model.zig  # Unified language model interface
+│   │   ├── openai.zig          # OpenAI provider
+│   │   ├── anthropic.zig       # Anthropic provider
+│   │   ├── google.zig          # Google Gemini provider
+│   │   ├── gemini_caches.zig   # Gemini context caching
+│   │   ├── gemini_tunings.zig  # Gemini model tuning
+│   │   ├── gemini_documents.zig # Gemini document management
+│   │   ├── gemini_file_search_stores.zig # Gemini vector search
+│   │   ├── gemini_operations.zig # Gemini async operations
+│   │   ├── gemini_tokens.zig   # Gemini token counting
+│   │   ├── kimi/mod.zig        # Kimi/Moonshot provider
+│   │   └── minimax/            # Minimax provider
+│   │       ├── mod.zig         # Minimax main module
+│   │       ├── tts.zig         # Text-to-speech
+│   │       ├── video.zig       # Video generation
+│   │       ├── image.zig       # Image generation
+│   │       └── music.zig       # Music generation
+│   │
+│   ├── proxy/                  # Proxy server
+│   │   ├── server.zig          # HTTP server
+│   │   ├── router.zig          # Multi-provider routing
+│   │   ├── virtual_key.zig     # Virtual key management
+│   │   ├── rate_limit.zig      # Rate limiting
+│   │   ├── cost.zig            # Cost tracking
+│   │   ├── team.zig            # Team/project management
+│   │   ├── middleware.zig      # Auth middleware
+│   │   ├── config.zig          # Configuration types
+│   │   ├── config_loader.zig   # JSON config loader
+│   │   ├── persistence.zig     # JSON file persistence
+│   │   ├── logger.zig          # Request logging
+│   │   ├── connection_pool.zig # Connection pooling
+│   │   ├── latency_health.zig  # Latency tracking
+│   │   ├── circuit_breaker.zig # Circuit breaker
+│   │   ├── active_health.zig   # Active health checking
+│   │   ├── hot_reload.zig      # Hot reload
+│   │   ├── plugin.zig          # Plugin interface
+│   │   ├── pipeline.zig        # Request pipeline
+│   │   ├── session_store.zig   # Session storage
+│   │   ├── thinking_budget.zig # Thinking token budgeting
+│   │   ├── thinking_optimizer.zig # Thinking optimization
+│   │   ├── copilot_optimizer.zig # Copilot optimization
+│   │   ├── handlers/           # Request handlers
+│   │   │   ├── chat.zig        # Chat handler
+│   │   │   ├── embeddings.zig  # Embeddings handler
+│   │   │   ├── health.zig      # Health checks
+│   │   │   ├── key.zig         # Key management API
+│   │   │   ├── team.zig        # Team management API
+│   │   │   ├── provider.zig    # Provider management
+│   │   │   └── management.zig  # General management
+│   │   ├── plugins/            # Plugin implementations
+│   │   │   ├── cache.zig       # Simple & semantic cache
+│   │   │   ├── cost.zig        # Cost tracking plugin
+│   │   │   ├── guardrail.zig   # Content guardrails
+│   │   │   ├── kv_sqlite.zig   # SQLite KV backend
+│   │   │   ├── registry.zig    # Plugin registry
+│   │   │   └── store.zig       # Storage abstraction
+│   │   └── analytics/          # Analytics
+│   │       ├── tracking.zig    # Usage tracking
+│   │       └── types.zig       # Analytics types
+│   │
+│   ├── cmd/                    # CLI tool
+│   │   ├── cmd_main.zig        # CLI entry point
+│   │   ├── cmd.zig             # Command parsing and dispatch
+│   │   └── core/               # Core infrastructure
+│   │       ├── mod.zig         # Module re-exports
+│   │       ├── runner.zig      # 6-phase execution framework
+│   │       ├── filter.zig      # 12+ filtering strategies
+│   │       ├── tracking.zig    # SQLite tracking
+│   │       ├── tee.zig         # Failure recovery
+│   │       ├── utils.zig       # Utility functions
+│   │       ├── hook.zig        # Shell hooks
+│   │       └── ... (50+ command modules)
+│   │
+│   ├── mcp/                    # MCP server
+│   │   ├── server.zig          # MCP server implementation
+│   │   ├── tools.zig           # Tool definitions
+│   │   └── types.zig           # MCP types
+│   │
+│   ├── desktop/                # Desktop integration
+│   │   └── tray.zig            # System tray
+│   │
+│   └── test/                   # Test files (25+)
+│
+├── web/                        # Web frontend
+│   ├── src/
+│   │   ├── App.tsx             # Main app
+│   │   ├── components/         # UI components
+│   │   │   ├── providers/      # Provider management
+│   │   │   ├── mcp/            # MCP management
+│   │   │   ├── sessions/       # Session management
+│   │   │   └── settings/       # Settings panel
+│   │   ├── hooks/              # React hooks
+│   │   ├── lib/api/            # API client
+│   │   └── i18n/               # i18n (EN/ZH/JA)
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── docs/                       # Documentation
+│   ├── providers/              # Provider docs
+│   ├── zh/                     # Chinese docs
+│   ├── ARCHITECTURE.md         # Architecture design
+│   ├── roadmap.md              # Roadmap
 │   └── ...
-├── docs/
-│   └── providers/         # Provider documentation
-│       ├── openai.md
-│       ├── google-gemini.md
-│       ├── minimax.md
-│       └── kimi.md
-├── examples/             # Example code
-└── tests/               # Test files
+│
+├── build.zig                   # Zig build system
+├── build.zig.zon               # Zig package dependencies
+├── Makefile                    # Make commands
+├── Dockerfile                  # Docker multi-stage build
+├── docker-compose.yml          # Docker Compose
+└── .env.example                # Environment variable template
 ```
 
 ## Coding Guidelines
@@ -139,19 +287,28 @@ pub fn myFunction(allocator: std.mem.Allocator, params: MyParams) !Result {
 
 ## Adding a New Provider
 
-To add a new LLM provider:
-
 1. Create provider module in `src/provider/<name>/`
 2. Add provider configuration to `src/provider/registry.zig`
 3. Create request transformer if API format differs from OpenAI
 4. Add tests in `src/test/<name>_test.zig`
 5. Add documentation in `docs/providers/<name>.md`
+6. Register module and test target in `build.zig`
+7. Update the provider table in README.md
+
+## Adding a New CLI Command (llmlite-cmd)
+
+1. Create command module in `src/cmd/core/` (e.g., `mycommand.zig`)
+2. Implement a filtering strategy (see `filter.zig` for strategies)
+3. Register the command in `src/cmd/cmd.zig`
+4. Add tests to `src/test/cmd_test.zig`
+5. Update the command list in `docs/ARCHITECTURE.md`
 
 ## Documentation
 
-- Update README.md if adding new features
+- Update README.md when adding new features
 - Add provider documentation in `docs/providers/`
 - Include code examples for new functionality
+- Keep Chinese docs in `docs/zh/` in sync
 
 ## License
 

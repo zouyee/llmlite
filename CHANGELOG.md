@@ -4,6 +4,67 @@ All notable changes to llmlite will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+#### CLI Tool (llmlite-cmd)
+- **Command Proxy** (`src/cmd/`): CLI command proxy that intercepts developer commands and filters output
+- **6-Phase Execution Framework** (`src/cmd/core/runner.zig`): Execute → Filter → Tee → Print → Track → Exit
+- **12+ Filter Strategies** (`src/cmd/core/filter.zig`): stats, errors_only, grouping, deduplication, failure_focus, tree_compression, etc.
+- **SQLite Token Tracking** (`src/cmd/core/tracking.zig`): Persistent token savings statistics
+- **Shell Hook System** (`src/cmd/core/hook.zig`): bash/zsh automatic integration
+- **50+ Command Modules**: git, cargo, npm, pytest, docker, kubectl, go, aws, eslint, tsc, prettier, prisma, playwright, rake, rspec, rubocop, dotnet, curl, nextjs, vitest, pnpm, pip, mypy, ruff, etc.
+- **Failure Recovery** (`src/cmd/core/tee.zig`): Saves raw output on failure
+- **Analytics** (`src/cmd/core/gain.zig`, `discover.zig`): Token savings statistics and discovery
+
+#### MCP Server
+- **MCP Server** (`src/mcp/`): Model Context Protocol server implementation
+- **Tools**: `llmlite_router_status`, `llmlite_health_check`, `llmlite_cost_summary`, `llmlite_key_list`, `llmlite_key_create`, `llmlite_key_revoke`
+- **JSON-RPC 2.0** over stdio protocol support
+
+#### Web Dashboard
+- **React Frontend** (`web/`): React 18 + TypeScript + TailwindCSS management panel
+- **Provider Management**: Add/edit/delete/drag-sort providers
+- **MCP Server Configuration**: MCP server management UI
+- **Session Management**: Session tracking
+- **Settings Panel**: System configuration
+- **i18n**: Multi-language support (EN/ZH/JA)
+- **Health Status**: Real-time health status monitoring
+
+#### SDK Enhancements
+- **Responses API** (`src/responses.zig`): New primary API interface
+- **Container Module** (`src/container.zig`): Container management API
+- **Grader Module** (`src/grader.zig`): Grading service
+- **Skill Module** (`src/skill.zig`): Skill management API
+- **BetaThread Module** (`src/betathread.zig`): Beta thread management
+- **Vector Stores** (`src/vector_stores.zig`): Vector store support
+- **Types Module** (`src/types.zig`): Common type definitions
+
+#### Proxy Enhancements
+- **Thinking Budget** (`src/proxy/thinking_budget.zig`): Thinking token budget management
+- **Thinking Optimizer** (`src/proxy/thinking_optimizer.zig`): Thinking mode optimization
+- **Thinking Rectifier** (`src/proxy/thinking_rectifier.zig`): Thinking response normalization
+- **Copilot Optimizer** (`src/proxy/copilot_optimizer.zig`): Copilot optimization
+- **App Type Router** (`src/proxy/app_type_router.zig`): App-type based routing
+- **Sync Engine** (`src/proxy/sync_engine.zig`): Sync engine
+- **MCP Manager** (`src/proxy/mcp_manager.zig`): MCP integration management
+- **Database Module** (`src/proxy/database.zig`): Database support
+- **WebDAV** (`src/proxy/webdav.zig`): WebDAV support
+- **TUI** (`src/proxy/tui.zig`): Terminal UI dashboard
+- **Deep Link** (`src/proxy/deep_link.zig`): Deep linking support
+
+#### Desktop Integration
+- **System Tray** (`src/desktop/tray.zig`): System tray support
+
+#### Documentation
+- Comprehensive update of all documentation to reflect current project state
+- Updated README.md with all components (SDK, Proxy, CLI, MCP, Web)
+- Updated CONTRIBUTING.md with full project structure and development guide
+- Updated provider docs index with all 12+ providers
+- Updated Chinese docs (docs/zh/README.md)
+- Updated roadmap to reflect current progress
+
 ## [0.2.0] - 2026-04-08
 
 ### Added

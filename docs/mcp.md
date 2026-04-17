@@ -1,6 +1,6 @@
 # MCP Server Integration
 
-llmlite provides an MCP (Model Context Protocol) server that exposes its routing and management capabilities as tools to AI agents like Hermes Agent.
+llmlite provides an MCP (Model Context Protocol) server that exposes routing and management capabilities as tools for AI agents (e.g. Hermes Agent, Claude Code).
 
 ## Overview
 
@@ -9,6 +9,15 @@ The MCP protocol allows AI agents to:
 - Check provider health
 - Manage virtual keys
 - Monitor costs
+
+## Source Structure
+
+```
+src/mcp/
+├── server.zig    # MCP server implementation (JSON-RPC 2.0 over stdio)
+├── tools.zig     # Tool definitions
+└── types.zig     # MCP type definitions
+```
 
 ## Available Tools
 
@@ -203,6 +212,18 @@ You: What's our current spending?
 # Build the MCP server
 zig build -Doptimize=ReleaseSmall
 
-# The binary will be at:
+# Binary at:
 # zig-out/bin/llmlite-mcp
 ```
+
+## Proxy Health Endpoints (K8s)
+
+For container orchestration, llmlite-proxy provides:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Basic health check |
+| `GET /health/live` | Liveness probe (K8s) |
+| `GET /health/ready` | Readiness probe (checks provider health) |
+| `GET /metrics` | Prometheus metrics |
+| `GET /metrics/latency` | Per-provider latency JSON |

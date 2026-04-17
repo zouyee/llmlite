@@ -84,3 +84,4 @@ pub const nextjs = @import("nextjs");
 pub const eslint = @import("eslint");
 pub const aws = @import("aws");
 pub const curl = @import("curl");
+pub const proxy_helpers = @import("proxy_helpers");

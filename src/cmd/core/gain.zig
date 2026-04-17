@@ -4,7 +4,7 @@
 //! Inspired by RTK's rtk gain command.
 
 const std = @import("std");
-const tracking = @import("cmd_core_tracking");
+const proxy_helpers = @import("proxy_helpers");
 
 pub const GainOptions = struct {
     /// Show ASCII graph
@@ -36,6 +36,15 @@ pub const TopCommand = struct {
 };
 
 pub fn showGain(allocator: std.mem.Allocator, options: GainOptions) !void {
+    // Try proxy API first for unified analytics
+    if (proxy_helpers.queryProxyApi(allocator, "/analytics/gain", 2000) catch null) |proxy_response| {
+        defer allocator.free(proxy_response);
+        // Display proxy response directly (pre-formatted by proxy)
+        std.debug.print("{s}\n", .{proxy_response});
+        return;
+    }
+
+    // Fallback: local history.db reading
     const stats = try getGainStats(allocator, options.days);
     defer {
         for (stats.top_commands) |c| allocator.free(c.cmd);

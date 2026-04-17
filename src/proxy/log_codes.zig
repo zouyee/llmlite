@@ -5,6 +5,7 @@
 //! - SRV: Server
 //! - FWD: Forwarder
 //! - FO: Failover
+//! - RECT: Rectifier
 //! - RSP: Response
 //! - USG: Usage
 
@@ -66,6 +67,22 @@ pub const fo = struct {
     pub const NO_PROVIDERS: []const u8 = "FO-005";
 };
 
+/// Rectifier log codes
+pub const rect = struct {
+    /// RECT-001: Signature rectifier triggered
+    pub const SIGNATURE_TRIGGERED: []const u8 = "RECT-001";
+    /// RECT-002: Budget rectifier triggered
+    pub const BUDGET_TRIGGERED: []const u8 = "RECT-002";
+    /// RECT-003: Rectification succeeded
+    pub const RECTIFY_OK: []const u8 = "RECT-003";
+    /// RECT-004: Rectification failed
+    pub const RECTIFY_FAIL: []const u8 = "RECT-004";
+    /// RECT-005: Rectifier already triggered, skip retry
+    pub const ALREADY_TRIGGERED: []const u8 = "RECT-005";
+    /// RECT-006: Signature rectifier triggered but no rectifiable content
+    pub const NO_RECTIFIABLE_CONTENT: []const u8 = "RECT-006";
+};
+
 /// Response log codes
 pub const rsp = struct {
     /// RSP-001: Build stream error
@@ -116,6 +133,15 @@ test "log_codes - failover codes" {
 test "log_codes - response codes" {
     try std.testing.expectEqualStrings("RSP-001", rsp.BUILD_STREAM_ERROR);
     try std.testing.expectEqualStrings("RSP-005", rsp.STREAM_ERROR);
+}
+
+test "log_codes - rectifier codes" {
+    try std.testing.expectEqualStrings("RECT-001", rect.SIGNATURE_TRIGGERED);
+    try std.testing.expectEqualStrings("RECT-002", rect.BUDGET_TRIGGERED);
+    try std.testing.expectEqualStrings("RECT-003", rect.RECTIFY_OK);
+    try std.testing.expectEqualStrings("RECT-004", rect.RECTIFY_FAIL);
+    try std.testing.expectEqualStrings("RECT-005", rect.ALREADY_TRIGGERED);
+    try std.testing.expectEqualStrings("RECT-006", rect.NO_RECTIFIABLE_CONTENT);
 }
 
 test "log_codes - usage codes" {

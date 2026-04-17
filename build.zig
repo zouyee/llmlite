@@ -816,6 +816,16 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    // Proxy Failover module - Failover management with SwitchLock
+    const proxy_failover_module = b.addModule("proxy_failover", .{
+        .root_source_file = b.path("src/proxy/failover.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = provider_types_module },
+        },
+    });
+
     // Proxy Active Health Checker module - Active health probing for edge routing
     const proxy_active_health_module = b.addModule("proxy_active_health", .{
         .root_source_file = b.path("src/proxy/active_health.zig"),
@@ -841,6 +851,83 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "types", .module = proxy_analytics_types_module },
         },
+    });
+
+    // Proxy App Type Router module - Multi-application request dispatcher
+    const proxy_app_type_router_module = b.addModule("proxy_app_type_router", .{
+        .root_source_file = b.path("src/proxy/app_type_router.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Header Case Preserver module - HTTP header case preservation
+    const proxy_header_case_module = b.addModule("proxy_header_case", .{
+        .root_source_file = b.path("src/proxy/header_case.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Provider Adapter module - Multi-provider authentication and auto-detection
+    const proxy_provider_adapter_module = b.addModule("proxy_provider_adapter", .{
+        .root_source_file = b.path("src/proxy/provider_adapter.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Error Mapper module - ProxyError to HTTP status code and JSON error response
+    const proxy_error_mapper_module = b.addModule("proxy_error_mapper", .{
+        .root_source_file = b.path("src/proxy/error_mapper.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Format Transformer module - API format conversion (Anthropic/OpenAI/Responses)
+    const proxy_format_transformer_module = b.addModule("proxy_format_transformer", .{
+        .root_source_file = b.path("src/proxy/format_transformer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Usage Tracker module - Multi-provider usage parsing and cost calculation
+    const proxy_usage_tracker_module = b.addModule("proxy_usage_tracker", .{
+        .root_source_file = b.path("src/proxy/usage_tracker.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Forwarder module - Request forwarding types and rectification detection
+    const proxy_forwarder_module = b.addModule("proxy_forwarder", .{
+        .root_source_file = b.path("src/proxy/forwarder.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Hot Config module - In-memory hot configuration with backup/rollback
+    const proxy_hot_config_module = b.addModule("proxy_hot_config", .{
+        .root_source_file = b.path("src/proxy/hot_config.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Log Codes module - Structured log codes for proxy events
+    const proxy_log_codes_module = b.addModule("proxy_log_codes", .{
+        .root_source_file = b.path("src/proxy/log_codes.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Request Context module - Per-request state for multi-app pipeline
+    const proxy_request_context_module = b.addModule("proxy_request_context", .{
+        .root_source_file = b.path("src/proxy/request_context.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Proxy Pipeline module - Request processing middleware chain
+    const proxy_pipeline_module = b.addModule("proxy_pipeline", .{
+        .root_source_file = b.path("src/proxy/pipeline.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
     // ============================================================================
@@ -869,6 +956,11 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const cmd_core_proxy_helpers_module = b.addModule("proxy_helpers", .{
+        .root_source_file = b.path("src/cmd/core/proxy_helpers.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const cmd_core_runner_module = b.addModule("runner", .{
         .root_source_file = b.path("src/cmd/core/runner.zig"),
         .target = target,
@@ -888,6 +980,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/core/gain.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
+        },
     });
     const cmd_core_rules_module = b.addModule("rules", .{
         .root_source_file = b.path("src/cmd/core/rules.zig"),
@@ -919,6 +1014,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "rules", .module = cmd_core_rules_module },
             .{ .name = "lexer", .module = cmd_core_lexer_module },
+            .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
         },
     });
     const cmd_core_config_module = b.addModule("config", .{
@@ -945,6 +1041,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/core/cc_economics.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
+        },
     });
     const cmd_core_trust_module = b.addModule("trust", .{
         .root_source_file = b.path("src/cmd/core/trust.zig"),
@@ -1155,10 +1254,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "key", .module = cmd_core_key_module },
             .{ .name = "ccusage", .module = cmd_core_ccusage_module },
             .{ .name = "toml_filter", .module = cmd_core_toml_filter_module },
+            .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
         },
     });
-
-    // cmd module - Command dispatcher
     const cmd_module = b.addModule("cmd", .{
         .root_source_file = b.path("src/cmd/cmd.zig"),
         .target = target,
@@ -1263,6 +1361,17 @@ pub fn build(b: *std.Build) void {
             .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
             .{ .name = "active_health", .module = proxy_active_health_module },
             .{ .name = "types", .module = provider_types_module },
+            .{ .name = "proxy_header_case", .module = proxy_header_case_module },
+            .{ .name = "proxy_app_type_router", .module = proxy_app_type_router_module },
+            .{ .name = "proxy_format_transformer", .module = proxy_format_transformer_module },
+            .{ .name = "proxy_provider_adapter", .module = proxy_provider_adapter_module },
+            .{ .name = "proxy_failover", .module = proxy_failover_module },
+            .{ .name = "proxy_error_mapper", .module = proxy_error_mapper_module },
+            .{ .name = "proxy_usage_tracker", .module = proxy_usage_tracker_module },
+            .{ .name = "proxy_forwarder", .module = proxy_forwarder_module },
+            .{ .name = "proxy_hot_config", .module = proxy_hot_config_module },
+            .{ .name = "proxy_request_context", .module = proxy_request_context_module },
+            .{ .name = "proxy_pipeline", .module = proxy_pipeline_module },
         },
     });
 
@@ -1273,6 +1382,31 @@ pub fn build(b: *std.Build) void {
 
     const proxy_test_step = b.step("proxy-test", "Run proxy component tests");
     proxy_test_step.dependOn(&proxy_test_exe.step);
+
+    // Property-Based Tests module - validates 31 correctness properties
+    const property_test_module = b.addModule("property_tests", .{
+        .root_source_file = b.path("src/test/property_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "proxy_app_type_router", .module = proxy_app_type_router_module },
+            .{ .name = "proxy_format_transformer", .module = proxy_format_transformer_module },
+            .{ .name = "proxy_provider_adapter", .module = proxy_provider_adapter_module },
+            .{ .name = "proxy_error_mapper", .module = proxy_error_mapper_module },
+            .{ .name = "proxy_log_codes", .module = proxy_log_codes_module },
+            .{ .name = "proxy_hot_config", .module = proxy_hot_config_module },
+            .{ .name = "proxy_forwarder", .module = proxy_forwarder_module },
+            .{ .name = "proxy_usage_tracker", .module = proxy_usage_tracker_module },
+        },
+    });
+
+    const property_test_exe = b.addTest(.{
+        .name = "property_tests",
+        .root_module = property_test_module,
+    });
+
+    const property_test_step = b.step("property-test", "Run property-based correctness tests");
+    property_test_step.dependOn(&property_test_exe.step);
 
     // Tracking and Analytics test module
     const tracking_test_module = b.addModule("tracking_test", .{

@@ -11,6 +11,7 @@
 //!   - cache read = 0.1x input weight
 
 const std = @import("std");
+const proxy_helpers = @import("proxy_helpers");
 
 /// Token weighting constants based on Claude API pricing
 const WEIGHT_OUTPUT: f64 = 5.0;
@@ -55,6 +56,15 @@ pub const PeriodEconomics = struct {
 };
 
 pub fn showEconomics(allocator: std.mem.Allocator, options: EconomicsOptions) !void {
+    // Try proxy API first for unified analytics
+    if (proxy_helpers.queryProxyApi(allocator, "/analytics/economics", 2000) catch null) |proxy_response| {
+        defer allocator.free(proxy_response);
+        // Display proxy response directly (pre-formatted by proxy)
+        std.debug.print("{s}\n", .{proxy_response});
+        return;
+    }
+
+    // Fallback: local data sources
     // Try to read ccusage data (Claude Code usage tracking)
     const ccusage = readCcusageData(allocator) catch null;
 

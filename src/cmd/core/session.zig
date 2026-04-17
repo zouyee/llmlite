@@ -17,6 +17,7 @@
 const std = @import("std");
 const rules = @import("rules");
 const lexer = @import("lexer");
+const proxy_helpers = @import("proxy_helpers");
 const fs = std.fs;
 
 pub const SessionOptions = struct {
@@ -480,6 +481,15 @@ fn getJsonBool(data: []const u8, field: []const u8) !bool {
 
 /// Run session analysis
 pub fn runSessionAnalysis(allocator: std.mem.Allocator, options: SessionOptions) !void {
+    // Try proxy API first for unified analytics
+    if (proxy_helpers.queryProxyApi(allocator, "/analytics/sessions", 2000) catch null) |proxy_response| {
+        defer allocator.free(proxy_response);
+        // Display proxy response directly (pre-formatted by proxy)
+        std.debug.print("{s}\n", .{proxy_response});
+        return;
+    }
+
+    // Fallback: local file scanning logic
     // Discover session files
     const project_filter: ?[]const u8 = if (options.all) null else blk: {
         const cwd_str = try std.process.getCwdAlloc(allocator);
