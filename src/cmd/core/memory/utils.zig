@@ -115,6 +115,6 @@ fn extractBaseCommand(cmd: []const u8) []const u8 {
 /// Generate a unique session ID
 pub fn generateSessionId(allocator: std.mem.Allocator) ![]const u8 {
     const timestamp = std.time.timestamp();
-    const pid = std.c.getpid();
-    return try std.fmt.allocPrint(allocator, "session-{d}-{d}", .{ timestamp, pid });
+    const random = std.crypto.random.int(u32);
+    return try std.fmt.allocPrint(allocator, "session-{d}-{d}", .{ timestamp, random });
 }

@@ -1399,6 +1399,7 @@ pub fn build(b: *std.Build) void {
         .version = .{ .major = 0, .minor = 1, .patch = 0 },
     });
 
+    cmd_exe.linkLibC();
     b.installArtifact(cmd_exe);
 
     const cmd_run_cmd = b.addRunArtifact(cmd_exe);
@@ -1460,6 +1461,7 @@ pub fn build(b: *std.Build) void {
         .version = .{ .major = 0, .minor = 2, .patch = 0 },
     });
 
+    proxy_exe.linkLibC();
     b.installArtifact(proxy_exe);
 
     const proxy_run_cmd = b.addRunArtifact(proxy_exe);
