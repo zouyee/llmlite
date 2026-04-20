@@ -217,7 +217,7 @@ pub const CircuitBreaker = struct {
 
     /// Get all circuits in a specific state
     pub fn getCircuitsByState(self: *CircuitBreaker, state: CircuitState) []const []const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result = std.array_list.Managed([]const u8).init(self.allocator);
         var it = self.circuits.iterator();
         while (it.next()) |entry| {
             if (entry.value_ptr.state == state) {

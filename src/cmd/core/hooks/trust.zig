@@ -159,7 +159,7 @@ fn writeStore(store: *TrustStore) !void {
     }
 
     // Build JSON string manually
-    var json = std.ArrayList(u8).init(std.heap.page_allocator);
+    var json = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer json.deinit();
 
     try json.appendSlice("{\n");

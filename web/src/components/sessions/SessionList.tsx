@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSessions, useDeleteSession, useArchiveSession } from '@/hooks/useSession'
+import { useSessions, useDeleteSession, useArchiveSession, useRestoreSession } from '@/hooks/useSession'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import toast from 'react-hot-toast'
 
 const TOOL_LABELS: Record<string, string> = {
@@ -18,10 +19,17 @@ export default function SessionList() {
   const { data: sessions, isLoading } = useSessions(toolFilter)
   const deleteSession = useDeleteSession()
   const archiveSession = useArchiveSession()
+  const restoreSession = useRestoreSession()
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const filteredSessions = sessions?.filter((s) =>
-    s.title.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredSessions = sessions?.filter((s) => {
+    const q = search.toLowerCase()
+    return (
+      s.title.toLowerCase().includes(q) ||
+      (s.last_message_preview && s.last_message_preview.toLowerCase().includes(q)) ||
+      (s.first_user_message && s.first_user_message.toLowerCase().includes(q))
+    )
+  })
 
   const handleDelete = async (id: string) => {
     try {
@@ -38,6 +46,15 @@ export default function SessionList() {
       toast.success('Session archived')
     } catch {
       toast.error('Failed to archive session')
+    }
+  }
+
+  const handleRestore = async (id: string) => {
+    try {
+      await restoreSession.mutateAsync(id)
+      toast.success('Session restored')
+    } catch {
+      toast.error('Failed to restore session')
     }
   }
 
@@ -82,10 +99,16 @@ export default function SessionList() {
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-medium text-white">{session.title}</h3>
                     <span className="px-2 py-0.5 text-xs bg-gray-700 rounded">
                       {TOOL_LABELS[session.tool] || session.tool}
+                    </span>
+                    <span className="px-2 py-0.5 text-xs bg-gray-700 rounded">
+                      {session.provider}
+                    </span>
+                    <span className="px-2 py-0.5 text-xs bg-gray-700 rounded">
+                      {session.model}
                     </span>
                     {session.archived && (
                       <span className="px-2 py-0.5 text-xs bg-yellow-600 rounded">
@@ -93,9 +116,6 @@ export default function SessionList() {
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {session.provider} / {session.model}
-                  </p>
                   <p className="text-xs text-gray-500 mt-1">
                     {session.message_count} messages | {formatDate(session.created_at)}
                   </p>
@@ -107,7 +127,14 @@ export default function SessionList() {
                 </div>
 
                 <div className="flex gap-2">
-                  {!session.archived && (
+                  {session.archived ? (
+                    <button
+                      onClick={() => handleRestore(session.id)}
+                      className="px-3 py-1 text-sm bg-green-700 hover:bg-green-600 rounded"
+                    >
+                      Restore
+                    </button>
+                  ) : (
                     <button
                       onClick={() => handleArchive(session.id)}
                       className="px-3 py-1 text-sm bg-yellow-700 hover:bg-yellow-600 rounded"
@@ -116,7 +143,7 @@ export default function SessionList() {
                     </button>
                   )}
                   <button
-                    onClick={() => handleDelete(session.id)}
+                    onClick={() => setConfirmDelete(session.id)}
                     className="px-3 py-1 text-sm bg-red-700 hover:bg-red-600 rounded"
                   >
                     {t('session.delete')}
@@ -127,6 +154,20 @@ export default function SessionList() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!confirmDelete}
+        title={t('session.confirmDeleteTitle', 'Delete Session')}
+        content={t('session.confirmDeleteContent', 'Are you sure you want to delete this session? This action cannot be undone.')}
+        confirmText={t('common.delete', 'Delete')}
+        cancelText={t('common.cancel', 'Cancel')}
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmDelete) handleDelete(confirmDelete)
+          setConfirmDelete(null)
+        }}
+        onCancel={() => setConfirmDelete(null)}
+      />
     </div>
   )
 }

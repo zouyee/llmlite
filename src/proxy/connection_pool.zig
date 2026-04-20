@@ -97,8 +97,10 @@ pub const ConnectionPool = struct {
         // Create new connection if under limit
         if (pool.value_ptr.total_count < self.max_conns_per_provider) {
             const provider_config = registry.getProviderConfig(provider);
-            const address = try std.net.Address.parseIp(provider_config.base_url, 443);
-            const stream = try address.connectTcp();
+            const uri = std.Uri.parse(provider_config.base_url) catch return error.InvalidUrl;
+            const host = uri.host orelse return error.InvalidUrl;
+            const port: u16 = if (uri.port) |p| p else 443;
+            const stream = try std.net.tcpConnectToHost(self.allocator, host.percent_encoded, port);
             errdefer stream.close();
 
             const conn = try self.allocator.create(ManagedConnection);

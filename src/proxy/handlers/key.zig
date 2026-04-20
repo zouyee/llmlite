@@ -79,7 +79,7 @@ pub const KeyHandler = struct {
         };
         defer self.allocator.free(key);
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .id = key,
             .key = key,
             .object = "virtual_key",
@@ -159,7 +159,7 @@ pub const KeyHandler = struct {
     /// GET /keys - List all virtual keys
     fn handleList(self: *KeyHandler, request: *std.http.Server.Request) !void {
         _ = request;
-        var keys_array = std.ArrayList([]const u8).init(self.allocator);
+        var keys_array = std.array_list.Managed([]const u8).init(self.allocator);
         defer {
             for (keys_array.items) |item| self.allocator.free(item);
             keys_array.deinit();
@@ -171,7 +171,7 @@ pub const KeyHandler = struct {
             try keys_array.append(info);
         }
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = keys_array.items,
         }, .{});
@@ -221,7 +221,7 @@ pub const KeyHandler = struct {
     }
 
     fn formatKeyInfo(self: *KeyHandler, vk: *const virtual_key.VirtualKey) ![]u8 {
-        return std.json.stringifyAlloc(self.allocator, .{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .id = vk.id,
             .object = "virtual_key",
             .key_hash = vk.key_hash,

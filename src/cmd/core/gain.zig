@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const proxy_helpers = @import("proxy_helpers");
+const shared = @import("shared_analytics");
 
 pub const GainOptions = struct {
     /// Show ASCII graph
@@ -17,6 +18,8 @@ pub const GainOptions = struct {
     days: u32 = 90,
     /// Output format
     format: enum { text, json, csv } = .text,
+    /// Force local data (skip proxy)
+    local: bool = false,
 };
 
 pub const GainStats = struct {
@@ -36,12 +39,13 @@ pub const TopCommand = struct {
 };
 
 pub fn showGain(allocator: std.mem.Allocator, options: GainOptions) !void {
-    // Try proxy API first for unified analytics
-    if (proxy_helpers.queryProxyApi(allocator, "/analytics/gain", 2000) catch null) |proxy_response| {
-        defer allocator.free(proxy_response);
-        // Display proxy response directly (pre-formatted by proxy)
-        std.debug.print("{s}\n", .{proxy_response});
-        return;
+    // If not in local mode, try proxy unified endpoint first
+    if (!options.local) {
+        if (try queryUnified(allocator)) |unified| {
+            defer freeUnifiedResponse(allocator, unified);
+            try showUnified(unified, options);
+            return;
+        }
     }
 
     // Fallback: local history.db reading
@@ -54,6 +58,62 @@ pub fn showGain(allocator: std.mem.Allocator, options: GainOptions) !void {
     switch (options.format) {
         .text => try showGainText(stats, options),
         .json => try showGainJson(stats),
+        .csv => try showGainCsv(stats),
+    }
+}
+
+fn queryUnified(allocator: std.mem.Allocator) !?shared.UnifiedResponse {
+    const response = proxy_helpers.queryProxyApi(allocator, "/analytics/unified", 2000) catch return null;
+    if (response) |body| {
+        defer allocator.free(body);
+        return shared.parseUnifiedResponse(allocator, body) catch null;
+    }
+    return null;
+}
+
+fn freeUnifiedResponse(allocator: std.mem.Allocator, response: shared.UnifiedResponse) void {
+    for (response.api_cost.by_provider) |p| allocator.free(p.provider);
+    allocator.free(response.api_cost.by_provider);
+    for (response.api_cost.by_model) |m| allocator.free(m.model);
+    allocator.free(response.api_cost.by_model);
+    for (response.cmd_savings.by_command) |c| allocator.free(c.command);
+    allocator.free(response.cmd_savings.by_command);
+}
+
+fn showUnified(response: shared.UnifiedResponse, options: GainOptions) !void {
+    const stats = GainStats{
+        .total_commands = @intCast(response.cmd_savings.total_commands),
+        .total_input_tokens = 0,
+        .total_output_tokens = 0,
+        .total_saved_tokens = @intCast(response.cmd_savings.total_saved_tokens),
+        .avg_savings_pct = response.cmd_savings.avg_savings_pct,
+        .total_exec_time_ms = 0,
+        .top_commands = &.{},
+    };
+
+    switch (options.format) {
+        .text => {
+            std.debug.print("Token Savings Report (Unified)\n", .{});
+            std.debug.print("==============================\n\n", .{});
+            std.debug.print("Commands:    {d}\n", .{stats.total_commands});
+            std.debug.print("Saved:       {d} tokens\n", .{stats.total_saved_tokens});
+            std.debug.print("Avg Savings: {d:.1}%\n", .{stats.avg_savings_pct});
+            std.debug.print("Net Cost:    ${d:.4}\n", .{response.net_cost});
+            if (options.show_graph) {
+                std.debug.print("\nSavings Graph:\n", .{});
+                const bars = @as(u8, @intFromFloat(stats.avg_savings_pct / 5.0));
+                std.debug.print("[", .{});
+                for (0..20) |i| {
+                    if (i < bars) std.debug.print("#", .{}) else std.debug.print("-", .{});
+                }
+                std.debug.print("] {d:.1}%\n", .{stats.avg_savings_pct});
+            }
+        },
+        .json => {
+            const json_out = try shared.serializeUnifiedResponse(std.heap.page_allocator, response);
+            defer std.heap.page_allocator.free(json_out);
+            std.debug.print("{s}\n", .{json_out});
+        },
         .csv => try showGainCsv(stats),
     }
 }
@@ -453,4 +513,46 @@ fn showGainCsv(stats: GainStats) !void {
     }
 
     std.debug.print("{s}", .{output.items});
+}
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
+
+test "normalizeCommand strips llmlite-cmd and rtk prefixes" {
+    try std.testing.expectEqualStrings("git status", normalizeCommand("llmlite-cmd git status"));
+    try std.testing.expectEqualStrings("cargo test", normalizeCommand("llmlite-cmd cargo test"));
+    try std.testing.expectEqualStrings("npm run build", normalizeCommand("rtk npm run build"));
+    try std.testing.expectEqualStrings("docker ps", normalizeCommand("docker ps"));
+    try std.testing.expectEqualStrings("ls -la", normalizeCommand("ls -la"));
+}
+
+test "GainOptions defaults" {
+    const opts = GainOptions{};
+    try std.testing.expect(!opts.show_graph);
+    try std.testing.expect(!opts.show_history);
+    try std.testing.expect(!opts.show_daily);
+    try std.testing.expectEqual(@as(u32, 90), opts.days);
+    try std.testing.expectEqual(@as(@TypeOf(opts.format), .text), opts.format);
+    try std.testing.expect(!opts.local);
+}
+
+test "showGain with local mode and no history file" {
+    // When local=true and no history.db exists, showGain should not error
+    // (it falls back to empty stats and prints them)
+    const allocator = std.testing.allocator;
+    const opts = GainOptions{ .local = true };
+    try showGain(allocator, opts);
+}
+
+test "showGain with local mode json format" {
+    const allocator = std.testing.allocator;
+    const opts = GainOptions{ .local = true, .format = .json };
+    try showGain(allocator, opts);
+}
+
+test "showGain with local mode csv format" {
+    const allocator = std.testing.allocator;
+    const opts = GainOptions{ .local = true, .format = .csv };
+    try showGain(allocator, opts);
 }

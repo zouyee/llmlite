@@ -14,16 +14,20 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { Plus } from 'lucide-react'
+import { Plus, Download } from 'lucide-react'
 import {
   useProviders,
   useDeleteProvider,
   useSwitchProvider,
   useTestProvider,
+  useUpdateProvider,
+  useImportPreset,
+  usePresets,
 } from '@/hooks/useProvider'
+import { useHealth } from '@/hooks/useHealth'
 import { useDragSort } from '@/hooks/useDragSort'
 import toast from 'react-hot-toast'
-import type { Provider } from '@/lib/api/llmlite'
+import type { Provider } from '@/lib/api/providers'
 import { ProviderCard } from './ProviderCard'
 import { AddProviderDialog } from './AddProviderDialog'
 import { EditProviderDialog } from './EditProviderDialog'
@@ -31,13 +35,18 @@ import { EditProviderDialog } from './EditProviderDialog'
 export default function ProviderList() {
   const { t } = useTranslation()
   const { data: providers, isLoading } = useProviders()
+  const { data: health } = useHealth()
+  const { data: presets } = usePresets()
   const deleteProvider = useDeleteProvider()
   const switchProvider = useSwitchProvider()
   const testProvider = useTestProvider()
+  const updateProvider = useUpdateProvider()
+  const importPreset = useImportPreset()
 
   const [search, setSearch] = useState('')
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
+  const [showPresets, setShowPresets] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -68,13 +77,11 @@ export default function ProviderList() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm('Delete this provider?')) {
-      try {
-        await deleteProvider.mutateAsync(id)
-        toast.success('Provider deleted')
-      } catch {
-        toast.error('Failed to delete provider')
-      }
+    try {
+      await deleteProvider.mutateAsync(id)
+      toast.success('Provider deleted')
+    } catch {
+      toast.error('Failed to delete provider')
     }
   }
 
@@ -98,6 +105,37 @@ export default function ProviderList() {
     } catch {
       toast.error('Test failed')
     }
+  }
+
+  const handleToggleEnabled = async (provider: Provider) => {
+    try {
+      await updateProvider.mutateAsync({
+        id: provider.id,
+        config: { enabled: !provider.enabled },
+      })
+      toast.success(provider.enabled ? 'Provider disabled' : 'Provider enabled')
+    } catch {
+      toast.error('Failed to update provider')
+    }
+  }
+
+  const handleImportPreset = async (presetId: string) => {
+    try {
+      await importPreset.mutateAsync(presetId)
+      toast.success('Preset imported')
+    } catch {
+      toast.error('Failed to import preset')
+    }
+  }
+
+  const getProviderHealth = (id: string) => {
+    const p = health?.providers[id]
+    if (!p) return undefined
+    return p.healthy ? 'healthy' : ('degraded' as const)
+  }
+
+  const getCircuitState = (id: string) => {
+    return health?.providers[id]?.circuit_state
   }
 
   if (isLoading) {
@@ -124,14 +162,37 @@ export default function ProviderList() {
       </div>
 
       {!filteredProviders.length ? (
-        <div className="text-center py-12">
-          <p className="text-gray-400 mb-4">No providers configured</p>
-          <button
-            onClick={() => setIsAddDialogOpen(true)}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white"
-          >
-            Add Your First Provider
-          </button>
+        <div className="text-center py-12 space-y-4">
+          <p className="text-gray-400">{t('provider.noProviders')}</p>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={() => setIsAddDialogOpen(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white"
+            >
+              {t('provider.addFirst', 'Add Your First Provider')}
+            </button>
+            <button
+              onClick={() => setShowPresets(!showPresets)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white"
+            >
+              <Download className="w-4 h-4" />
+              {t('provider.importPreset', 'Import Preset')}
+            </button>
+          </div>
+          {showPresets && presets && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl mx-auto">
+              {presets.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => handleImportPreset(preset.id)}
+                  className="text-left px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg hover:border-blue-500 transition-colors"
+                >
+                  <div className="font-medium text-sm">{preset.name}</div>
+                  <div className="text-xs text-gray-400 mt-1">{preset.description}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <DndContext
@@ -144,13 +205,18 @@ export default function ProviderList() {
             strategy={verticalListSortingStrategy}
           >
             <div className="grid gap-3">
-              {filteredProviders.map((provider) => (
+              {filteredProviders.map((provider, index) => (
                 <ProviderCard
                   key={provider.id}
                   provider={provider}
+                  isActive={index === 0}
+                  healthStatus={getProviderHealth(provider.id)}
+                  failoverPriority={index}
+                  circuitState={getCircuitState(provider.id)}
                   onEdit={() => setEditingProvider(provider)}
                   onTest={() => handleTest(provider.id)}
                   onSetActive={() => handleSetActive(provider.id)}
+                  onToggleEnabled={() => handleToggleEnabled(provider)}
                   onDelete={() => handleDelete(provider.id)}
                 />
               ))}

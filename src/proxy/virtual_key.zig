@@ -63,8 +63,7 @@ pub const VirtualKeyStore = struct {
 
     fn addWithKey(self: *VirtualKeyStore, key: []const u8, config: VirtualKeyConfig) !void {
         const key_hash = try hashKey(key, self.allocator);
-        const vk = try self.allocator.create(VirtualKey);
-        vk.* = .{
+        const vk = VirtualKey{
             .id = try self.allocator.dupe(u8, key),
             .key_hash = key_hash,
             .user_id = if (config.user_id) |uid| try self.allocator.dupe(u8, uid) else null,
@@ -86,7 +85,7 @@ pub const VirtualKeyStore = struct {
             .last_used = null,
             .active = true,
         };
-        try self.keys.put(try self.allocator.dupe(u8, key), vk.*);
+        try self.keys.put(try self.allocator.dupe(u8, key), vk);
     }
 
     pub fn validate(self: *VirtualKeyStore, key: []const u8) !void {
@@ -178,7 +177,7 @@ pub const VirtualKeyStore = struct {
 
     /// Get all keys for a user
     pub fn getByUser(self: *VirtualKeyStore, user_id: []const u8) []const VirtualKey {
-        var result = std.ArrayList(VirtualKey).init(self.allocator);
+        var result = std.array_list.Managed(VirtualKey).init(self.allocator);
         var it = self.keys.iterator();
         while (it.next()) |entry| {
             if (entry.value_ptr.user_id) |uid| {
@@ -192,7 +191,7 @@ pub const VirtualKeyStore = struct {
 
     /// Get all keys for a team
     pub fn getByTeam(self: *VirtualKeyStore, team_id: []const u8) []const VirtualKey {
-        var result = std.ArrayList(VirtualKey).init(self.allocator);
+        var result = std.array_list.Managed(VirtualKey).init(self.allocator);
         var it = self.keys.iterator();
         while (it.next()) |entry| {
             if (entry.value_ptr.team_id) |tid| {
@@ -207,7 +206,7 @@ pub const VirtualKeyStore = struct {
     fn generateRandomKey(allocator: std.mem.Allocator) ![]const u8 {
         const prefix = "sk-";
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        var key = std.ArrayList(u8).init(allocator);
+        var key = std.array_list.Managed(u8).init(allocator);
         try key.appendSlice(prefix);
         const key_len = 48;
         for (0..key_len) |_| {

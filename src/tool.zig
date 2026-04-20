@@ -116,6 +116,10 @@ pub const ToolExecutor = struct {
     }
 
     pub fn deinit(self: *ToolExecutor) void {
+        var it = self.tools.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
+        }
         self.tools.deinit();
     }
 
@@ -151,12 +155,11 @@ pub const ToolHandler = struct {
 pub const ToolHandlerFunc = fn (allocator: std.mem.Allocator, arguments: std.json.Value) anyerror![]const u8;
 
 /// Create a tool handler from a typed function
+/// Note: This uses std.json.parseFromValue for type-safe JSON deserialization.
 pub fn createHandler(comptime T: type, func: *const fn (std.mem.Allocator, T) anyerror![]const u8) ToolHandlerFunc {
     return struct {
         fn handler(allocator: std.mem.Allocator, args: std.json.Value) anyerror![]const u8 {
-            // Convert JSON Value to typed arguments
-            const typed_args = try json.stringifyArbitrary(args);
-            const parsed = try json.parseFromSlice(T, allocator, typed_args, .{});
+            const parsed = try json.parseFromValue(T, allocator, args, .{});
             defer parsed.deinit();
             return try func(allocator, parsed.value);
         }
@@ -168,13 +171,14 @@ pub fn createHandler(comptime T: type, func: *const fn (std.mem.Allocator, T) an
 // ============================================================================
 
 /// Creates a weather tool definition
-pub fn weatherTool() Tool {
+/// Caller must provide an allocator for the properties HashMap.
+pub fn weatherTool(allocator: std.mem.Allocator) Tool {
     return Tool{
         .name = "get_weather",
         .description = "Get the current weather in a given location",
         .parameters = .{
             .type = "object",
-            .properties = std.StringHashMap(ToolProperty).init(std.heap.page_allocator),
+            .properties = std.StringHashMap(ToolProperty).init(allocator),
             .required = &.{"location"},
         },
     };
@@ -189,6 +193,7 @@ pub fn buildTool(name: []const u8, description: []const u8) ToolBuilder {
 }
 
 pub const ToolBuilder = struct {
+    allocator: std.mem.Allocator,
     name: []const u8,
     description: []const u8,
     properties: std.StringHashMap(ToolProperty),
@@ -196,6 +201,7 @@ pub const ToolBuilder = struct {
 
     pub fn init(allocator: std.mem.Allocator) ToolBuilder {
         return .{
+            .allocator = allocator,
             .name = undefined,
             .description = undefined,
             .properties = std.StringHashMap(ToolProperty).init(allocator),
@@ -205,7 +211,7 @@ pub const ToolBuilder = struct {
 
     pub fn deinit(self: *ToolBuilder) void {
         self.properties.deinit();
-        self.required.deinit(self.properties.allocator);
+        self.required.deinit(self.allocator);
     }
 
     pub fn addProperty(self: *ToolBuilder, key: []const u8, prop: ToolProperty, required: bool) !*ToolBuilder {
@@ -236,14 +242,14 @@ pub const ToolBuilder = struct {
         return self.addProperty(key, .{ .type = "string", .description = description, .@"enum" = enum_vals }, required);
     }
 
-    pub fn finish(self: *ToolBuilder) Tool {
+    pub fn finish(self: *ToolBuilder) !Tool {
         return Tool{
             .name = self.name,
             .description = self.description,
             .parameters = .{
                 .type = "object",
                 .properties = self.properties,
-                .required = if (self.required.items.len > 0) try self.required.toOwnedSlice(self.properties.allocator) else null,
+                .required = if (self.required.items.len > 0) try self.required.toOwnedSlice(self.allocator) else null,
             },
         };
     }

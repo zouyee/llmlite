@@ -26,8 +26,28 @@ build-release: ## Build release version
 run: build ## Run the application
 	$(ZIG) build run
 
-test: ## Run all tests
+test: ## Run unit tests
 	$(ZIG) build test
+
+test-all: test test-property test-integration test-persistence test-savings-reporter test-gain test-proxy ## Run all tests
+
+test-property: build ## Run property-based correctness tests
+	$(ZIG) build property-test
+
+test-integration: build ## Run proxy-cmd integration tests
+	$(ZIG) build integration-test
+
+test-persistence: build ## Run proxy SQLite persistence tests
+	$(ZIG) build persistence-test
+
+test-savings-reporter: build ## Run savings reporter unit tests
+	$(ZIG) build savings-reporter-test
+
+test-gain: build ## Run gain command unit tests
+	$(ZIG) build gain-test
+
+test-proxy: build ## Run proxy component tests
+	$(ZIG) build proxy-test
 
 test-kimi: build ## Run Kimi provider tests
 	KIMI_API_KEY=$$(grep -oP 'KIMI_API_KEY=\K+' .env 2>/dev/null || echo "") && \

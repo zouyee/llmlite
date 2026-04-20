@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import { usePresets, useCreateProvider, useImportPreset } from '@/hooks/useProvider'
-import type { CreateProviderRequest } from '@/lib/api/llmlite'
+import type { CreateProviderRequest } from '@/lib/api/providers'
 
 interface AddProviderDialogProps {
   isOpen: boolean

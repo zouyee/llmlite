@@ -11,12 +11,12 @@ pub const MigrationResult = struct {
 
 pub const Migrator = struct {
     allocator: std.mem.Allocator,
-    errors: std.ArrayList([]const u8),
+    errors: std.array_list.Managed([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) Migrator {
         return .{
             .allocator = allocator,
-            .errors = std.ArrayList([]const u8).init(allocator),
+            .errors = std.array_list.Managed([]const u8).init(allocator),
         };
     }
 

@@ -149,12 +149,12 @@ pub const SpendEntry = struct {
 
 pub const SpendTracker = struct {
     allocator: std.mem.Allocator,
-    entries: std.ArrayList(SpendEntry),
+    entries: std.array_list.Managed(SpendEntry),
 
     pub fn init(allocator: std.mem.Allocator) SpendTracker {
         return .{
             .allocator = allocator,
-            .entries = std.ArrayList(SpendEntry).init(allocator),
+            .entries = std.array_list.Managed(SpendEntry).init(allocator),
         };
     }
 
@@ -224,7 +224,7 @@ pub const SpendTracker = struct {
 
     /// Get spend entries for a key within time range
     pub fn getEntriesForKey(self: *SpendTracker, key_id: []const u8, start_time: i64, end_time: i64) []const SpendEntry {
-        var result = std.ArrayList(SpendEntry).init(self.allocator);
+        var result = std.array_list.Managed(SpendEntry).init(self.allocator);
         for (self.entries.items) |entry| {
             if (std.mem.eql(u8, entry.key_id, key_id) and entry.timestamp >= start_time and entry.timestamp <= end_time) {
                 result.append(entry) catch {};
@@ -246,7 +246,7 @@ pub const SpendTracker = struct {
             }
         }
 
-        var result = std.ArrayList(struct { date: []const u8, cost: f64 }).init(self.allocator);
+        var result = std.array_list.Managed(struct { date: []const u8, cost: f64 }).init(self.allocator);
         var it = daily.iterator();
         while (it.next()) |entry| {
             result.append(.{ .date = entry.key_ptr.*, .cost = entry.value_ptr.* }) catch {};
@@ -267,7 +267,7 @@ pub const SpendTracker = struct {
             }
         }
 
-        var result = std.ArrayList(struct { month: []const u8, cost: f64 }).init(self.allocator);
+        var result = std.array_list.Managed(struct { month: []const u8, cost: f64 }).init(self.allocator);
         var it = monthly.iterator();
         while (it.next()) |entry| {
             result.append(.{ .month = entry.key_ptr.*, .cost = entry.value_ptr.* }) catch {};

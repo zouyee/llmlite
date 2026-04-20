@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { mcpApi, type McpServer } from '@/lib/api/llmlite'
+import { mcpApi, type McpServer } from '@/lib/api/mcp'
 
 export function useMcpServers() {
   return useQuery({

@@ -85,3 +85,6 @@ pub const eslint = @import("eslint");
 pub const aws = @import("aws");
 pub const curl = @import("curl");
 pub const proxy_helpers = @import("proxy_helpers");
+pub const memory = @import("memory");
+pub const memory_cmd = @import("memory_cmd");
+pub const modes = @import("modes");

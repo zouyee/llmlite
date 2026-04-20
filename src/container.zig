@@ -67,40 +67,50 @@ pub const ContainerService = struct {
     }
 
     fn serializeParams(self: *ContainerService, params: CreateContainerParams) ![]u8 {
-        var parts = std.ArrayList(u8).init(self.allocator);
+        var parts = std.array_list.Managed(u8).init(self.allocator);
         errdefer parts.deinit();
 
-        try std.json.stringify(.{
-            .name = params.name,
-        }, .{}, parts.writer());
+        const name_json = try std.json.Stringify.valueAlloc(self.allocator, .{ .name = params.name }, .{});
+        defer self.allocator.free(name_json);
+        try parts.appendSlice(name_json);
 
         if (params.expires_after) |v| {
             try parts.appendSlice(",\"expires_after\":");
-            try std.json.stringify(.{ .anchor = v.anchor, .minutes = v.minutes }, .{}, parts.writer());
+            const ea_json = try std.json.Stringify.valueAlloc(self.allocator, .{ .anchor = v.anchor, .minutes = v.minutes }, .{});
+            defer self.allocator.free(ea_json);
+            try parts.appendSlice(ea_json);
         }
         if (params.file_ids) |v| {
             try parts.appendSlice(",\"file_ids\":");
-            try std.json.stringify(v, .{}, parts.writer());
+            const fi_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(fi_json);
+            try parts.appendSlice(fi_json);
         }
         if (params.memory_limit) |v| {
             try parts.appendSlice(",\"memory_limit\":");
-            try std.json.stringify(v, .{}, parts.writer());
+            const ml_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(ml_json);
+            try parts.appendSlice(ml_json);
         }
         if (params.network_policy) |v| {
             try parts.appendSlice(",\"network_policy\":");
-            try std.json.stringify(v, .{}, parts.writer());
+            const np_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(np_json);
+            try parts.appendSlice(np_json);
         }
 
         return parts.toOwnedSlice();
     }
 
     fn serializeListParams(self: *ContainerService, params: ListContainersParams) ![]u8 {
-        var parts = std.ArrayList(u8).init(self.allocator);
+        var parts = std.array_list.Managed(u8).init(self.allocator);
         errdefer parts.deinit();
 
         try parts.appendSlice("?");
         if (params.limit) |v| {
-            try std.json.stringify(.{ .limit = v }, .{}, parts.writer());
+            const limit_json = try std.json.Stringify.valueAlloc(self.allocator, .{ .limit = v }, .{});
+            defer self.allocator.free(limit_json);
+            try parts.appendSlice(limit_json);
         }
         if (params.after) |v| {
             if (parts.items.len > 1) try parts.appendSlice("&");

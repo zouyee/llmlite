@@ -536,6 +536,10 @@ fn llmlite_git_diff(allocator: std.mem.Allocator, args: ?std.json.Value) CallToo
         break :blk "";
     } else "";
 
+    if (file.len > 0 and !validateSafeArg(file)) {
+        return makeErrorResult(allocator, "invalid file argument");
+    }
+
     const cmd = if (file.len > 0)
         std.fmt.allocPrint(allocator, "git diff --stat {s}", .{file})
     else
@@ -585,6 +589,10 @@ fn llmlite_cargo_test(allocator: std.mem.Allocator, args: ?std.json.Value) CallT
         break :blk "";
     } else "";
 
+    if (extra_args.len > 0 and !validateSafeArg(extra_args)) {
+        return makeErrorResult(allocator, "invalid args argument");
+    }
+
     const cmd = if (extra_args.len > 0)
         std.fmt.allocPrint(allocator, "cargo test {s} 2>&1", .{extra_args})
     else
@@ -618,6 +626,10 @@ fn llmlite_cargo_build(allocator: std.mem.Allocator, args: ?std.json.Value) Call
         }
         break :blk "";
     } else "";
+
+    if (extra_args.len > 0 and !validateSafeArg(extra_args)) {
+        return makeErrorResult(allocator, "invalid args argument");
+    }
 
     const cmd = if (extra_args.len > 0)
         std.fmt.allocPrint(allocator, "cargo build {s} 2>&1", .{extra_args})
@@ -660,6 +672,8 @@ fn llmlite_npm_test(allocator: std.mem.Allocator, args: ?std.json.Value) CallToo
                 // keep npm as default
             };
         };
+    } else if (!validateSafeArg(actual_pm)) {
+        return makeErrorResult(allocator, "invalid package_manager argument");
     }
 
     const cmd = std.fmt.allocPrint(allocator, "{s} test 2>&1", .{actual_pm}) catch {
@@ -759,6 +773,10 @@ fn llmlite_kubectl_pods(allocator: std.mem.Allocator, args: ?std.json.Value) Cal
         break :blk "default";
     } else "default";
 
+    if (!validateSafeArg(namespace)) {
+        return makeErrorResult(allocator, "invalid namespace argument");
+    }
+
     const cmd = std.fmt.allocPrint(allocator, "kubectl get pods -n {s} --no-headers 2>&1", .{namespace}) catch {
         return makeErrorResult(allocator, "failed to format command");
     };
@@ -776,12 +794,11 @@ fn llmlite_kubectl_pods(allocator: std.mem.Allocator, args: ?std.json.Value) Cal
 }
 
 /// Get filtering statistics
-fn llmlite_filter_stats(_allocator: std.mem.Allocator) CallToolResult {
-    _ = _allocator;
+fn llmlite_filter_stats(allocator: std.mem.Allocator) CallToolResult {
     const reduction_pct = global_filter_stats.getReductionPct();
     const saved_bytes = global_filter_stats.total_original_bytes - global_filter_stats.total_filtered_bytes;
 
-    const stats_text = std.fmt.allocPrint(std.heap.page_allocator,
+    const stats_text = std.fmt.allocPrint(allocator,
         \\{{"filtering_stats":{{"total_commands":{},"commands_filtered":{},"original_bytes":{},"filtered_bytes":{},"saved_bytes":{},"reduction_pct":{d:.1}}}}}
     , .{
         global_filter_stats.total_commands,
@@ -791,13 +808,24 @@ fn llmlite_filter_stats(_allocator: std.mem.Allocator) CallToolResult {
         saved_bytes,
         reduction_pct,
     }) catch {
-        return makeErrorResultStatic("{\"error\":\"stats_failed\"}");
+        return makeErrorResult(allocator, "stats_failed");
     };
 
-    return makeTextResult(std.heap.page_allocator, stats_text);
+    return makeTextResult(allocator, stats_text);
 }
 
 // ========== Helper Functions ==========
+
+/// Validate that an argument does not contain shell metacharacters
+fn validateSafeArg(arg: []const u8) bool {
+    const forbidden = &[_]u8{ ';', '|', '&', '$', '`', '(', ')', '<', '>', '\n', '\r' };
+    for (arg) |c| {
+        for (forbidden) |f| {
+            if (c == f) return false;
+        }
+    }
+    return true;
+}
 
 /// Execute a shell command and return output
 fn executeCommand(allocator: std.mem.Allocator, cmd: []const u8) ![]u8 {
@@ -807,7 +835,7 @@ fn executeCommand(allocator: std.mem.Allocator, cmd: []const u8) ![]u8 {
     });
 
     // Combine stdout and stderr
-    var output = std.ArrayList(u8).empty;
+    var output = std.array_list.Managed(u8).init(allocator);
     if (result.stdout.len > 0) {
         try output.appendSlice(allocator, result.stdout);
     }
@@ -916,7 +944,7 @@ fn filterGitStatus(allocator: std.mem.Allocator, output: []const u8) ![]u8 {
     }
 
     // Build summary string
-    var summary = std.ArrayList(u8).empty;
+    var summary = std.array_list.Managed(u8).init(allocator);
     defer summary.deinit(allocator);
 
     if (added > 0) try std.fmt.format(summary.writer(allocator), "{d} added, ", .{added});
@@ -941,7 +969,7 @@ fn filterStatsExtraction(allocator: std.mem.Allocator, input: []const u8) ![]u8 
         if (std.mem.indexOf(u8, line, "warning") != null) warning_count += 1;
     }
 
-    var result = std.ArrayList(u8).empty;
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit(allocator);
 
     try std.fmt.format(result.writer(allocator), "{d} lines", .{line_count});
@@ -953,7 +981,7 @@ fn filterStatsExtraction(allocator: std.mem.Allocator, input: []const u8) ![]u8 
 
 /// Error only filter - extract only error lines
 fn filterErrorsOnly(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    var errors = std.ArrayList(u8).empty;
+    var errors = std.array_list.Managed(u8).init(allocator);
     defer errors.deinit(allocator);
     var found_errors = false;
 
@@ -1008,7 +1036,7 @@ fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         }
     }
 
-    var result = std.ArrayList(u8).empty;
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit(allocator);
 
     var i: usize = 0;
@@ -1037,7 +1065,7 @@ fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         try seen.put(try allocator.dupe(u8, trimmed), idx + 1);
     }
 
-    var result = std.ArrayList(u8).empty;
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit(allocator);
 
     var i: usize = 0;
@@ -1057,7 +1085,7 @@ fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
 
 /// Failure focus filter - show only failures
 fn filterFailureFocus(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).empty;
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit(allocator);
     var found_failure = false;
 
@@ -1107,7 +1135,7 @@ fn filterTreeCompression(allocator: std.mem.Allocator, input: []const u8) ![]u8 
         try dir_counts.put(dir, count + 1);
     }
 
-    var result = std.ArrayList(u8).empty;
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit(allocator);
 
     var it = dir_counts.iterator();

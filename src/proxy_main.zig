@@ -1,8 +1,5 @@
 const std = @import("std");
 const proxy = @import("proxy");
-const virtual_key = @import("virtual_key");
-const rate_limit = @import("proxy_rate_limit");
-const logger = @import("proxy_logger");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,16 +9,16 @@ pub fn main() !void {
     std.log.info("llmlite-proxy starting...", .{});
 
     // Initialize components
-    var key_store = virtual_key.VirtualKeyStore.init(allocator);
+    var key_store = proxy.VirtualKeyStore.init(allocator);
     defer key_store.deinit();
 
-    var rate_limiter = rate_limit.RateLimiter.init(allocator);
+    var rate_limiter = proxy.RateLimiter.init(allocator);
     defer rate_limiter.deinit();
 
-    var request_logger = try logger.RequestLogger.init(allocator, null, true);
+    var request_logger = try proxy.RequestLogger.init(allocator, null, true);
     defer request_logger.deinit();
 
-    var metrics = logger.MetricsCollector{};
+    var metrics = proxy.MetricsCollector{};
 
     // Add test API key
     try key_store.add("sk-test-key", .{

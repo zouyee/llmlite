@@ -81,14 +81,14 @@ pub const SessionSummary = struct {
 pub const SessionStore = struct {
     allocator: std.mem.Allocator,
     sessions: std.StringArrayHashMap(Session),
-    sessions_by_tool: std.enums.EnumArray(CliTool, std.ArrayList([]const u8)),
+    sessions_by_tool: std.enums.EnumArray(CliTool, std.array_list.Managed([]const u8)),
     index_dir: []const u8,
 
     pub fn init(allocator: std.mem.Allocator) SessionStore {
         return .{
             .allocator = allocator,
             .sessions = std.StringArrayHashMap(Session).init(allocator),
-            .sessions_by_tool = std.enums.EnumArray(CliTool, std.ArrayList([]const u8)).init(undefined),
+            .sessions_by_tool = std.enums.EnumArray(CliTool, std.array_list.Managed([]const u8)).init(undefined),
             .index_dir = undefined,
         };
     }
@@ -187,7 +187,7 @@ pub const SessionStore = struct {
     fn addToToolIndex(self: *SessionStore, tool: CliTool, id: []const u8) !void {
         const list = self.sessions_by_tool.get(tool);
         if (list == null) {
-            const new_list = std.ArrayList([]const u8).init(self.allocator);
+            const new_list = std.array_list.Managed([]const u8).init(self.allocator);
             self.sessions_by_tool.set(tool, new_list);
         }
         const id_copy = self.allocator.dupe(u8, id) catch return error.AllocatorError;
@@ -441,13 +441,7 @@ pub const SessionStore = struct {
     /// Export session to JSON
     pub fn exportSession(self: *SessionStore, id: []const u8) !?[]u8 {
         const session = self.sessions.get(id) orelse return null;
-
-        var result = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(result.writer(), session, .{
-            .whitespace = .indent_tab,
-        });
-
-        return result.toOwnedSlice();
+        return std.json.Stringify.valueAlloc(self.allocator, session, .{ .whitespace = .indent_tab });
     }
 
     /// Import session from JSON
@@ -510,14 +504,12 @@ pub const SessionStore = struct {
             );
             defer self.allocator.free(file_path);
 
-            var content = std.StringArrayList(u8).init(self.allocator);
-            try std.json.stringify(content.writer(), session, .{
-                .whitespace = .indent_tab,
-            });
+            const content = try std.json.Stringify.valueAlloc(self.allocator, session.*, .{ .whitespace = .indent_tab });
+            defer self.allocator.free(content);
 
             const file = try std.fs.createFileAbsolute(file_path, .{});
             defer file.close();
-            try file.writeAll(content.items);
+            try file.writeAll(content);
         }
     }
 
@@ -585,7 +577,7 @@ pub const UnifiedSessionPreview = struct {
     /// Get a unified list of recent sessions across all tools
     /// Sorted by last update time (most recent first)
     pub fn getRecentSessions(self: *UnifiedSessionPreview, limit: u32) ![]SessionSummary {
-        var all_sessions = std.ArrayList(SessionSummary).init(self.allocator);
+        var all_sessions = std.array_list.Managed(SessionSummary).init(self.allocator);
         defer all_sessions.deinit();
 
         // Collect sessions from all tools
@@ -619,7 +611,7 @@ pub const UnifiedSessionPreview = struct {
 
     /// Search across all tools
     pub fn searchAll(self: *UnifiedSessionPreview, query: []const u8, limit: u32) ![]SessionSummary {
-        var all_results = std.ArrayList(SessionSummary).init(self.allocator);
+        var all_results = std.array_list.Managed(SessionSummary).init(self.allocator);
         defer all_results.deinit();
 
         // Search each tool
@@ -651,7 +643,7 @@ pub const UnifiedSessionPreview = struct {
 
     /// Get sessions grouped by provider
     pub fn getSessionsByProvider(self: *UnifiedSessionPreview, provider: []const u8, limit: u32) ![]SessionSummary {
-        var results = std.ArrayList(SessionSummary).init(self.allocator);
+        var results = std.array_list.Managed(SessionSummary).init(self.allocator);
         defer results.deinit();
 
         const tools = [_]CliTool{ .claude_code, .codex, .gemini_cli, .opencode, .openclaw };
@@ -673,7 +665,7 @@ pub const UnifiedSessionPreview = struct {
 
     /// Get sessions grouped by model
     pub fn getSessionsByModel(self: *UnifiedSessionPreview, model: []const u8, limit: u32) ![]SessionSummary {
-        var results = std.ArrayList(SessionSummary).init(self.allocator);
+        var results = std.array_list.Managed(SessionSummary).init(self.allocator);
         defer results.deinit();
 
         const tools = [_]CliTool{ .claude_code, .codex, .gemini_cli, .opencode, .openclaw };

@@ -440,7 +440,7 @@ pub const AsyncStreamReader = struct {
         try self.buffer.appendSlice(self.allocator, data);
     }
 
-    pub fn readLine(self: *AsyncStreamReader) ?[]const u8 {
+    pub fn readLine(self: *AsyncStreamReader) !?[]const u8 {
         for (self.buffer.items, 0..) |byte, i| {
             if (byte == '\n') {
                 const line = self.buffer.items[0..i];

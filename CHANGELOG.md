@@ -9,14 +9,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 #### CLI Tool (llmlite-cmd)
-- **Command Proxy** (`src/cmd/`): CLI command proxy that intercepts developer commands and filters output
+- **Command Proxy** (`src/cmd/`): Developer command companion with intelligent output filtering, cross-session memory, and token savings tracking
 - **6-Phase Execution Framework** (`src/cmd/core/runner.zig`): Execute → Filter → Tee → Print → Track → Exit
 - **12+ Filter Strategies** (`src/cmd/core/filter.zig`): stats, errors_only, grouping, deduplication, failure_focus, tree_compression, etc.
 - **SQLite Token Tracking** (`src/cmd/core/tracking.zig`): Persistent token savings statistics
 - **Shell Hook System** (`src/cmd/core/hook.zig`): bash/zsh automatic integration
-- **50+ Command Modules**: git, cargo, npm, pytest, docker, kubectl, go, aws, eslint, tsc, prettier, prisma, playwright, rake, rspec, rubocop, dotnet, curl, nextjs, vitest, pnpm, pip, mypy, ruff, etc.
+- **80+ Command Modules**: git, cargo, npm, pytest, docker, kubectl, go, aws, eslint, tsc, prettier, prisma, playwright, rake, rspec, rubocop, dotnet, curl, nextjs, vitest, pnpm, pip, mypy, ruff, zig, kiro, biome, terraform, helm, gcloud, ansible-playbook, gradle, mvn, swift, just, mise, task, jj, and more
 - **Failure Recovery** (`src/cmd/core/tee.zig`): Saves raw output on failure
 - **Analytics** (`src/cmd/core/gain.zig`, `discover.zig`): Token savings statistics and discovery
+
+#### Proxy-Cmd Integration
+- **SavingsReporter** (`src/cmd/core/savings_reporter.zig`): Async savings report upload to llmlite-proxy with JSONL fallback queue
+- **Unified Analytics Endpoint** (`GET /analytics/unified`): Combined API cost + cmd token savings view
+- **Proxy Upload Pipeline**: Fire-and-forget thread with 50ms probe timeout, automatic local queue on failure
+- **TOML Configuration**: `[analytics]` / `[analytics.proxy]` sections with env var overrides (`LLMLITE_PROXY_HOST`, `LLMLITE_PROXY_PORT`)
+
+#### CLI Memory System (claude-mem inspired)
+- **Memory Module** (`src/cmd/core/memory/`): Cross-session command memory with SQLite + FTS5
+- **Auto-Categorization** (`recorder.zig`): fix, feat, mistake, pattern, config, learn, decision, err, other
+- **Three-Layer Search**: FTS5 full-text, metadata filter, timeline context
+- **Privacy Mode**: In-memory only recording (`LLMLITE_MEMORY_PRIVATE=1`)
+- **Migration Tool**: `history.db` → `memory.db` data migration
+- **Memory Commands**: `llmlite memory search/list/show/timeline/stats/prune/session/migrate`
+
+#### Testing
+- **40 Property-Based Tests** (`src/test/property_tests.zig`): SavingsReport/UnifiedResponse round-trip, invalid JSON rejection, estimateTokens monotonicity, config parse round-trip, time range filtering, env var priority
+- **Savings Reporter Unit Tests** (`src/cmd/core/savings_reporter.zig`): probe timeout, enqueueLocal, retryPending
+- **Gain Command Unit Tests** (`src/cmd/core/gain.zig`): normalizeCommand, GainOptions defaults, local mode output (text/json/csv)
+
+#### Analytics Commands
+- **`llmlite gain --local`**: Force local data, skip proxy query
+- **`llmlite gain --json` / `--csv`**: Machine-readable output formats
+- **`llmlite gain --graph`**: ASCII savings graph
+- **`llmlite gain --history`**: Recent command history with savings
 
 #### MCP Server
 - **MCP Server** (`src/mcp/`): Model Context Protocol server implementation

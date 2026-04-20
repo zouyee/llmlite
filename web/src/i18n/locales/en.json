@@ -7,17 +7,29 @@
     "providers": "Providers",
     "mcp": "MCP Servers",
     "sessions": "Sessions",
-    "settings": "Settings"
+    "settings": "Settings",
+    "proxy": "Proxy",
+    "skills": "Skills",
+    "prompts": "Prompts",
+    "usage": "Usage",
+    "workspace": "Workspace",
+    "openclaw": "OpenClaw"
   },
   "provider": {
     "title": "Provider Management",
     "add": "Add Provider",
+    "addFirst": "Add Your First Provider",
     "edit": "Edit Provider",
     "delete": "Delete",
     "setActive": "Set Active",
     "test": "Test",
     "searchPlaceholder": "Search providers...",
     "noProviders": "No providers configured",
+    "importPreset": "Import Preset",
+    "disabled": "Disabled",
+    "enabled": "Enabled",
+    "official": "Official",
+    "custom": "Custom",
     "form": {
       "name": "Provider Name",
       "baseUrl": "Base URL",
@@ -31,25 +43,179 @@
     "start": "Start",
     "stop": "Stop",
     "restart": "Restart",
-    "noServers": "No MCP servers configured"
+    "noServers": "No MCP servers configured",
+    "wizard": {
+      "title": "MCP Server Wizard",
+      "step1": "Select Preset",
+      "step2": "Configure Server",
+      "step3": "Review",
+      "custom": "Custom Configuration",
+      "next": "Next",
+      "back": "Back",
+      "finish": "Finish"
+    },
+    "name": "Name",
+    "command": "Command",
+    "args": "Arguments",
+    "autoStart": "Auto Start"
   },
   "session": {
     "title": "Session History",
     "searchPlaceholder": "Search sessions...",
     "noSessions": "No sessions found",
     "archived": "Archived",
-    "delete": "Delete"
+    "delete": "Delete",
+    "confirmDeleteTitle": "Delete Session",
+    "confirmDeleteContent": "Are you sure you want to delete this session? This action cannot be undone."
   },
   "settings": {
     "title": "Settings",
     "port": "Proxy Port",
     "save": "Save",
     "reload": "Reload Config",
-    "apiKey": "API Key"
+    "apiKey": "API Key",
+    "theme": "Theme",
+    "mode": "Mode",
+    "dark": "Dark",
+    "light": "Light",
+    "primaryColor": "Primary Color",
+    "language": "Language",
+    "directory": "Directory",
+    "workspaceDir": "Workspace Directory",
+    "sessionDir": "Session Directory",
+    "backup": "Backup",
+    "exportBackup": "Export Backup",
+    "importBackup": "Import Backup",
+    "webdav": "WebDAV",
+    "webdavUrl": "Server URL",
+    "webdavUsername": "Username",
+    "webdavPassword": "Password",
+    "webdavSync": "Sync Now",
+    "terminal": "Terminal",
+    "shellPath": "Shell Path",
+    "shellArgs": "Shell Arguments",
+    "window": "Window",
+    "alwaysOnTop": "Always on Top",
+    "showInDock": "Show in Dock"
   },
   "health": {
     "healthy": "Healthy",
     "degraded": "Degraded",
     "unhealthy": "Unhealthy"
+  },
+  "proxy": {
+    "title": "Proxy Control",
+    "status": "Status",
+    "running": "Running",
+    "stopped": "Stopped",
+    "start": "Start",
+    "stop": "Stop",
+    "failover": "Failover",
+    "failoverEnabled": "Failover Enabled",
+    "queue": "Failover Queue",
+    "autoFailover": "Auto Failover Config",
+    "maxRetries": "Max Retries",
+    "retryInterval": "Retry Interval (ms)",
+    "timeout": "Timeout (ms)",
+    "circuitBreaker": "Circuit Breaker",
+    "failureThreshold": "Failure Threshold",
+    "recoveryTimeout": "Recovery Timeout (ms)",
+    "halfOpenMax": "Half-Open Max Requests"
+  },
+  "skills": {
+    "title": "Skills",
+    "installed": "Installed",
+    "available": "Available",
+    "install": "Install",
+    "uninstall": "Uninstall",
+    "update": "Update",
+    "repos": {
+      "title": "Skill Repositories",
+      "add": "Add Repository",
+      "empty": "No repositories configured"
+    }
+  },
+  "prompts": {
+    "title": "Prompts",
+    "add": "Add Prompt",
+    "edit": "Edit Prompt",
+    "category": "Category",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "content": "Content"
+  },
+  "usage": {
+    "title": "Usage Dashboard",
+    "overview": "Overview",
+    "totalRequests": "Total Requests",
+    "totalTokens": "Total Tokens",
+    "totalCost": "Total Cost",
+    "activeProviders": "Active Providers",
+    "trends": "Trends",
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "logs": "Request Logs",
+    "models": "Model Statistics",
+    "costConfig": "Cost Configuration",
+    "export": "Export CSV",
+    "provider": "Provider",
+    "model": "Model",
+    "status": "Status",
+    "tokensIn": "Tokens In",
+    "tokensOut": "Tokens Out",
+    "latency": "Latency (ms)",
+    "inputPrice": "Input Price",
+    "outputPrice": "Output Price"
+  },
+  "deeplink": {
+    "title": "DeepLink",
+    "confirmTitle": "Confirm Import",
+    "importType": "Importing",
+    "exportTitle": "Export Configuration",
+    "type": "Type",
+    "id": "ID",
+    "generate": "Generate Link",
+    "generating": "Generating..."
+  },
+  "workspace": {
+    "title": "Workspace",
+    "files": "Files",
+    "dailyMemory": "Daily Memory",
+    "memoryPlaceholder": "Record your work today...",
+    "noFiles": "No files"
+  },
+  "openclaw": {
+    "title": "OpenClaw Configuration",
+    "agent": {
+      "title": "Agent Defaults",
+      "model": "Default Model",
+      "temperature": "Temperature",
+      "maxTokens": "Max Tokens"
+    },
+    "env": {
+      "title": "Environment Variables",
+      "key": "Key",
+      "value": "Value"
+    },
+    "tools": {
+      "title": "Tools",
+      "empty": "No tools available"
+    }
+  },
+  "common": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "confirmImport": "Confirm Import",
+    "importing": "Importing...",
+    "save": "Save",
+    "edit": "Edit",
+    "delete": "Delete",
+    "add": "Add",
+    "copy": "Copy",
+    "back": "Back",
+    "next": "Next",
+    "finish": "Finish",
+    "create": "Create"
   }
 }

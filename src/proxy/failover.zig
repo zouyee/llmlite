@@ -92,10 +92,11 @@ pub const FailoverManager = struct {
     pending_switches: std.StringArrayHashMap(i64),
     provider_states: std.StringArrayHashMap(ProviderState),
     cooldown_endpoints: std.StringArrayHashMap(i64),
-    event_history: std.ArrayList(FailoverEvent),
+    event_history: std.array_list.Managed(FailoverEvent),
     switch_lock: SwitchLock,
     /// Tracks current provider per app_type for hot swap
     current_providers: std.StringArrayHashMap([]const u8),
+    lock: std.Thread.Mutex,
 
     pub fn init(allocator: std.mem.Allocator, config: FailoverConfig) FailoverManager {
         return .{
@@ -104,9 +105,10 @@ pub const FailoverManager = struct {
             .pending_switches = std.StringArrayHashMap(i64).init(allocator),
             .provider_states = std.StringArrayHashMap(ProviderState).init(allocator),
             .cooldown_endpoints = std.StringArrayHashMap(i64).init(allocator),
-            .event_history = std.ArrayList(FailoverEvent).init(allocator),
+            .event_history = std.array_list.Managed(FailoverEvent).init(allocator),
             .switch_lock = SwitchLock.init(allocator),
             .current_providers = std.StringArrayHashMap([]const u8).init(allocator),
+            .lock = .{},
         };
     }
 
@@ -151,15 +153,17 @@ pub const FailoverManager = struct {
     pub fn canFailover(self: *FailoverManager, app_type: []const u8, provider_id: []const u8) bool {
         if (!self.config.enabled) return false;
 
+        self.lock.lock();
+        defer self.lock.unlock();
+
         // Build the composite key
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_id }) catch return false;
 
         // Check SwitchLock deduplication
-        self.switch_lock.lock.lock();
-        const switch_locked = self.switch_lock.active_switches.contains(key);
-        self.switch_lock.lock.unlock();
-        if (switch_locked) return false;
+        if (self.switch_lock.active_switches.contains(key)) {
+            return false;
+        }
 
         // Check if switch is pending
         if (self.pending_switches.contains(key)) {
@@ -179,6 +183,9 @@ pub const FailoverManager = struct {
 
     /// Record a provider failure
     pub fn recordFailure(self: *FailoverManager, app_type: []const u8, provider: provider_types.ProviderType) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+
         const provider_name = provider.toString();
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_name }) catch return;
@@ -191,6 +198,9 @@ pub const FailoverManager = struct {
 
     /// Record a provider success (recovery)
     pub fn recordSuccess(self: *FailoverManager, app_type: []const u8, provider: provider_types.ProviderType) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+
         const provider_name = provider.toString();
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_name }) catch return;
@@ -208,6 +218,9 @@ pub const FailoverManager = struct {
 
     /// Get provider state
     pub fn getProviderState(self: *FailoverManager, app_type: []const u8, provider: provider_types.ProviderType) ProviderState {
+        self.lock.lock();
+        defer self.lock.unlock();
+
         const provider_name = provider.toString();
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_name }) catch return .healthy;
@@ -217,6 +230,9 @@ pub const FailoverManager = struct {
 
     /// Start a failover attempt (marks as pending)
     pub fn startFailover(self: *FailoverManager, app_type: []const u8, provider_id: []const u8) !void {
+        self.lock.lock();
+        defer self.lock.unlock();
+
         const key = try std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ app_type, provider_id });
         errdefer self.allocator.free(key);
 
@@ -225,6 +241,9 @@ pub const FailoverManager = struct {
 
     /// End a failover attempt
     pub fn endFailover(self: *FailoverManager, app_type: []const u8, provider_id: []const u8, success: bool) void {
+        self.lock.lock();
+        defer self.lock.unlock();
+
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_id }) catch return;
 
@@ -255,6 +274,9 @@ pub const FailoverManager = struct {
         }
         // Ensure lock is released even on error
         errdefer self.switch_lock.release(key);
+
+        self.lock.lock();
+        defer self.lock.unlock();
 
         // Get old provider for event recording
         const old_provider = if (self.current_providers.get(app_type)) |p| p else "none";
@@ -290,11 +312,17 @@ pub const FailoverManager = struct {
 
     /// Get best available provider from a list
     pub fn selectBestProvider(self: *FailoverManager, providers: []const provider_types.ProviderType, app_type: []const u8) ?provider_types.ProviderType {
+        self.lock.lock();
+        defer self.lock.unlock();
+
         var best: ?provider_types.ProviderType = null;
         var best_state: ProviderState = .offline;
 
         for (providers) |provider| {
-            const state = self.getProviderState(app_type, provider);
+            const provider_name = provider.toString();
+            var pbuf: [512]u8 = undefined;
+            const pkey = std.fmt.bufPrint(&pbuf, "{s}:{s}", .{ app_type, provider_name }) catch continue;
+            const state = self.provider_states.get(pkey) orelse .healthy;
 
             // Priority: healthy > degraded > unhealthy > offline
             const state_priority = switch (state) {

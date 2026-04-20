@@ -1,7 +1,5 @@
-import { useTranslation } from 'react-i18next'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { configApi, healthApi } from '@/lib/api/llmlite'
-import toast from 'react-hot-toast'
+import { useQuery } from '@tanstack/react-query'
+import { healthApi } from '@/lib/api/health'
 
 export default function HealthStatus() {
   const { data: health } = useQuery({

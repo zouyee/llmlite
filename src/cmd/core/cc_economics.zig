@@ -248,10 +248,10 @@ fn readLlmliteStats(allocator: std.mem.Allocator) !LlmliteStats {
         0;
 
     // Build top commands
-    var top_list = try std.ArrayList(TopCommand).initCapacity(allocator, 0);
+    var top_list = try std.array_list.Managed(TopCommand).initCapacity(allocator, 0);
     var it = cmd_counts.iterator();
     while (it.next()) |entry| {
-        try top_list.append(allocator, .{
+        try top_list.append(.{
             .cmd = entry.key_ptr.*,
             .count = entry.value_ptr.count,
             .total_saved = entry.value_ptr.saved,

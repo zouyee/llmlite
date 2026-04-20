@@ -43,7 +43,7 @@ pub fn filterPrivateParamsWithWhitelist(allocator: std.mem.Allocator, body: []co
         cleanupStrings(allocator, &filtered);
     }
 
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     try json.stringify(filtered, .{ .whitespace = .indent_tab }, buf.writer());
     return buf.toOwnedSlice();
 }
@@ -83,7 +83,7 @@ fn filterRecursive(allocator: std.mem.Allocator, value: *json.Value, whitelist: 
             return json.Value{ .object = new_map };
         },
         .array => |*arr| {
-            var new_arr = std.ArrayList(json.Value).init(allocator);
+            var new_arr = std.array_list.Managed(json.Value).init(allocator);
             for (arr.items) |*item| {
                 new_arr.appendAssumeCapacity(filterRecursive(allocator, item, whitelist));
             }

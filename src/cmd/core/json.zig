@@ -71,18 +71,12 @@ pub fn parseInto(
 
 /// Stringify a JsonValue to a JSON string
 pub fn stringify(allocator: std.mem.Allocator, value: JsonValue) ![]const u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    try std.json.stringify(value, .{}, buf.writer());
-    return buf.toOwnedSlice();
+    return std.json.Stringify.valueAlloc(allocator, value, .{});
 }
 
 /// Stringify to pretty-printed JSON
 pub fn stringifyPretty(allocator: std.mem.Allocator, value: JsonValue) ![]const u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    try std.json.stringify(value, .{
-        .whitespace = .indent_tab,
-    }, buf.writer());
-    return buf.toOwnedSlice();
+    return std.json.Stringify.valueAlloc(allocator, value, .{ .whitespace = .indent_tab });
 }
 
 /// Get a string field from a JSON object

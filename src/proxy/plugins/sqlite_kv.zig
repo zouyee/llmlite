@@ -80,7 +80,7 @@ pub const SqliteKvStore = struct {
             stmt.bind(.{pattern}) catch return &.{};
         }
 
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result = std.array_list.Managed([]const u8).init(self.allocator);
         while (stmt.step()) |row| {
             const key_copy = self.allocator.dupe(u8, row.key) catch continue;
             result.append(key_copy) catch {

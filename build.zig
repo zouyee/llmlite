@@ -729,6 +729,13 @@ pub fn build(b: *std.Build) void {
     minimax_native_step.dependOn(&minimax_native_cmd.step);
 
     // Virtual Key module (must be declared before proxy_module)
+    // Shared analytics types module - used by both proxy and cmd
+    const shared_analytics_module = b.addModule("shared_analytics", .{
+        .root_source_file = b.path("src/shared/analytics_types.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const virtual_key_module = b.addModule("virtual_key", .{
         .root_source_file = b.path("src/proxy/virtual_key.zig"),
         .target = target,
@@ -850,6 +857,36 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "types", .module = proxy_analytics_types_module },
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+        },
+    });
+
+    const proxy_savings_store_module = b.addModule("proxy_savings_store", .{
+        .root_source_file = b.path("src/proxy/savings_store.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+        },
+    });
+
+    const proxy_savings_handler_module = b.addModule("proxy_savings_handler", .{
+        .root_source_file = b.path("src/proxy/handlers/savings_handler.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
+        },
+    });
+
+    const proxy_unified_handler_module = b.addModule("proxy_unified_handler", .{
+        .root_source_file = b.path("src/proxy/handlers/unified_handler.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
         },
     });
 
@@ -961,16 +998,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    const cmd_core_runner_module = b.addModule("runner", .{
-        .root_source_file = b.path("src/cmd/core/runner.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "filter", .module = cmd_core_filter_module },
-            .{ .name = "tracking", .module = cmd_core_tracking_module },
-            .{ .name = "tee", .module = cmd_core_tee_module },
-        },
-    });
     const cmd_core_utils_module = b.addModule("utils", .{
         .root_source_file = b.path("src/cmd/core/utils.zig"),
         .target = target,
@@ -982,6 +1009,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
         },
     });
     const cmd_core_rules_module = b.addModule("rules", .{
@@ -1017,10 +1045,18 @@ pub fn build(b: *std.Build) void {
             .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
         },
     });
+    const cmd_core_modes_module = b.addModule("modes", .{
+        .root_source_file = b.path("src/cmd/core/modes.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
     const cmd_core_config_module = b.addModule("config", .{
         .root_source_file = b.path("src/cmd/core/config.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "modes", .module = cmd_core_modes_module },
+        },
     });
     const cmd_core_audit_module = b.addModule("audit", .{
         .root_source_file = b.path("src/cmd/core/audit.zig"),
@@ -1201,6 +1237,80 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // SQLite dependency (already in build.zig.zon)
+    const sqlite_dep = b.dependency("sqlite", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const sqlite_module = sqlite_dep.module("sqlite");
+
+    // Proxy Persistence module - SQLite-based persistence layer for keys, teams, projects, spend
+    const proxy_persistence_module = b.addModule("proxy_persistence", .{
+        .root_source_file = b.path("src/proxy/persistence.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "virtual_key", .module = virtual_key_module },
+            .{ .name = "team", .module = b.addModule("team", .{
+                .root_source_file = b.path("src/proxy/team.zig"),
+                .target = target,
+                .optimize = optimize,
+            }) },
+            .{ .name = "cost", .module = b.addModule("cost", .{
+                .root_source_file = b.path("src/proxy/cost.zig"),
+                .target = target,
+                .optimize = optimize,
+            }) },
+            .{ .name = "sqlite", .module = sqlite_module },
+        },
+    });
+
+    // Memory module - CLI memory system (claude-mem migration)
+    const cmd_core_memory_module = b.addModule("memory", .{
+        .root_source_file = b.path("src/cmd/core/memory/mod.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "sqlite", .module = sqlite_module },
+        },
+    });
+
+    const cmd_core_savings_reporter_module = b.addModule("savings_reporter", .{
+        .root_source_file = b.path("src/cmd/core/savings_reporter.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "config", .module = cmd_core_config_module },
+        },
+    });
+
+    const cmd_core_memory_cmd_module = b.addModule("memory_cmd", .{
+        .root_source_file = b.path("src/cmd/core/memory_cmd.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "memory", .module = cmd_core_memory_module },
+            .{ .name = "config", .module = cmd_core_config_module },
+            .{ .name = "modes", .module = cmd_core_modes_module },
+        },
+    });
+
+    const cmd_core_runner_module = b.addModule("runner", .{
+        .root_source_file = b.path("src/cmd/core/runner.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "filter", .module = cmd_core_filter_module },
+            .{ .name = "tracking", .module = cmd_core_tracking_module },
+            .{ .name = "tee", .module = cmd_core_tee_module },
+            .{ .name = "memory", .module = cmd_core_memory_module },
+            .{ .name = "config", .module = cmd_core_config_module },
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "savings_reporter", .module = cmd_core_savings_reporter_module },
+        },
+    });
+
     // cmd_core module - Core infrastructure for llmlite-cmd
     const cmd_core_module = b.addModule("cmd_core", .{
         .root_source_file = b.path("src/cmd/core/mod.zig"),
@@ -1255,8 +1365,13 @@ pub fn build(b: *std.Build) void {
             .{ .name = "ccusage", .module = cmd_core_ccusage_module },
             .{ .name = "toml_filter", .module = cmd_core_toml_filter_module },
             .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
+            .{ .name = "modes", .module = cmd_core_modes_module },
+            .{ .name = "memory", .module = cmd_core_memory_module },
+            .{ .name = "memory_cmd", .module = cmd_core_memory_cmd_module },
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
         },
     });
+
     const cmd_module = b.addModule("cmd", .{
         .root_source_file = b.path("src/cmd/cmd.zig"),
         .target = target,
@@ -1313,6 +1428,11 @@ pub fn build(b: *std.Build) void {
             .{ .name = "http", .module = http_module },
             .{ .name = "chat", .module = chat_module },
             .{ .name = "stream", .module = stream_module },
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
+            .{ .name = "proxy_savings_handler", .module = proxy_savings_handler_module },
+            .{ .name = "proxy_unified_handler", .module = proxy_unified_handler_module },
+            .{ .name = "proxy_persistence", .module = proxy_persistence_module },
         },
     });
 
@@ -1397,6 +1517,9 @@ pub fn build(b: *std.Build) void {
             .{ .name = "proxy_hot_config", .module = proxy_hot_config_module },
             .{ .name = "proxy_forwarder", .module = proxy_forwarder_module },
             .{ .name = "proxy_usage_tracker", .module = proxy_usage_tracker_module },
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "config", .module = cmd_core_config_module },
+            .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
         },
     });
 
@@ -1425,4 +1548,71 @@ pub fn build(b: *std.Build) void {
 
     const tracking_test_step = b.step("tracking-test", "Run tracking and analytics tests");
     tracking_test_step.dependOn(&tracking_test_exe.step);
+
+    // Proxy-Cmd Integration test module
+    const proxy_cmd_integration_test_module = b.addModule("proxy_cmd_integration_test", .{
+        .root_source_file = b.path("src/test/proxy_cmd_integration_test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
+            .{ .name = "config", .module = cmd_core_config_module },
+        },
+    });
+
+    const integration_test_exe = b.addTest(.{
+        .name = "proxy_cmd_integration_test",
+        .root_module = proxy_cmd_integration_test_module,
+    });
+
+    const integration_test_step = b.step("integration-test", "Run proxy-cmd integration tests");
+    integration_test_step.dependOn(&integration_test_exe.step);
+
+    // Proxy Persistence SQLite test module
+    const proxy_persistence_test_module = b.addModule("proxy_persistence_test", .{
+        .root_source_file = b.path("src/proxy/persistence.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "virtual_key", .module = virtual_key_module },
+            .{ .name = "team", .module = b.addModule("team", .{
+                .root_source_file = b.path("src/proxy/team.zig"),
+                .target = target,
+                .optimize = optimize,
+            }) },
+            .{ .name = "cost", .module = b.addModule("cost", .{
+                .root_source_file = b.path("src/proxy/cost.zig"),
+                .target = target,
+                .optimize = optimize,
+            }) },
+            .{ .name = "sqlite", .module = sqlite_module },
+        },
+    });
+
+    const proxy_persistence_test_exe = b.addTest(.{
+        .name = "proxy_persistence_test",
+        .root_module = proxy_persistence_test_module,
+    });
+
+    const proxy_persistence_test_step = b.step("persistence-test", "Run proxy persistence SQLite tests");
+    proxy_persistence_test_step.dependOn(&proxy_persistence_test_exe.step);
+
+    // Savings Reporter unit test
+    const savings_reporter_test_exe = b.addTest(.{
+        .name = "savings_reporter_test",
+        .root_module = cmd_core_savings_reporter_module,
+    });
+
+    const savings_reporter_test_step = b.step("savings-reporter-test", "Run savings reporter unit tests");
+    savings_reporter_test_step.dependOn(&savings_reporter_test_exe.step);
+
+    // Gain unit test
+    const gain_test_exe = b.addTest(.{
+        .name = "gain_test",
+        .root_module = cmd_core_gain_module,
+    });
+
+    const gain_test_step = b.step("gain-test", "Run gain command unit tests");
+    gain_test_step.dependOn(&gain_test_exe.step);
 }

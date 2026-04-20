@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 import { useUpdateProvider } from '@/hooks/useProvider'
-import type { Provider, UpdateProviderRequest } from '@/lib/api/llmlite'
+import type { Provider, UpdateProviderRequest } from '@/lib/api/providers'
 
 interface EditProviderDialogProps {
   isOpen: boolean

@@ -149,7 +149,6 @@ pub const SchemaBuilder = struct {
                 self.deinitRecursive(entry.value_ptr);
             }
             props.deinit();
-            self.allocator.free(props);
         }
         if (s.items) |item| {
             self.deinitRecursive(item);
@@ -317,9 +316,10 @@ fn schemaFromFieldType(comptime T: type, comptime is_optional: bool) Schema {
         .Float, .ComptimeFloat => Schema{ .type = "number" },
         .Bool => Schema{ .type = "boolean" },
         .Pointer => |ptr| if (ptr.child == u8) Schema{ .type = "string" } else schemaFromTyped(ptr.child),
-        .Array => |arr| Schema{
-            .type = "array",
-            .items = try std.heap.page_allocator.create(Schema),
+        .Array => |arr| blk: {
+            const schema_ptr = std.heap.page_allocator.create(Schema) catch unreachable;
+            schema_ptr.* = schemaFromFieldType(arr.child, false);
+            break :blk Schema{ .type = "array", .items = schema_ptr };
         },
         .Struct => |info| schemaFromStructInfo(info),
         else => Schema{ .type = "string" },

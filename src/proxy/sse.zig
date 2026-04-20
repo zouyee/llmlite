@@ -59,9 +59,13 @@ pub fn appendUtf8Safe(buffer: *std.ArrayList(u8), remainder: *std.ArrayList(u8),
             return;
         }
         const cp = decoded.value;
-        buffer.appendAssumeCapacity(@as(u8, @intCast(cp)));
-        // Handle multi-byte codepoints
-        const len = std.unicode.utf8CodepointSequenceLength(cp) catch 1;
+        var utf8_buf: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(cp, &utf8_buf) catch {
+            buffer.appendAssumeCapacity('\u{FFFD}');
+            pos += 1;
+            continue;
+        };
+        buffer.appendSliceAssumeCapacity(utf8_buf[0..len]);
         pos += len;
     }
 }

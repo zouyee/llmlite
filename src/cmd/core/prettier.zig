@@ -30,7 +30,7 @@ pub fn filterPrettier(output: []const u8, args: []const []const u8) []const u8 {
 
 /// Filter prettier --check output
 fn filterPrettierCheck(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Check for "Checking formatting..." message
@@ -39,7 +39,7 @@ fn filterPrettierCheck(output: []const u8) []const u8 {
         var lines = std.mem.splitScalar(u8, output, '\n');
         var needs_formatting = false;
         var file_count: usize = 0;
-        var files = std.ArrayList([]const u8).init(std.heap.page_allocator);
+        var files = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
         defer files.deinit();
 
         while (lines.next()) |line| {
@@ -107,11 +107,11 @@ fn filterPrettierCheck(output: []const u8) []const u8 {
 
 /// Filter prettier JSON output
 fn filterPrettierJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Try to extract file paths from JSON
-    var files = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var files = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer files.deinit();
 
     // Simple JSON parsing for file paths
@@ -152,7 +152,7 @@ fn filterPrettierJson(output: []const u8) []const u8 {
 
 /// Filter prettier format output
 fn filterPrettierFormat(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // prettier format mode - usually shows what was changed
@@ -185,7 +185,7 @@ fn filterPrettierFormat(output: []const u8) []const u8 {
 pub fn runPrettier(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("prettier");

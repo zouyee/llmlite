@@ -19,7 +19,7 @@ llmlite is a **zero-dependency, edge-ready LLM toolkit** written in Zig, consist
 
 - **llmlite-proxy** — A production-grade AI gateway and edge router in a 672KB binary. Provides OpenAI-compatible API endpoints with virtual key management, multi-provider routing with automatic failover, circuit breaker, latency-based health tracking (P50/P95/P99), connection pooling, rate limiting, cost tracking, team/project multi-tenancy, simple & semantic caching, hot-reload configuration, and a plugin system. Designed as a drop-in backend for AI agents — any tool that speaks the OpenAI API (including [Hermes Agent](https://github.com/NousResearch/Hermes-Agent), Claude Code, Cursor, Copilot) can route through llmlite-proxy to gain multi-provider failover, spend control, and edge deployment with zero code changes.
 
-- **llmlite-cmd** — A CLI command proxy that intercepts developer tool output (git, cargo, npm, pytest, docker, kubectl, and 50+ more) and applies intelligent filtering strategies to reduce LLM token consumption by 60–90%. Includes SQLite-based savings tracking, shell hook integration (bash/zsh), TDD cycle detection, and a `learn` module that detects recurring CLI mistakes from command history.
+- **llmlite-cmd** — A CLI command proxy that intercepts developer tool output (git, cargo, npm, pytest, docker, kubectl, and 50+ more) and applies intelligent filtering strategies to reduce LLM token consumption by 60–90%. Includes SQLite-based savings tracking, shell hook integration (bash/zsh), TDD cycle detection, a `learn` module that detects recurring CLI mistakes from command history, and a **CLI Memory** system (inspired by claude-mem) that records, categorizes, and retrieves command executions with full-text search. When `llmlite-proxy` is running, cmd automatically reports token savings to the proxy for centralized analytics.
 
 Unlike Python-based solutions (LiteLLM ~50MB, vLLM Semantic Router requires K8s/Docker), llmlite delivers:
 
@@ -45,7 +45,7 @@ llmlite consists of five core components:
 |-----------|-------------|--------|
 | **llmlite SDK** | Unified multi-provider LLM client library | `llmlite` |
 | **llmlite-proxy** | Production-grade AI gateway / Edge Router | `llmlite-proxy` |
-| **llmlite-cmd** | CLI command proxy, reduces LLM token consumption by 60-90% | `llmlite-cmd` |
+| **llmlite-cmd** | Developer command companion: intelligent output filtering, cross-session memory, shell hooks, and token savings tracking | `llmlite-cmd` |
 | **llmlite-mcp** | MCP (Model Context Protocol) server | `llmlite-mcp` |
 | **Web Dashboard** | React management panel | `web/` |
 
@@ -82,6 +82,9 @@ llmlite-proxy includes production-grade edge routing:
 | **Simple Cache** | TTL-based in-memory response caching |
 | **Semantic Cache** | Embedding-based similarity caching |
 | **Guardrails** | Content filtering and PII detection framework |
+| **Savings Tracking** | Receive token savings reports from llmlite-cmd |
+| **Unified Analytics** | Aggregate API cost + cmd savings in one view |
+| **CLI Memory** | Cross-session command memory with FTS5 search |
 
 ### Endpoints
 
@@ -108,6 +111,14 @@ curl -X POST http://localhost:4000/v1/embeddings \
 
 # Key management (admin)
 curl -X POST http://localhost:4000/key/create -d '{"key_id": "sk-test"}'
+
+# Savings tracking (from llmlite-cmd)
+curl -X POST http://localhost:4000/tracking/savings \
+  -H "Content-Type: application/json" \
+  -d '{"timestamp":1700000000,"original_cmd":"git status","raw_output_tokens":1000,"filtered_output_tokens":400,"saved_tokens":600,"savings_pct":60.0,"exit_code":0,"hostname":"localhost"}'
+
+# Unified analytics (cmd + API cost)
+curl http://localhost:4000/analytics/unified?days=30
 ```
 
 ## Architecture
@@ -381,8 +392,23 @@ llmlite-cmd npm test         # 90% token reduction
 llmlite-cmd pytest           # 90% token reduction
 
 # View savings statistics
-llmlite-cmd gain
+llmlite-cmd gain              # Query proxy unified endpoint (default)
+llmlite-cmd gain --local      # Use local history.db only
 llmlite-cmd gain --graph
+llmlite-cmd gain --json
+llmlite-cmd gain --csv
+
+# CLI Memory (cross-session command memory)
+llmlite-cmd memory search "auth bug"     # Full-text search memories
+llmlite-cmd memory list --cat fix        # List recent bug fixes
+llmlite-cmd memory show 42               # Show full memory details
+llmlite-cmd memory timeline 42           # Context around memory
+llmlite-cmd memory stats                 # Memory statistics
+
+# Work Modes (affects which categories are recorded)
+llmlite-cmd memory mode show             # Current mode and settings
+llmlite-cmd memory mode set infra        # Switch to infra mode
+llmlite-cmd memory mode list             # List all modes
 ```
 
 Supported command categories:
@@ -503,8 +529,11 @@ zig build -Doptimize=ReleaseSmall      # 672KB edge binary
 zig build -Doptimize=ReleaseSafe       # Safe release
 zig build -Doptimize=ReleaseFast       # Fast release
 zig build run                          # Run main program
-zig build test                         # Run tests
+zig build test                         # Run unit tests
 zig build proxy                        # Build proxy server
+zig build cmd                          # Build CLI tool
+
+# Provider tests
 zig build kimi-test                    # Kimi tests
 zig build minimax-test                 # Minimax tests
 zig build minimax-native-test          # Minimax native API tests
@@ -512,6 +541,15 @@ zig build openai-test                  # OpenAI tests
 zig build gemini-advanced-test         # Gemini advanced API tests
 zig build gemma-test                   # Gemma tests
 zig build chat-test                    # Chat completions tests
+
+# Proxy & Cmd tests
+zig build property-test                # Property-based correctness tests (40 tests)
+zig build integration-test             # Proxy-cmd integration tests
+zig build persistence-test             # Proxy SQLite persistence tests
+zig build savings-reporter-test        # Savings reporter unit tests
+zig build gain-test                    # Gain command unit tests
+zig build tracking-test                # Tracking & analytics tests
+zig build proxy-test                   # Proxy component tests
 ```
 
 ### Docker
@@ -529,6 +567,7 @@ docker-compose up llmlite-proxy
 - [Provider API Docs](docs/providers/) — Detailed per-provider documentation
 - [Architecture](docs/ARCHITECTURE.md) — llmlite-cmd architecture
 - [Roadmap](docs/roadmap.md) — Project roadmap
+- [Proxy-Cmd Integration](.kiro/specs/proxy-cmd-integration/tasks.md) — Proxy-cmd integration spec
 - [LiteLLM Alignment](docs/litellm-alignment.md) — Competitive analysis
 - [Provider Usage Modes](docs/provider-usage-modes.md) — Usage patterns & competitive analysis
 - [GUI Migration Plan](docs/gui-migration-plan.md) — Web UI development plan

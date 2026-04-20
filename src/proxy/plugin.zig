@@ -143,7 +143,7 @@ pub const MemoryKvStore = struct {
 
     fn listWrapper(interface: *anyopaque, prefix: []const u8) [][]const u8 {
         const self: *MemoryKvStore = @ptrCast(@alignCast(interface));
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result = std.array_list.Managed([]const u8).init(self.allocator);
         var it = self.data.iterator();
         while (it.next()) |entry| {
             if (std.mem.startsWith(u8, entry.key_ptr.*, prefix)) {
@@ -433,6 +433,7 @@ pub const ProxyConfig = struct {
     features: Features = .{},
     kv: KvConfig = .memory,
     router: RouterConfig = .fallback,
+    database_path: []const u8 = "./data/proxy.db",
 };
 
 test "plugin system basic" {

@@ -65,7 +65,7 @@ pub const RequestRectifier = struct {
         }
 
         // Re-serialize
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         try json.stringify(parsed.value, .{}, buf.writer());
         return buf.toOwnedSlice();
     }
@@ -86,7 +86,7 @@ pub const RequestRectifier = struct {
         self.coerceValue(&parsed.value);
 
         // Re-serialize
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         try json.stringify(parsed.value, .{}, buf.writer());
         return buf.toOwnedSlice();
     }
@@ -213,7 +213,7 @@ pub const RequestRectifier = struct {
         }
 
         // Convert system message to first message in array
-        var messages = std.ArrayList(json.Value).init(self.allocator);
+        var messages = std.array_list.Managed(json.Value).init(self.allocator);
         errdefer messages.deinit();
 
         if (obj.get("system")) |sys| {
@@ -250,7 +250,7 @@ pub const RequestRectifier = struct {
         }
 
         // Re-serialize
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         try json.stringify(json.Value{ .object = new_obj }, .{
             .whitespace = .indent_tab,
         }, buf.writer());
@@ -288,7 +288,7 @@ pub const RequestRectifier = struct {
         }
 
         // Extract system message and put it in separate field
-        var messages = std.ArrayList(json.Value).init(self.allocator);
+        var messages = std.array_list.Managed(json.Value).init(self.allocator);
         errdefer messages.deinit();
 
         if (obj.get("messages")) |msgs| {
@@ -329,7 +329,7 @@ pub const RequestRectifier = struct {
         }
 
         // Re-serialize
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         try json.stringify(json.Value{ .object = new_obj }, .{
             .whitespace = .indent_tab,
         }, buf.writer());
@@ -344,7 +344,7 @@ pub const RequestRectifier = struct {
             .number => |n| return json.Value{ .number = n },
             .string => |s| return json.Value{ .string = try self.allocator.dupe(u8, s) },
             .array => |arr| {
-                var new_arr = std.ArrayList(json.Value).init(self.allocator);
+                var new_arr = std.array_list.Managed(json.Value).init(self.allocator);
                 for (arr.items) |item| {
                     try new_arr.append(try self.cloneValue(item));
                 }

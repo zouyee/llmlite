@@ -112,7 +112,7 @@ pub const FileKvStore = struct {
         mutex.lock();
         defer mutex.unlock();
 
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result = std.array_list.Managed([]const u8).init(self.allocator);
         var it = self.data.iterator();
         while (it.next()) |entry| {
             if (prefix.len == 0 or std.mem.startsWith(u8, entry.key_ptr.*, prefix)) {
@@ -170,7 +170,7 @@ pub const FileKvStore = struct {
     }
 
     fn save(self: *FileKvStore) !void {
-        var content = std.ArrayList(u8).init(self.allocator);
+        var content = std.array_list.Managed(u8).init(self.allocator);
         defer content.deinit();
 
         var it = self.data.iterator();

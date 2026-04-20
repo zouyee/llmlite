@@ -50,7 +50,7 @@ pub const Service = struct {
     /// List all tuning jobs
     /// GET /v1beta/tunedModels
     pub fn list(self: *Service, params: ?ListTuningParams) !ListTuningResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/tunedModels");

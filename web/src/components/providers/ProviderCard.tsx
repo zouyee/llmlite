@@ -1,24 +1,42 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, ExternalLink } from 'lucide-react'
-import type { Provider } from '@/lib/api/llmlite'
+import { GripVertical, ExternalLink, MoreVertical, Activity, Zap, Shield } from 'lucide-react'
+import type { Provider } from '@/lib/api/providers'
 import { FeatureBadge } from './ProviderHelpers'
+import { HealthStatusBadge } from './HealthStatusBadge'
+import { FailoverPriorityBadge } from './FailoverPriorityBadge'
+import { CircuitBreakerBadge } from './CircuitBreakerBadge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface ProviderCardProps {
   provider: Provider
   isActive?: boolean
+  healthStatus?: 'healthy' | 'degraded' | 'unhealthy'
+  failoverPriority?: number
+  circuitState?: 'closed' | 'open' | 'half_open'
   onEdit: () => void
   onTest: () => void
   onSetActive: () => void
+  onToggleEnabled: () => void
   onDelete: () => void
 }
 
 export function ProviderCard({
   provider,
   isActive,
+  healthStatus,
+  failoverPriority,
+  circuitState,
   onEdit,
   onTest,
   onSetActive,
+  onToggleEnabled,
   onDelete,
 }: ProviderCardProps) {
   const {
@@ -42,7 +60,7 @@ export function ProviderCard({
       style={style}
       className={`bg-gray-800 rounded-lg p-4 border ${
         isDragging ? 'border-blue-500 shadow-lg' : 'border-gray-700'
-      } ${isActive ? 'ring-2 ring-green-500' : ''}`}
+      } ${isActive ? 'ring-2 ring-green-500' : ''} ${!provider.enabled ? 'opacity-60' : ''}`}
     >
       <div className="flex items-start gap-3">
         <button
@@ -66,6 +84,11 @@ export function ProviderCard({
                 Active
               </span>
             )}
+            {!provider.enabled && (
+              <span className="px-2 py-0.5 text-xs bg-gray-600 rounded text-white">
+                Disabled
+              </span>
+            )}
           </div>
 
           {provider.organization && (
@@ -86,6 +109,19 @@ export function ProviderCard({
             )}
           </div>
 
+          {/* Status Badges */}
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {healthStatus && (
+              <HealthStatusBadge status={healthStatus} />
+            )}
+            {failoverPriority !== undefined && (
+              <FailoverPriorityBadge priority={failoverPriority} />
+            )}
+            {circuitState && (
+              <CircuitBreakerBadge state={circuitState} />
+            )}
+          </div>
+
           {provider.description && (
             <p className="text-sm text-gray-300 mt-2">{provider.description}</p>
           )}
@@ -97,34 +133,36 @@ export function ProviderCard({
           </div>
         </div>
 
-        <div className="flex gap-2 flex-shrink-0">
-          <button
-            onClick={onTest}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 rounded"
-          >
-            Test
-          </button>
-          {!isActive && (
-            <button
-              onClick={onSetActive}
-              className="px-3 py-1 text-sm bg-green-700 hover:bg-green-600 rounded"
-            >
-              Set Active
+        <DropdownMenu>
+          <DropdownMenuTrigger>
+            <button className="p-2 hover:bg-gray-700 rounded">
+              <MoreVertical className="w-4 h-4 text-gray-400" />
             </button>
-          )}
-          <button
-            onClick={onEdit}
-            className="px-3 py-1 text-sm bg-blue-700 hover:bg-blue-600 rounded"
-          >
-            Edit
-          </button>
-          <button
-            onClick={onDelete}
-            className="px-3 py-1 text-sm bg-red-700 hover:bg-red-600 rounded"
-          >
-            Delete
-          </button>
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="bg-gray-800 border-gray-700 text-gray-100">
+            <DropdownMenuItem onClick={onEdit} className="cursor-pointer hover:bg-gray-700">
+              <Activity className="w-4 h-4 mr-2" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onTest} className="cursor-pointer hover:bg-gray-700">
+              <Zap className="w-4 h-4 mr-2" />
+              Test Connection
+            </DropdownMenuItem>
+            {!isActive && (
+              <DropdownMenuItem onClick={onSetActive} className="cursor-pointer hover:bg-gray-700">
+                <Shield className="w-4 h-4 mr-2" />
+                Set Active
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={onToggleEnabled} className="cursor-pointer hover:bg-gray-700">
+              {provider.enabled ? 'Disable' : 'Enable'}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-gray-700" />
+            <DropdownMenuItem onClick={onDelete} className="cursor-pointer hover:bg-gray-700 text-red-400">
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )

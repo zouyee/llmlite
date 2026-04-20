@@ -44,7 +44,7 @@ pub fn filterKubectl(output: []const u8, subcommand: []const u8) []const u8 {
 
 /// Filter kubectl get pods output
 fn filterKubectlPods(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -108,7 +108,7 @@ fn filterKubectlPods(output: []const u8) []const u8 {
 
 /// Filter kubectl get svc output
 fn filterKubectlSvc(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -161,7 +161,7 @@ fn filterKubectlSvc(output: []const u8) []const u8 {
 
 /// Filter kubectl get deployments output
 fn filterKubectlDeployments(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -215,7 +215,7 @@ fn filterKubectlDeployments(output: []const u8) []const u8 {
 
 /// Filter kubectl get output (generic)
 fn filterKubectlGet(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -241,7 +241,7 @@ fn filterKubectlGet(output: []const u8) []const u8 {
 
 /// Filter kubectl logs output
 fn filterKubectlLogs(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -288,7 +288,7 @@ fn filterKubectlLogs(output: []const u8) []const u8 {
 
 /// Filter kubectl describe output
 fn filterKubectlDescribe(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -327,7 +327,7 @@ fn filterKubectlDescribe(output: []const u8) []const u8 {
 
 /// Generic kubectl filter
 fn filterKubectlGeneric(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -355,7 +355,7 @@ fn filterKubectlGeneric(output: []const u8) []const u8 {
 pub fn runKubectl(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("kubectl");

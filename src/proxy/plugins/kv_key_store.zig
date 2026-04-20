@@ -50,7 +50,7 @@ pub const KvBackedKeyStore = struct {
             const full_key = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.prefix, entry.key_ptr.* });
             defer self.allocator.free(full_key);
 
-            const json = try std.json.stringifyAlloc(self.allocator, entry.value_ptr, .{});
+            const json = try std.json.Stringify.valueAlloc(self.allocator, entry.value_ptr, .{});
             defer self.allocator.free(json);
 
             try kv.set(full_key, json);

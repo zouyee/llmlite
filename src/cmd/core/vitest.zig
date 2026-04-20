@@ -37,7 +37,7 @@ pub fn filterVitest(output: []const u8) []const u8 {
 
 /// Filter vitest JSON output
 fn filterVitestJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     const SuiteAccumulator = struct {
@@ -45,7 +45,7 @@ fn filterVitestJson(output: []const u8) []const u8 {
         fail: usize = 0,
         skip: usize = 0,
         duration: f64 = 0,
-        failed_tests: std.ArrayList(struct { name: []const u8, @"error": ?[]const u8 }),
+        failed_tests: std.array_list.Managed(struct { name: []const u8, @"error": ?[]const u8 }),
     };
 
     var suites = std.StringArrayHashMap(SuiteAccumulator).init(std.heap.page_allocator);
@@ -66,7 +66,7 @@ fn filterVitestJson(output: []const u8) []const u8 {
             const acc = suites.getOrPut(file) catch continue;
             if (!acc.found_existing) {
                 acc.value_ptr.* = SuiteAccumulator{
-                    .failed_tests = std.ArrayList(struct { name: []const u8, @"error": ?[]const u8 }).init(std.heap.page_allocator),
+                    .failed_tests = std.array_list.Managed(struct { name: []const u8, @"error": ?[]const u8 }).init(std.heap.page_allocator),
                 };
             }
             acc.value_ptr.*.duration += duration;
@@ -81,7 +81,7 @@ fn filterVitestJson(output: []const u8) []const u8 {
             const acc = suites.getOrPut(file) catch continue;
             if (!acc.found_existing) {
                 acc.value_ptr.* = SuiteAccumulator{
-                    .failed_tests = std.ArrayList(struct { name: []const u8, @"error": ?[]const u8 }).init(std.heap.page_allocator),
+                    .failed_tests = std.array_list.Managed(struct { name: []const u8, @"error": ?[]const u8 }).init(std.heap.page_allocator),
                 };
             }
 
@@ -163,7 +163,7 @@ fn filterVitestJson(output: []const u8) []const u8 {
 
 /// Filter vitest text output
 fn filterVitestText(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -199,7 +199,7 @@ pub fn runVitest(allocator: std.mem.Allocator, args: []const []const u8, verbose
     const runner = @import("cmd_core_runner");
 
     // Build command - add --reporter=json
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("vitest");

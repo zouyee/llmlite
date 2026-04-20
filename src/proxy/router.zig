@@ -34,6 +34,7 @@ pub const Router = struct {
             .allocator = allocator,
             .retry_config = .{},
             .provider_stats = std.StringArrayHashMap(ProviderStats).init(allocator),
+            .lock = .{},
         };
     }
 
@@ -42,6 +43,7 @@ pub const Router = struct {
             .allocator = allocator,
             .retry_config = config,
             .provider_stats = std.StringArrayHashMap(ProviderStats).init(allocator),
+            .lock = .{},
         };
     }
 
@@ -179,8 +181,8 @@ pub const Router = struct {
         defer parsed.deinit();
 
         var system_content: ?[]const u8 = null;
-        var user_content = std.ArrayList(u8).empty;
-        defer user_content.deinit(self.allocator);
+        var user_content = std.array_list.Managed(u8).init(self.allocator);
+        defer user_content.deinit();
 
         for (parsed.value.messages) |msg| {
             if (std.mem.eql(u8, msg.role, "system")) {
@@ -193,7 +195,8 @@ pub const Router = struct {
             }
         }
 
-        var result = std.ArrayList(u8).empty;
+        var result = std.array_list.Managed(u8).init(self.allocator);
+        defer result.deinit();
         errdefer result.deinit(self.allocator);
 
         try std.fmt.format(result.writer(self.allocator), "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"user\",\"content\":\"{s}\"}}]", .{
@@ -225,7 +228,8 @@ pub const Router = struct {
         }, self.allocator, body, .{});
         defer parsed.deinit();
 
-        var contents_json = std.ArrayList(u8).empty;
+        var contents_json = std.array_list.Managed(u8).init(self.allocator);
+        defer contents_json.deinit();
         defer contents_json.deinit(self.allocator);
 
         try contents_json.appendSlice(self.allocator, "[");
@@ -243,6 +247,8 @@ pub const Router = struct {
 
     /// Check if provider is unhealthy (too many recent failures)
     fn isProviderUnhealthy(self: *Router, provider_name: []const u8) bool {
+        self.lock.lock();
+        defer self.lock.unlock();
         const stats = self.provider_stats.get(provider_name) orelse return false;
 
         // If more than 5 consecutive failures in last minute, mark unhealthy
@@ -260,6 +266,8 @@ pub const Router = struct {
 
     /// Record a successful request
     fn recordSuccess(self: *Router, provider_name: []const u8, tokens: u32) void {
+        self.lock.lock();
+        defer self.lock.unlock();
         if (self.provider_stats.getPtr(provider_name)) |stats| {
             stats.consecutive_failures = 0;
             stats.total_requests += 1;
@@ -276,6 +284,8 @@ pub const Router = struct {
 
     /// Record a failed request
     fn recordFailure(self: *Router, provider_name: []const u8) void {
+        self.lock.lock();
+        defer self.lock.unlock();
         if (self.provider_stats.getPtr(provider_name)) |stats| {
             stats.consecutive_failures += 1;
             stats.last_failure = std.time.timestamp();
@@ -315,7 +325,7 @@ pub const Router = struct {
 
     /// Get router statistics
     pub fn getStats(self: *Router) []const struct { name: []const u8, stats: ProviderStats } {
-        var result = std.ArrayList(struct { name: []const u8, stats: ProviderStats }).init(self.allocator);
+        var result = std.array_list.Managed(struct { name: []const u8, stats: ProviderStats }).init(self.allocator);
         var it = self.provider_stats.iterator();
         while (it.next()) |entry| {
             result.append(.{ .name = entry.key_ptr.*, .stats = entry.value_ptr.* }) catch {};
@@ -410,7 +420,7 @@ pub const RoutingTable = struct {
 
     fn weightedRoundRobin(self: *RoutingTable, targets: []WeightedTarget) []const types.ProviderType {
         // Simple weighted round-robin based on timestamp
-        var result = std.ArrayList(types.ProviderType).init(self.allocator);
+        var result = std.array_list.Managed(types.ProviderType).init(self.allocator);
 
         const total_weight: u32 = for (targets) |t| {
             result.append(t.provider) catch {};

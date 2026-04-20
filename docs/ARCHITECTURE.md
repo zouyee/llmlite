@@ -1,6 +1,6 @@
 # llmlite-cmd Architecture
 
-> CLI command proxy that intercepts developer commands, filters output, and reduces LLM token consumption by 60-90%
+> Developer command companion with intelligent output filtering, cross-session CLI memory, shell hooks, and token savings tracking
 
 ## 1. Overview
 
@@ -39,7 +39,7 @@
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           Command Dispatcher                                 │
-│                         src/cmd/cmds/mod.zig                                │
+│                           src/cmd/cmd.zig                                │
 │                                                                             │
 │  pub const Command = enum {                                                 │
 │      git, cargo, npm, pytest, docker, kubectl, system, ...                  │
@@ -50,8 +50,8 @@
                     ▼                           ▼                  ▼
           ┌─────────────────┐         ┌─────────────────┐ ┌─────────────────┐
           │   Git Module    │         │  Cargo Module   │ │   NPM Module    │
-          │ src/cmd/cmds/git│         │ src/cmd/cmds/   │ │ src/cmd/cmds/   │
-          │                 │         │ cargo/          │ │ npm/            │
+          │ src/cmd/core/   │         │ src/cmd/core/   │ │ src/cmd/core/   │
+          │ git.zig         │         │ cargo.zig       │ │ npm.zig         │
           └────────┬────────┘         └────────┬────────┘ └────────┬────────┘
                    │                           │                   │
                    ▼                           ▼                   ▼
@@ -67,11 +67,19 @@
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────┘   │
 │                                                                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │
-│  │   utils     │  │   hooks     │  │  analytics  │  │                 │   │
-│  │   .zig      │  │   .zig      │  │   .zig      │  │                 │   │
-│  ├─────────────┤  ├─────────────┤  ├─────────────┤  │                 │   │
-│  │Tool detection│ │Hook install │  │  gain/discover│ │                 │   │
+│  │   utils     │  │   hooks     │  │  analytics  │  │ savings_reporter│   │
+│  │   .zig      │  │   .zig      │  │   .zig      │  │     .zig        │   │
+│  ├─────────────┤  ├─────────────┤  ├─────────────┤  ├─────────────────┤   │
+│  │Tool detection│ │Hook install │  │gain/discover│  │Async proxy report│  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────┘   │
+│                                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │
+│  │   config    │  │  proxy_helpers│ │  session    │  │    memory       │   │
+│  │   .zig      │  │   .zig        │  │   .zig      │  │    (mod.zig)    │   │
+│  ├─────────────┤  ├─────────────┤  ├─────────────┤  ├─────────────────┤   │
+│  │TOML + env   │  │Proxy API    │  │Session mgmt │  │CLI Memory       │   │
+│  └─────────────┘  └─────────────┘  └─────────────┘  │(claude-mem)     │   │
+│                                                     └─────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,12 +111,32 @@ src/cmd/
     ├── sync.zig           # Sync functionality
     ├── read.zig           # File reading
     ├── json.zig           # JSON processing
-    ├── gain.zig           # Token savings statistics
+    ├── gain.zig           # Token savings statistics (proxy unified / local)
     ├── discover.zig       # Savings opportunity discovery
     ├── audit.zig          # Audit logging
     ├── ccusage.zig        # CC usage statistics
     ├── cc_economics.zig   # CC economics analysis
-    ├── proxy_helpers.zig  # Proxy helpers
+    ├── proxy_helpers.zig  # Proxy API helpers (queryProxyApi)
+    ├── savings_reporter.zig # Async savings report upload to proxy
+    ├── config.zig         # TOML config + env var overrides
+    ├── session.zig        # Session management
+    ├── key.zig            # Key management
+    ├── lexer.zig          # Lexical analysis
+    ├── rules.zig          # Filtering rules
+    ├── learn.zig          # Learning mode
+    ├── trust.zig          # Trust management
+    ├── integrity.zig      # Integrity checking
+    ├── sync.zig           # Sync functionality
+    │
+    └── memory/            # CLI Memory system (inspired by claude-mem)
+        ├── mod.zig        # Module exports
+        ├── types.zig      # MemoryEntry, MemoryCategory, MemoryFilter
+        ├── db.zig         # SQLite schema + CRUD (~500 lines)
+        ├── recorder.zig   # Auto-categorize and record commands
+        ├── search.zig     # FTS5 + metadata search + timeline
+        ├── session.zig    # Session boundary detection
+        ├── migrate.zig    # Schema migrations
+        └── utils.zig      # Project detection helpers
     │
     ├── filters/           # Filter implementations
     │   └── ...
@@ -233,7 +261,7 @@ pub const RunOptions = struct {
     verbose: u8 = 0,
 };
 
-/// 6-phase execution framework
+/// 6-phase execution framework (Phase 5.3 added for proxy reporting)
 pub fn runFiltered(
     allocator: std.mem.Allocator,
     cmd: *std.process.Child,
@@ -245,7 +273,7 @@ pub fn runFiltered(
     // Phase 1: EXECUTE
     const output = try cmd.run();
     const exit_code = output.term.Exited;
-    
+
     // Combine stdout and stderr
     const raw_output = if (options.combined)
         try concat(allocator, output.stdout, output.stderr)
@@ -273,13 +301,27 @@ pub fn runFiltered(
     // Phase 4: PRINT
     try std.io.getStdOut().writeAll(filtered);
 
-    // Phase 5: TRACK
+    // Phase 5: TRACK (local SQLite)
     try tracking.track(allocator, .{
         .original_cmd = raw_args,
         .rtk_cmd = cmd_name,
         .raw_output = raw_output,
         .filtered_output = filtered,
         .exit_code = exit_code,
+    });
+
+    // Phase 5.3: REPORT (async upload to proxy)
+    // Sends SavingsReport to llmlite-proxy /tracking/savings
+    // Fire-and-forget with JSONL fallback queue
+    savings_reporter.reportAsync(.{
+        .timestamp = std.time.timestamp(),
+        .original_cmd = raw_args,
+        .raw_output_tokens = estimateTokens(raw_output),
+        .filtered_output_tokens = estimateTokens(filtered),
+        .saved_tokens = saved,
+        .savings_pct = pct,
+        .exit_code = exit_code,
+        .hostname = hostname,
     });
 
     // Phase 6: EXIT
@@ -428,7 +470,7 @@ pub fn save(tee: *Tee, label: []const u8, raw_output: []const u8) !void {
 ## 6. Command Module Pattern
 
 ```zig
-// src/cmd/cmds/git/git.zig
+// src/cmd/core/git.zig
 
 const std = @import("std");
 const runner = @import("../../core/runner");
@@ -572,63 +614,325 @@ CREATE TABLE IF NOT EXISTS parse_failures (
 
 ---
 
-## 9. Implementation Phases
+## 9. Proxy-Cmd Integration Data Flow
+
+When both `llmlite-proxy` and `llmlite-cmd` are running, cmd automatically reports token savings to the proxy for centralized analytics.
+
+```
+┌─────────────────┐     POST /tracking/savings      ┌─────────────────────────┐
+│  llmlite-cmd    │ ───────────────────────────────▶ │  llmlite-proxy:4000     │
+│  (after filter) │  JSON: SavingsReport            │  ┌─────────────────┐    │
+│                 │                                 │  │ SavingsStore    │    │
+│  ┌───────────┐  │     (fire-and-forget thread)    │  │ (in-memory +   │    │
+│  │ JSONL     │  │                                 │  │  mutex)         │    │
+│  │ Fallback  │  │◀─────────────────────────────── │  └─────────────────┘    │
+│  │ Queue     │  │  On failure, write to local     │         │               │
+│  │ (retry)   │  │  ~/.local/share/llmlite/        │         ▼               │
+│  └───────────┘  │  pending_reports.jsonl          │  ┌─────────────────┐    │
+└─────────────────┘                                 │  │ UnifiedHandler  │    │
+                                                    │  │ GET /analytics/ │    │
+                                                    │  │ unified?days=N  │    │
+                                                    │  └─────────────────┘    │
+                                                    └─────────────────────────┘
+                                                              │
+                                                              ▼
+                                                    ┌─────────────────────────┐
+                                                    │  llmlite-cmd gain       │
+                                                    │  (queries unified)      │
+                                                    └─────────────────────────┘
+```
+
+### Shared Types (`src/shared/analytics_types.zig`)
+
+Shared between proxy and cmd to avoid duplication:
+
+```zig
+pub const SavingsReport = struct {
+    timestamp: i64,
+    original_cmd: []const u8,
+    raw_output_tokens: u64,
+    filtered_output_tokens: u64,
+    saved_tokens: u64,
+    savings_pct: f64,
+    exit_code: i32,
+    hostname: []const u8,
+};
+
+pub const UnifiedResponse = struct {
+    api_cost: ApiCostSummary,    // Proxy-side API spend
+    cmd_savings: CmdSavingsSummary, // Cmd-reported token savings
+    net_cost: f64,
+};
+```
+
+### Proxy Modules
+
+| Module | File | Description |
+|--------|------|-------------|
+| `SavingsStore` | `src/proxy/savings_store.zig` | Thread-safe in-memory storage for SavingsReport |
+| `SavingsHandler` | `src/proxy/handlers/savings_handler.zig` | POST /tracking/savings |
+| `UnifiedHandler` | `src/proxy/handlers/unified_handler.zig` | GET /analytics/unified |
+
+### Cmd Modules
+
+| Module | File | Description |
+|--------|------|-------------|
+| `SavingsReporter` | `src/cmd/core/savings_reporter.zig` | Async upload with 50ms probe timeout |
+| `Gain` | `src/cmd/core/gain.zig` | Query proxy or local history.db |
+| `Config` | `src/cmd/core/config.zig` | TOML `[analytics]` / `[analytics.proxy]` parsing |
+
+### Config Example
+
+```toml
+[analytics]
+enabled = true
+retention_days = 90
+sync_interval_secs = 300
+
+[analytics.proxy]
+host = "localhost"
+port = 4001
+```
+
+Environment variable overrides:
+- `LLMLITE_PROXY_HOST` — overrides `analytics.proxy.host`
+- `LLMLITE_PROXY_PORT` — overrides `analytics.proxy.port`
+
+---
+
+## 10. CLI Memory System (claude-mem inspired)
+
+The memory system is a cross-session command memory inspired by [claude-mem](https://github.com/NousResearch/claude-mem). It records, categorizes, and retrieves CLI command executions with full-text search.
+
+### Data Model
+
+```zig
+pub const MemoryCategory = enum {
+    fix,        // Bug fix resolved
+    feat,       // New feature implemented
+    refactor,   // Code restructuring
+    config,     // Configuration change
+    learn,      // New tool/pattern discovered
+    mistake,    // CLI mistake + correction
+    pattern,    // Repeated command pattern
+    decision,   // Architectural decision
+    err,        // Unresolved error
+    other,      // Uncategorized
+};
+
+pub const MemoryEntry = struct {
+    id: u64,
+    category: MemoryCategory,
+    summary: []const u8,
+    facts: [][]const u8,
+    context: []const u8,
+    tags: [][]const u8,
+    commands: [][]const u8,
+    project: []const u8,
+    session_id: []const u8,
+    created_at: i64,
+    exit_code: i32,
+    content_hash: [32]u8,
+};
+```
+
+### SQLite Schema
+
+```sql
+-- Memories table
+CREATE TABLE memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    facts TEXT,           -- JSON array
+    context TEXT,
+    tags TEXT,            -- JSON array
+    commands TEXT,        -- JSON array
+    project TEXT,
+    session_id TEXT,
+    created_at INTEGER NOT NULL,
+    exit_code INTEGER,
+    content_hash BLOB     -- SHA-256 for deduplication
+);
+
+-- FTS5 virtual table for full-text search
+CREATE VIRTUAL TABLE memories_fts USING fts5(
+    summary, context, tags, commands,
+    content='memories', content_rowid='id'
+);
+
+-- Session summaries
+CREATE TABLE session_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    project TEXT,
+    task TEXT,
+    learned TEXT,
+    completed TEXT,
+    followups TEXT,
+    notes TEXT,
+    command_count INTEGER,
+    created_at INTEGER NOT NULL
+);
+```
+
+### Recording Triggers
+
+The `Recorder` module automatically categorizes command executions:
+
+| Trigger | Category | Detection |
+|---------|----------|-----------|
+| Command failed | `mistake` | `exit_code != 0` |
+| Repeated command | `pattern` | Same command within 30s |
+| First successful build | `feat` | `cargo build` success after failure |
+| Config file modified | `config` | File extension ∈ {json, toml, yaml} |
+| Tests now passing | `fix` | Was failing, now passing |
+| New tool discovered | `learn` | Command not in known set |
+
+### Privacy
+
+- **Normal mode**: Full recording with SQLite persistence
+- **Private mode**: In-memory only, no persistence (`LLMLITE_MEMORY_PRIVATE=1`)
+- **Excluded patterns**: Configurable regex patterns to skip recording
+
+### Three-Layer Search
+
+```bash
+# Layer 1: Quick search (compact results)
+llmlite-cmd memory search "auth bug"
+# → | ID | Time | Cat | Summary |
+# → | #1 | 2d ago | fix | Fixed JWT expiration |
+
+# Layer 2: Timeline context
+llmlite-cmd memory timeline 1
+# → Chronological context (5 before, 5 after)
+
+# Layer 3: Full details
+llmlite-cmd memory show 1
+# → Complete memory entry with facts, tags, commands
+```
+
+### Configuration
+
+```toml
+[memory]
+enabled = true
+auto_record = true
+max_context_length = 2000
+dedup_window_secs = 30
+
+[memory.privacy]
+mode = "normal"          # "normal" or "private"
+excluded_patterns = ["*password*", "*secret*", "*token*"]
+```
+
+### Mode System
+
+The memory system supports four work modes that change which categories are recorded and which are downgraded to `other`:
+
+| Mode | Focus | Ignored (→ other) | Use Case |
+|------|-------|-------------------|----------|
+| `code` (default) | fix, feat, mistake, pattern | — | Daily coding |
+| `infra` | config, decision, pattern | feat, refactor | Deploy/scale/monitor |
+| `data` | config, pattern, learn | feat, refactor | ETL/schema/query |
+| `writing` | decision, learn, other | err, mistake | Documentation/writing |
+
+```bash
+llmlite-cmd memory mode show       # Current mode + focus/ignore list
+llmlite-cmd memory mode set infra  # Switch mode
+llmlite-cmd memory mode list       # All modes
+```
+
+Mode is persisted in `~/.config/llmlite/config.toml` under `[memory] mode = "..."`.
+
+### Module Summary
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `types.zig` | 98 | Data structures |
+| `db.zig` | 489 | SQLite CRUD + migrations |
+| `recorder.zig` | 281 | Auto-recording + categorization |
+| `search.zig` | 242 | FTS5 + metadata search |
+| `session.zig` | 370 | Session management |
+| `migrate.zig` | 161 | Schema version migrations |
+| `utils.zig` | 120 | Project detection helpers |
+| `modes.zig` | 220 | Work mode system (code/infra/data/writing) |
+
+---
+
+## 11. Implementation Phases
 
 ### Phase 1: Core Framework (Week 1)
-- [ ] Create `src/cmd/` directory structure
-- [ ] Implement `cmd_main.zig` CLI entry
-- [ ] Implement `runner.zig` 6-phase framework
-- [ ] Implement `filter.zig` (migrate from existing)
-- [ ] Implement `tracking.zig` with SQLite
-- [ ] Implement `tee.zig`
-- [ ] Basic build configuration
+- [x] Create `src/cmd/` directory structure
+- [x] Implement `cmd_main.zig` CLI entry
+- [x] Implement `runner.zig` 6-phase framework
+- [x] Implement `filter.zig` (migrate from existing)
+- [x] Implement `tracking.zig` with SQLite
+- [x] Implement `tee.zig`
+- [x] Basic build configuration
 
 ### Phase 2: Git Commands (Week 1-2)
-- [ ] `git status` - Stats Extraction
-- [ ] `git diff` - Grouping + Deduplication
-- [ ] `git log` - Stats Extraction
-- [ ] `git add/commit/push/pull` - Passthrough
+- [x] `git status` - Stats Extraction
+- [x] `git diff` - Grouping + Deduplication
+- [x] `git log` - Stats Extraction
+- [x] `git add/commit/push/pull` - Passthrough
 
 ### Phase 3: Cargo Commands (Week 2)
-- [ ] `cargo test` - Failure Focus + State Machine
-- [ ] `cargo build` - Errors Only
-- [ ] `cargo clippy` - Grouping by Rule
+- [x] `cargo test` - Failure Focus + State Machine
+- [x] `cargo build` - Errors Only
+- [x] `cargo clippy` - Grouping by Rule
 
 ### Phase 4: NPM/JS Commands (Week 2-3)
-- [ ] `npm test` - Failure Focus
-- [ ] `npm run build` - Errors Only
-- [ ] `npm install` - Progress Strip
-- [ ] `pnpm list` - Tree Compression
-- [ ] `vitest` - Failure Focus
+- [x] `npm test` - Failure Focus
+- [x] `npm run build` - Errors Only
+- [x] `npm install` - Progress Strip
+- [x] `pnpm list` - Tree Compression
+- [x] `vitest` - Failure Focus
 
 ### Phase 5: Python Commands (Week 3)
-- [ ] `pytest` - State Machine + Failure Focus
-- [ ] `ruff check` - JSON Dual Mode
-- [ ] `mypy` - Grouping by File
+- [x] `pytest` - State Machine + Failure Focus
+- [x] `ruff check` - JSON Dual Mode
+- [x] `mypy` - Grouping by File
 
 ### Phase 6: Docker/Kubectl (Week 3)
-- [ ] `docker ps/images/logs` - Stats/Dedupe
-- [ ] `docker compose ps` - Stats
-- [ ] `kubectl get pods/logs` - Stats/Dedupe
+- [x] `docker ps/images/logs` - Stats/Dedupe
+- [x] `docker compose ps` - Stats
+- [x] `kubectl get pods/logs` - Stats/Dedupe
 
 ### Phase 7: Hook System (Week 3-4)
-- [ ] Hook installation script
-- [ ] Bash hook
-- [ ] Zsh hook
-- [ ] Hook verification tool
+- [x] Hook installation script
+- [x] Bash hook
+- [x] Zsh hook
+- [x] Hook verification tool
 
 ### Phase 8: Analytics (Week 4)
-- [ ] `llmlite gain` - Statistics display
-- [ ] `llmlite gain --graph` - ASCII graph
-- [ ] `llmlite gain --history` - History view
-- [ ] `llmlite discover` - Savings opportunities
+- [x] `llmlite gain` - Statistics display (proxy unified / local fallback)
+- [x] `llmlite gain --graph` - ASCII graph
+- [x] `llmlite gain --history` - History view
+- [x] `llmlite gain --local` - Force local data (skip proxy)
+- [x] `llmlite gain --json` / `--csv` - Machine-readable output
+- [x] `llmlite discover` - Savings opportunities
+
+### Phase 9: CLI Memory (Week 5-6)
+- [x] `memory/` module structure - types, db, recorder, search, session
+- [x] SQLite schema + migrations - memories, memories_fts, session_summaries
+- [x] Auto-recording with categorization - fix, feat, mistake, pattern, etc.
+- [x] FTS5 full-text search - fallback to metadata search
+- [x] Timeline context retrieval
+- [x] Privacy mode (normal / private)
+- [x] `llmlite memory search` - CLI search command
+- [x] `llmlite memory list` - CLI list command
+- [x] `llmlite memory show` - CLI show command
+- [x] `llmlite memory timeline` - CLI timeline command
+- [x] Mode system (code/infra/data/writing)
+- [ ] Learn module memory integration
 
 ### Phase 9: Remaining Commands (Week 4-6)
-- [ ] Go commands
-- [ ] AWS CLI
-- [ ] Ruby commands
-- [ ] System commands (ls, tree, grep, find)
-- [ ] Additional commands as needed
+- [x] Go commands (`go test`, `golangci-lint`)
+- [x] AWS CLI
+- [x] Ruby commands (`rake`, `rspec`, `rubocop`, `bundle`)
+- [x] System commands (`ls`, `tree`, `read`, `grep`, `find`, `wc`)
+- [x] Additional commands: zig, kiro, biome, terraform, helm, gcloud, ansible-playbook, gradle, mvn, swift, just, mise, task, jj, and more
 
 ---
 
@@ -662,7 +966,7 @@ b.installArtifact(cmd_exe);
 ## 11. CLI Interface
 
 ```
-llmlite-cmd - CLI tool for LLM token optimization
+llmlite-cmd - Developer command companion
 
 USAGE:
     llmlite-cmd <command> [args...]
@@ -686,8 +990,11 @@ HOOK COMMANDS:
     llmlite-cmd init -g --uninstall  Remove hook
 
 ANALYTICS:
-    llmlite-cmd gain             Show token savings
+    llmlite-cmd gain             Show token savings (proxy or local)
+    llmlite-cmd gain --local     Force local data, skip proxy
     llmlite-cmd gain --graph     ASCII graph
+    llmlite-cmd gain --json      JSON output
+    llmlite-cmd gain --csv       CSV output
     llmlite-cmd gain --history   Recent history
     llmlite-cmd discover         Find savings opportunities
 ```
@@ -698,61 +1005,84 @@ ANALYTICS:
 
 ```
 src/cmd/
-├── cmd_main.zig           # 500 lines - CLI entry, argument parsing
-├── cmd.zig                # 300 lines - Command enum, dispatcher
+├── cmd_main.zig           # 136 lines - CLI entry point (main())
+├── cmd.zig                # 3,819 lines - Command dispatcher (80+ commands)
 │
-├── cmds/                  # 15,000+ lines total
-│   ├── mod.zig            # 200 lines - Command routing
-│   ├── git/
-│   │   └── git.zig        # 800 lines - 7 git commands
-│   ├── cargo/
-│   │   └── cargo.zig      # 600 lines - 4 cargo commands
-│   ├── npm/
-│   │   └── npm.zig        # 500 lines - npm/pnpm/vitest
-│   ├── pytest/
-│   │   └── pytest.zig     # 400 lines
-│   ├── docker/
-│   │   └── docker.zig     # 400 lines
-│   ├── kubectl/
-│   │   └── kubectl.zig    # 400 lines
-│   ├── go/
-│   │   └── go.zig         # 500 lines
-│   ├── python/
-│   │   ├── ruff.zig       # 300 lines
-│   │   └── pip.zig        # 300 lines
-│   ├── aws/
-│   │   └── aws.zig        # 500 lines
-│   ├── ruby/
-│   │   └── ruby.zig       # 400 lines
-│   └── system/
-│       ├── ls.zig         # 200 lines
-│       ├── tree.zig       # 200 lines
-│       ├── read.zig       # 300 lines
-│       ├── grep.zig       # 300 lines
-│       └── find.zig       # 200 lines
-│
-├── core/                  # 5,000+ lines
-│   ├── mod.zig            # 100 lines
-│   ├── runner.zig         # 400 lines - 6-phase framework
-│   ├── filter.zig         # 1,500 lines - 12+ strategies
-│   ├── tracking.zig       # 600 lines - SQLite
-│   ├── tee.zig            # 300 lines
-│   ├── utils.zig          # 500 lines
-│   └── constants.zig      # 100 lines
-│
-├── hooks/                 # 2,000+ lines
-│   ├── mod.zig            # 100 lines
-│   ├── hook.zig           # 500 lines - hook logic
-│   ├── install.zig        # 400 lines - init commands
-│   ├── bash_hook.sh       # 200 lines
-│   └── zsh_hook.zsh       # 200 lines
-│
-└── analytics/            # 2,000+ lines
-    ├── mod.zig            # 100 lines
-    ├── gain.zig           # 1,000 lines - statistics
-    └── discover.zig       # 800 lines - opportunities
+└── core/                  # ~29,500 lines total
+    ├── mod.zig            # 89 lines - Module re-exports
+    │
+    # Core Infrastructure (~4,500 lines)
+    ├── runner.zig         # 285 lines - 6-phase execution framework
+    ├── filter.zig         # 762 lines - 12+ filtering strategies
+    ├── tracking.zig       # 187 lines - SQLite persistent tracking
+    ├── tee.zig            # 135 lines - Failure recovery
+    ├── utils.zig          # 150 lines - Utility functions
+    ├── hook.zig           # 1,072 lines - Shell hook management (bash/zsh)
+    ├── config.zig         # 280 lines - TOML + env var overrides
+    ├── session.zig        # 662 lines - Session management
+    ├── key.zig            # 134 lines - Key management
+    ├── lexer.zig          # 505 lines - Lexical analysis
+    ├── rules.zig          # 1,770 lines - Filtering rules
+    ├── learn.zig          # 1,107 lines - Learning mode
+    ├── trust.zig          # 246 lines - Trust management
+    ├── integrity.zig      # 220 lines - Integrity checking
+    ├── sync.zig           # 473 lines - Sync functionality
+    ├── read.zig           # 275 lines - File reading
+    ├── json.zig           # 310 lines - JSON processing
+    ├── audit.zig          # 166 lines - Audit logging
+    ├── ccusage.zig        # 351 lines - CC usage statistics
+    ├── cc_economics.zig   # 376 lines - CC economics analysis
+    │
+    # Proxy-Cmd Integration (~1,000 lines)
+    ├── proxy_helpers.zig  # 70 lines - Proxy API helpers (queryProxyApi)
+    ├── savings_reporter.zig # 396 lines - Async proxy upload + JSONL queue
+    ├── gain.zig           # 558 lines - Token savings statistics (proxy/local)
+    ├── discover.zig       # 823 lines - Savings opportunity discovery
+    │
+    # CLI Memory System (~2,250 lines)
+    ├── modes.zig          # 220 lines - Work mode system (code/infra/data/writing)
+    ├── memory_cmd.zig     # 457 lines - Memory command dispatcher
+    ├── memory/            # 1,791 lines - Memory core library
+    │   ├── mod.zig        # 30 lines - Module exports
+    │   ├── types.zig      # 98 lines - MemoryEntry, MemoryCategory, etc.
+    │   ├── db.zig         # 489 lines - SQLite CRUD + migrations
+    │   ├── recorder.zig   # 281 lines - Auto-recording + categorization
+    │   ├── search.zig     # 242 lines - FTS5 + metadata search
+    │   ├── session.zig    # 370 lines - Session boundary detection
+    │   ├── migrate.zig    # 161 lines - Schema migrations
+    │   └── utils.zig      # 120 lines - Project detection helpers
+    │
+    # Command Modules (~50 modules, ~20,000 lines)
+    ├── git.zig            # 476 lines - Git commands (status, diff, log, add, ...)
+    ├── cargo.zig          # 476 lines - Cargo commands (test, build, clippy, ...)
+    ├── npm.zig            # 206 lines - NPM commands (test, run, install, list)
+    ├── pnpm.zig           # 216 lines - PNPM commands
+    ├── vitest.zig         # 230 lines - Vitest testing
+    ├── pytest.zig         # 342 lines - Python pytest
+    ├── docker.zig         # 341 lines - Docker commands (ps, images, logs, ...)
+    ├── kubectl.zig        # 391 lines - Kubernetes commands
+    ├── go_test.zig        # 426 lines - Go test
+    ├── golangci_lint.zig  # 200 lines - golangci-lint
+    ├── aws.zig            # 308 lines - AWS CLI
+    ├── curl.zig           # 200 lines - curl commands
+    ├── eslint.zig         # 184 lines - ESLint
+    ├── tsc.zig            # 295 lines - TypeScript compiler
+    ├── prettier.zig       # 214 lines - Prettier formatting
+    ├── prisma.zig         # 139 lines - Prisma ORM
+    ├── playwright.zig     # 147 lines - Playwright testing
+    ├── nextjs.zig         # 145 lines - Next.js
+    ├── pip.zig            # 202 lines - pip package manager
+    ├── mypy.zig           # 198 lines - mypy type checking
+    ├── ruff.zig           # 291 lines - Ruff linter
+    ├── rake.zig           # 100 lines - Ruby Rake
+    ├── rspec.zig          # 190 lines - Ruby RSpec
+    ├── rubocop.zig        # 193 lines - Ruby RuboCop
+    ├── dotnet.zig         # 232 lines - .NET CLI
+    ├── java.zig           # 394 lines - Java commands
+    ├── toml_filter.zig    # 1,489 lines - TOML filtering
+    └── ... (40+ more command modules)
 
-TOTAL: ~25,000 lines of Zig code
+TOTAL: ~33,500 lines of Zig code
 ```
 
 ---
@@ -784,11 +1114,22 @@ const sqlite_module = b.dependency("sqlite", .{
 - Filter strategy correctness
 - Token estimation accuracy
 - SQLite read/write
+- SavingsReporter enqueue/retry logic
+- Gain command normalization and output
 
 ### Integration Tests
 - Real command execution with fixtures
 - Snapshot testing for filtered output
 - Hook installation/verification
+- Proxy-cmd end-to-end data flow
+
+### Property-Based Tests
+- 40 correctness properties covering:
+  - Serialization round-trips (SavingsReport, UnifiedResponse)
+  - Invalid JSON rejection
+  - estimateTokens monotonicity
+  - Config parsing round-trip
+  - Time range filtering correctness
 
 ### Token Savings Validation
 - Every command must achieve >= 60% reduction

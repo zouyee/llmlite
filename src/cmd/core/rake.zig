@@ -11,7 +11,7 @@ const std = @import("std");
 
 /// Filter rake output
 pub fn filterRake(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -65,7 +65,7 @@ pub fn filterRake(output: []const u8) []const u8 {
 pub fn runRake(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     // Check for bundle exec

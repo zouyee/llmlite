@@ -18,6 +18,9 @@ const hot_reload = @import("hot_reload");
 const circuit_breaker = @import("circuit_breaker");
 const active_health = @import("active_health");
 const tracking_analytics = @import("analytics");
+const savings_store_mod = @import("proxy_savings_store");
+const savings_handler_mod = @import("proxy_savings_handler");
+const unified_handler_mod = @import("proxy_unified_handler");
 
 // ==================== Provider Types ====================
 
@@ -249,6 +252,9 @@ pub const Server = struct {
     // Analytics components
     tracking_store: tracking_analytics.TrackingStore,
     tracking_handler: tracking_analytics.TrackingHandler,
+    savings_store: savings_store_mod.SavingsStore,
+    savings_handler: savings_handler_mod.SavingsHandler,
+    unified_handler: unified_handler_mod.UnifiedHandler,
 
     // Provider management
     provider_store: ProviderStore,
@@ -290,6 +296,9 @@ pub const Server = struct {
             .edge_config = edge_config,
             .tracking_store = undefined,
             .tracking_handler = undefined,
+            .savings_store = undefined,
+            .savings_handler = undefined,
+            .unified_handler = undefined,
             .provider_store = undefined,
             .provider_handler = undefined,
         };
@@ -348,6 +357,11 @@ pub const Server = struct {
         server.tracking_store = try tracking_analytics.TrackingStore.init(allocator);
         server.tracking_handler = tracking_analytics.TrackingHandler.init(allocator, &server.tracking_store);
 
+        // Initialize savings store and handlers for proxy-cmd integration
+        server.savings_store = savings_store_mod.SavingsStore.init(allocator);
+        server.savings_handler = savings_handler_mod.SavingsHandler.init(allocator, &server.savings_store);
+        server.unified_handler = unified_handler_mod.UnifiedHandler.init(allocator, &server.savings_store);
+
         return server;
     }
 
@@ -368,6 +382,8 @@ pub const Server = struct {
             self.allocator.destroy(hr);
         }
         self.tracking_store.deinit();
+        self.savings_store.deinit();
+        self.provider_store.deinit();
     }
 
     /// Apply new edge config from hot reload
@@ -550,6 +566,10 @@ pub const Server = struct {
             try self.handleAnalyticsTeam(connection);
         } else if (std.mem.startsWith(u8, request_text, "GET /analytics/sessions")) {
             try self.handleAnalyticsSessions(connection);
+        } else if (std.mem.startsWith(u8, request_text, "POST /tracking/savings")) {
+            try self.handlePostSavings(connection, request_text);
+        } else if (std.mem.startsWith(u8, request_text, "GET /analytics/unified")) {
+            try self.handleGetUnified(connection, request_text);
         } else if (std.mem.startsWith(u8, request_text, "/api/providers")) {
             try self.handleProviderApi(connection, request_text);
         } else {
@@ -937,7 +957,7 @@ pub const Server = struct {
         return try provider_http.post(endpoint, transformed);
     }
 
-    fn transformEmbeddingsToGoogle(_: *Server, body: []const u8) ![]u8 {
+    fn transformEmbeddingsToGoogle(server: *Server, body: []const u8) ![]u8 {
         // Google embeddings API uses a different format
         // Parse the input and transform
         const parsed = try std.json.parseFromSlice(struct {
@@ -945,11 +965,11 @@ pub const Server = struct {
                 text: []const u8,
             },
             model: []const u8,
-        }, std.heap.page_allocator, body, .{});
+        }, server.allocator, body, .{});
         defer parsed.deinit();
 
         // Transform to Google format
-        return try std.fmt.allocPrint(std.heap.page_allocator,
+        return try std.fmt.allocPrint(server.allocator,
             \\{{"input":{{"content": "{s}"}},"model": "{s}"}}
         , .{ parsed.value.input.text, parsed.value.model });
     }
@@ -1518,4 +1538,22 @@ pub const Server = struct {
         defer self.allocator.free(response);
         try self.writeJsonResponse(connection, 201, response);
     }
+
+    fn handlePostSavings(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+        if (std.mem.startsWith(u8, request_text, "POST /tracking/savings/batch")) {
+            try self.savings_handler.handleBatchPost(connection, request_text);
+        } else {
+            try self.savings_handler.handlePost(connection, request_text);
+        }
+    }
+
+    fn handleGetUnified(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+        try self.unified_handler.handleGet(connection, request_text);
+    }
 };
+
+// Re-export commonly used types from submodules for cleaner imports
+pub const VirtualKeyStore = @import("virtual_key").VirtualKeyStore;
+pub const RateLimiter = @import("proxy_rate_limit").RateLimiter;
+pub const RequestLogger = @import("proxy_logger").RequestLogger;
+pub const MetricsCollector = @import("proxy_logger").MetricsCollector;

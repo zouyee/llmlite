@@ -12,9 +12,10 @@
 # OS
 .DS_Store
 Thumbs.db
-web/
 # Build artifacts
 .zig-cache/
 zig-out
+.kiro/
 .sisyphus/
 .sisyphus.json
+analysis_report/

@@ -42,13 +42,13 @@ const TestStats = struct {
 /// Filter pytest output using state machine
 pub fn filterPytestOutput(output: []const u8) []const u8 {
     var state: ParseState = .Header;
-    var test_files = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var test_files = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer test_files.deinit();
 
-    var failures = std.ArrayList(Failure).init(std.heap.page_allocator);
+    var failures = std.array_list.Managed(Failure).init(std.heap.page_allocator);
     defer failures.deinit();
 
-    var current_failure_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var current_failure_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer current_failure_lines.deinit();
 
     var summary_line: []const u8 = "";
@@ -195,7 +195,7 @@ fn parseSummaryLine(line: []const u8, stats: *TestStats) void {
 
 /// Build compact pytest summary
 fn buildPytestSummary(stats: *const TestStats, failures: *const []Failure) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     if (stats.failed == 0 and stats.passed > 0) {
@@ -270,7 +270,7 @@ pub fn runPytest(allocator: std.mem.Allocator, args: []const []const u8, verbose
     const runner = @import("cmd_core_runner");
 
     // Build command
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     // Check if pytest or python -m pytest

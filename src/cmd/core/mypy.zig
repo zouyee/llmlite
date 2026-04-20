@@ -22,10 +22,10 @@ pub fn filterMypy(output: []const u8) []const u8 {
 
 /// Filter mypy JSON output
 fn filterMypyJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
-    var errors = std.ArrayList(struct {
+    var errors = std.array_list.Managed(struct {
         file: []const u8,
         line: usize,
         column: usize,
@@ -134,7 +134,7 @@ fn filterMypyJson(output: []const u8) []const u8 {
 
 /// Filter mypy text output
 fn filterMypyText(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -171,7 +171,7 @@ fn filterMypyText(output: []const u8) []const u8 {
 pub fn runMypy(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("mypy");

@@ -1,4 +1,4 @@
-import type { Provider } from '@/lib/api/llmlite'
+import type { Provider } from '@/lib/api/providers'
 
 interface ProviderHealthBadgeProps {
   provider: Provider

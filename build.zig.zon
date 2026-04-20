@@ -6,10 +6,7 @@
             .url = "https://github.com/nDimensional/zig-sqlite/archive/refs/tags/v0.3.2-3510100.tar.gz",
             .hash = "sqlite-0.3.2-3510100-djiKTqmAAADFNYxhtQSupdE7DURa1hGE8tL7aQzUFMdK",
         },
-        .libxev = .{
-            .url = "https://github.com/mitchellh/libxev/archive/refs/heads/main.tar.gz",
-            .hash = "122023416cac89d3e6f4d2a4030c14341ca21379194e0ff1bb41e978709caedb86b9",
-        },
+
     },
     .paths = .{""},
     .fingerprint = 0x8f931403ed7db164,

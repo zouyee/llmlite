@@ -31,14 +31,14 @@ pub const TeamStore = struct {
     allocator: std.mem.Allocator,
     teams: std.StringArrayHashMap(Team),
     projects: std.StringArrayHashMap(Project),
-    team_members: std.StringArrayHashMap(std.ArrayList([]const u8)), // team_id -> [user_id]
+    team_members: std.StringArrayHashMap(std.array_list.Managed([]const u8)), // team_id -> [user_id]
 
     pub fn init(allocator: std.mem.Allocator) TeamStore {
         return .{
             .allocator = allocator,
             .teams = std.StringArrayHashMap(Team).init(allocator),
             .projects = std.StringArrayHashMap(Project).init(allocator),
-            .team_members = std.StringArrayHashMap(std.ArrayList([]const u8)).init(allocator),
+            .team_members = std.StringArrayHashMap(std.array_list.Managed([]const u8)).init(allocator),
         };
     }
 
@@ -146,7 +146,7 @@ pub const TeamStore = struct {
     pub fn addTeamMember(self: *TeamStore, team_id: []const u8, user_id: []const u8) !void {
         const members = try self.team_members.getOrPut(team_id);
         if (!members.found_existing) {
-            members.value_ptr.* = std.ArrayList([]const u8).init(self.allocator);
+            members.value_ptr.* = std.array_list.Managed([]const u8).init(self.allocator);
         }
         try members.value_ptr.append(try self.allocator.dupe(u8, user_id));
     }
@@ -172,7 +172,7 @@ pub const TeamStore = struct {
     }
 
     pub fn getTeamsForUser(self: *TeamStore, user_id: []const u8) []const []const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result = std.array_list.Managed([]const u8).init(self.allocator);
         var it = self.team_members.iterator();
         while (it.next()) |entry| {
             for (entry.value_ptr.items) |uid| {
@@ -281,7 +281,7 @@ pub const TeamStore = struct {
     }
 
     pub fn getProjectsForTeam(self: *TeamStore, team_id: []const u8) []const Project {
-        var result = std.ArrayList(Project).init(self.allocator);
+        var result = std.array_list.Managed(Project).init(self.allocator);
         var it = self.projects.iterator();
         while (it.next()) |entry| {
             if (std.mem.eql(u8, entry.value_ptr.team_id, team_id)) {
@@ -319,7 +319,7 @@ pub const TeamStore = struct {
 
     fn generateId(allocator: std.mem.Allocator, prefix: []const u8) ![]const u8 {
         const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        var id = std.ArrayList(u8).init(allocator);
+        var id = std.array_list.Managed(u8).init(allocator);
         try id.appendSlice(prefix);
         try id.append('_');
         const id_len = 24;

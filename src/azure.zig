@@ -119,7 +119,7 @@ pub const AzureService = struct {
         const auth_header = self.azure_client.getAuthHeader();
         const content_type = "Content-Type: application/json";
 
-        var headers = std.ArrayList(u8).init(self.allocator);
+        var headers = std.array_list.Managed(u8).init(self.allocator);
         defer headers.deinit();
 
         try headers.appendSlice(content_type);

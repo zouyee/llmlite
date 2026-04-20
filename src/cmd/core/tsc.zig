@@ -37,7 +37,7 @@ pub fn filterTsc(output: []const u8) []const u8 {
 
 /// Filter tsc --json output
 fn filterTscJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     const parsed = json.parse(std.heap.page_allocator, output) catch {
@@ -99,10 +99,10 @@ fn filterTscJson(output: []const u8) []const u8 {
 
 /// Filter tsc text output
 fn filterTscText(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
-    var errors = std.ArrayList(TsError).init(std.heap.page_allocator);
+    var errors = std.array_list.Managed(TsError).init(std.heap.page_allocator);
     defer errors.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -113,7 +113,7 @@ fn filterTscText(output: []const u8) []const u8 {
         const error_info = parseTscErrorLine(line);
         if (error_info) |err| {
             // Collect context lines
-            var context = std.ArrayList([]const u8).init(std.heap.page_allocator);
+            var context = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
             defer context.deinit();
 
             i = 0;
@@ -145,7 +145,7 @@ fn filterTscText(output: []const u8) []const u8 {
     }
 
     // Group by file
-    var files = std.StringArrayHashMap(std.ArrayList([]const u8)).init(std.heap.page_allocator);
+    var files = std.StringArrayHashMap(std.array_list.Managed([]const u8)).init(std.heap.page_allocator);
     defer {
         var it = files.iterator();
         while (it.next()) |entry| {
@@ -155,14 +155,14 @@ fn filterTscText(output: []const u8) []const u8 {
     }
 
     for (errors.items) |err| {
-        var key = std.ArrayList(u8).init(std.heap.page_allocator);
+        var key = std.array_list.Managed(u8).init(std.heap.page_allocator);
         std.fmt.format(key.writer(), "{s}:{d}", .{ err.file, err.line }) catch {};
 
         const entry = files.getOrPut(key.toOwnedSlice() catch "") catch continue;
         if (entry.found_existing) {
             entry.value_ptr.append(err.code) catch {};
         } else {
-            var list = std.ArrayList([]const u8).init(std.heap.page_allocator);
+            var list = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
             list.append(err.code) catch {};
             entry.value_ptr.* = list;
         }
@@ -247,7 +247,7 @@ pub fn runTsc(allocator: std.mem.Allocator, args: []const []const u8, verbose: u
     // Check if tsc exists, otherwise use npx
     const tsc_exists = checkToolExists("tsc");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     if (tsc_exists) {

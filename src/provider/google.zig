@@ -593,7 +593,7 @@ pub fn sendStream(allocator: std.mem.Allocator, chat: *GeminiChat, parts: []Part
 }
 
 fn buildChatRequestBody(allocator: std.mem.Allocator, chat: *GeminiChat, new_content: Content, config: ?*const GenerateContentConfig) ![]u8 {
-    var body = std.ArrayList(u8).init(allocator);
+    var body = std.array_list.Managed(u8).init(allocator);
     defer body.deinit();
 
     try body.appendSlice(allocator, "{\"contents\":[");
@@ -634,7 +634,7 @@ fn buildChatRequestBody(allocator: std.mem.Allocator, chat: *GeminiChat, new_con
 }
 
 fn serializeContent(allocator: std.mem.Allocator, content: Content) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     try result.appendSlice(allocator, "{\"role\":\"");
@@ -689,7 +689,7 @@ pub const InlinedRequest = struct {
 
 /// Create a batch job (Gemini native format)
 pub fn createBatchJob(allocator: std.mem.Allocator, model: []const u8, source: BatchJobSource, display_name: ?[]const u8) ![]u8 {
-    var body = std.ArrayList(u8).init(allocator);
+    var body = std.array_list.Managed(u8).init(allocator);
     defer body.deinit();
 
     try body.appendSlice(allocator, "{\"model\":\"");

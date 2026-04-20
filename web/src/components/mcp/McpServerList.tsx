@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMcpServers, useStartMcpServer, useStopMcpServer, useDeleteMcpServer } from '@/hooks/useMcp'
 import toast from 'react-hot-toast'

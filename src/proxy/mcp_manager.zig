@@ -303,7 +303,7 @@ pub const McpServerManager = struct {
 
     /// Generate MCP configuration for a CLI tool
     pub fn generateConfigForTool(self: *McpServerManager, tool: CliTool) ![]u8 {
-        var servers_config = std.ArrayList(u8).init(self.allocator);
+        var servers_config = std.array_list.Managed(u8).init(self.allocator);
         defer servers_config.deinit();
 
         var it = self.servers.iterator();

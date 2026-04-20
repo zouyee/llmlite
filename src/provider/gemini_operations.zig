@@ -38,7 +38,7 @@ pub const Service = struct {
     /// List operations
     /// GET /v1beta/{parent}/operations
     pub fn list(self: *Service, parent: []const u8, params: ?ListOperationsParams) !ListOperationsResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/");

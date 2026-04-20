@@ -39,7 +39,7 @@ pub fn filterRuff(output: []const u8, is_check: bool, is_format: bool) []const u
 
 /// Filter ruff check --json output
 fn filterRuffCheckJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Try to parse as JSON array
@@ -103,7 +103,7 @@ fn filterRuffCheckJson(output: []const u8) []const u8 {
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
     // Group by file (show top 5)
-    var file_counts = std.ArrayList(struct { name: []const u8, count: usize }).init(std.heap.page_allocator);
+    var file_counts = std.array_list.Managed(struct { name: []const u8, count: usize }).init(std.heap.page_allocator);
     defer file_counts.deinit();
 
     var files_it = files.iterator();
@@ -130,7 +130,7 @@ fn filterRuffCheckJson(output: []const u8) []const u8 {
 
 /// Parse ruff JSON diagnostics
 fn parseRuffDiagnostics(input: []const u8) ![]RuffDiagnostic {
-    var diagnostics = std.ArrayList(RuffDiagnostic).init(std.heap.page_allocator);
+    var diagnostics = std.array_list.Managed(RuffDiagnostic).init(std.heap.page_allocator);
     errdefer diagnostics.deinit();
 
     // Find array bounds
@@ -203,7 +203,7 @@ fn parseRuffDiagnostics(input: []const u8) ![]RuffDiagnostic {
 
 /// Filter ruff format output
 fn filterRuffFormat(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Check for differences
@@ -243,7 +243,7 @@ pub fn runRuff(allocator: std.mem.Allocator, args: []const []const u8, verbose: 
     }
 
     // Build command
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("ruff");

@@ -36,7 +36,7 @@ pub const Service = struct {
     }
 
     fn serializeEmbeddingParams(self: *Service, params: CreateEmbeddingParams) ![]u8 {
-        var buf = std.ArrayListUnmanaged(u8).empty;
+        var buf = std.ArrayListUnmanaged(u8){};
         defer buf.deinit(self.allocator);
 
         try buf.append(self.allocator, '{');
@@ -177,7 +177,7 @@ pub const Service = struct {
                 continue;
             };
 
-            var floats = std.ArrayListUnmanaged(f64).empty;
+            var floats = std.ArrayListUnmanaged(f64){};
             errdefer floats.deinit(self.allocator);
 
             var float_start: usize = 0;
@@ -286,7 +286,7 @@ pub fn transformGeminiEmbeddingRequest(allocator: std.mem.Allocator, params: Cre
     // Google Gemini embed content request format:
     // {"content": {"parts": [{"text": "..."}]}}
 
-    var content = std.ArrayListUnmanaged(u8).empty;
+    var content = std.ArrayListUnmanaged(u8){};
     defer content.deinit(allocator);
 
     switch (params.input) {
@@ -333,7 +333,7 @@ pub fn parseGeminiEmbeddingResponse(allocator: std.mem.Allocator, response: []co
     const array_str = after_values[array_start..i];
 
     // Parse float array
-    var floats = std.ArrayListUnmanaged(f64).empty;
+    var floats = std.ArrayListUnmanaged(f64){};
     errdefer floats.deinit(allocator);
 
     var float_start: usize = 0;

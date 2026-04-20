@@ -159,7 +159,17 @@ pub const Server = struct {
                 '\n' => try result.appendSlice(self.allocator, "\\n"),
                 '\r' => try result.appendSlice(self.allocator, "\\r"),
                 '\t' => try result.appendSlice(self.allocator, "\\t"),
-                else => try result.append(self.allocator, byte),
+                0x08 => try result.appendSlice(self.allocator, "\\b"),
+                0x0C => try result.appendSlice(self.allocator, "\\f"),
+                else => {
+                    if (byte < 0x20) {
+                        var buf: [6]u8 = undefined;
+                        const slice = try std.fmt.bufPrint(&buf, "\\u{X:0>4}", .{byte});
+                        try result.appendSlice(self.allocator, slice);
+                    } else {
+                        try result.append(self.allocator, byte);
+                    }
+                },
             }
         }
         try result.appendSlice(self.allocator, "\"");

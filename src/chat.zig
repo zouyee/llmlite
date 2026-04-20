@@ -79,16 +79,41 @@ pub const Service = struct {
         try messages_json.appendSlice(self.allocator, "]");
 
         // Build the full JSON
-        const result = try std.fmt.allocPrint(self.allocator,
-            \\{{"model":"{s}","messages":{s},"stream":{s}{s}{s}}}
-        , .{
-            params.model,
-            try messages_json.toOwnedSlice(self.allocator),
-            if (params.stream) "true" else "false",
-            if (params.temperature) |v| try std.fmt.allocPrint(self.allocator, ",\"temperature\":{d}", .{v}) else "",
-            if (params.max_tokens) |v| try std.fmt.allocPrint(self.allocator, ",\"max_tokens\":{d}", .{v}) else "",
-        });
-        return result;
+        var temp_parts = std.ArrayListUnmanaged([]const u8){};
+        defer {
+            for (temp_parts.items) |part| self.allocator.free(part);
+            temp_parts.deinit(self.allocator);
+        }
+
+        const model_json = try std.fmt.allocPrint(self.allocator, "\"model\":\"{s}\"", .{params.model});
+        try temp_parts.append(self.allocator, model_json);
+
+        const messages_slice = try messages_json.toOwnedSlice(self.allocator);
+        defer self.allocator.free(messages_slice);
+        const messages_field = try std.fmt.allocPrint(self.allocator, "\"messages\":{s}", .{messages_slice});
+        try temp_parts.append(self.allocator, messages_field);
+
+        const stream_field = try std.fmt.allocPrint(self.allocator, "\"stream\":{s}", .{if (params.stream) "true" else "false"});
+        try temp_parts.append(self.allocator, stream_field);
+
+        if (params.temperature) |v| {
+            const temp_field = try std.fmt.allocPrint(self.allocator, "\"temperature\":{d}", .{v});
+            try temp_parts.append(self.allocator, temp_field);
+        }
+        if (params.max_tokens) |v| {
+            const max_tokens_field = try std.fmt.allocPrint(self.allocator, "\"max_tokens\":{d}", .{v});
+            try temp_parts.append(self.allocator, max_tokens_field);
+        }
+
+        var result = std.ArrayListUnmanaged(u8){};
+        errdefer result.deinit(self.allocator);
+        try result.append(self.allocator, '{');
+        for (temp_parts.items, 0..) |part, i| {
+            if (i > 0) try result.appendSlice(self.allocator, ",");
+            try result.appendSlice(self.allocator, part);
+        }
+        try result.append(self.allocator, '}');
+        return try result.toOwnedSlice(self.allocator);
     }
 
     fn serializeMessageToString(allocator: std.mem.Allocator, msg: Message) ![]u8 {
@@ -101,8 +126,8 @@ pub const Service = struct {
         // Handle messages with tool_calls
         if (msg.tool_calls) |calls| {
             // For assistant messages with tool calls, we need to serialize them properly
-            var calls_json = std.ArrayList(u8).empty;
-            defer calls_json.deinit(allocator);
+            var calls_json = std.array_list.Managed(u8).init(allocator);
+            defer calls_json.deinit();
 
             try calls_json.appendSlice(allocator, "[");
             for (calls, 0..) |call, i| {
@@ -453,6 +478,40 @@ pub const ChatCompletion = struct {
     service_tier: ?[]const u8 = null,
     system_fingerprint: ?[]const u8 = null,
     usage: Usage,
+
+    pub fn deinit(self: ChatCompletion, allocator: std.mem.Allocator) void {
+        allocator.free(self.id);
+        allocator.free(self.model);
+        if (self.service_tier) |st| allocator.free(st);
+        if (self.system_fingerprint) |sf| allocator.free(sf);
+        for (self.choices) |choice| {
+            allocator.free(choice.finish_reason);
+            if (choice.message.content) |c| allocator.free(c);
+            if (choice.message.tool_call_id) |t| allocator.free(t);
+            if (choice.message.name) |n| allocator.free(n);
+            if (choice.message.reasoning_content) |r| allocator.free(r);
+            if (choice.message.parts) |parts| {
+                for (parts) |part| {
+                    switch (part) {
+                        .text => |tp| allocator.free(tp.text),
+                        .image_url => |iu| allocator.free(iu.image_url.url),
+                        .video_url => |vu| allocator.free(vu.video_url.url),
+                        .refusal => |r| allocator.free(r.refusal),
+                    }
+                }
+                allocator.free(parts);
+            }
+            if (choice.message.tool_calls) |calls| {
+                for (calls) |call| {
+                    allocator.free(call.id);
+                    allocator.free(call.function.name);
+                    allocator.free(call.function.arguments);
+                }
+                allocator.free(calls);
+            }
+        }
+        allocator.free(self.choices);
+    }
 };
 
 pub const ChatCompletionDeleted = struct {

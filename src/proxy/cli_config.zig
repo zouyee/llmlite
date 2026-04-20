@@ -48,61 +48,27 @@ pub const CliConfigGenerator = struct {
     /// Generate configuration for Claude Code
     /// Claude Code uses ~/.claude/settings.json and ~/.claude/credentials.json
     pub fn generateClaudeCodeSettings(self: *CliConfigGenerator, config: *const TargetConfig) ![]u8 {
-        var result = std.StringArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
-
-        try std.json.stringify(result.writer(), .{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .analytics_enabled = false,
             .api_key = config.api_key,
             .base_url = config.base_url,
             .default_model = config.model,
             .extra = if (config.extra) |e| self.hashMapToObject(e) else null,
-        }, .{ .whitespace = .indent_tab }) catch {
-            // Fallback to manual JSON if std.json fails
-            try result.appendSlice("{\n");
-            try result.appendSlice("  \"analytics_enabled\": false,\n");
-            try result.appendSlice("  \"api_key\": \"");
-            try result.appendSlice(config.api_key);
-            try result.appendSlice("\",\n");
-            try result.appendSlice("  \"base_url\": \"");
-            try result.appendSlice(config.base_url);
-            try result.appendSlice("\",\n");
-            try result.appendSlice("  \"default_model\": \"");
-            try result.appendSlice(config.model);
-            try result.appendSlice("\"\n");
-            try result.appendSlice("}");
-            return result.toOwnedSlice();
-        };
-
-        return result.toOwnedSlice();
+        }, .{ .whitespace = .indent_tab });
     }
 
     pub fn generateClaudeCodeCredentials(self: *CliConfigGenerator, config: *const TargetConfig) ![]u8 {
-        var result = std.StringArrayList(u8).init(self.allocator);
-        errdefer result.deinit();
-
-        try std.json.stringify(result.writer(), .{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .access_token = config.api_key,
             .refresh_token = "",
             .expires_at = null,
-        }, .{ .whitespace = .indent_tab }) catch {
-            try result.appendSlice("{\n");
-            try result.appendSlice("  \"access_token\": \"");
-            try result.appendSlice(config.api_key);
-            try result.appendSlice("\",\n");
-            try result.appendSlice("  \"refresh_token\": \"\",\n");
-            try result.appendSlice("  \"expires_at\": null\n");
-            try result.appendSlice("}");
-            return result.toOwnedSlice();
-        };
-
-        return result.toOwnedSlice();
+        }, .{ .whitespace = .indent_tab });
     }
 
     /// Generate configuration for OpenAI Codex
     /// Codex uses ~/.codex/config.json
     pub fn generateCodexConfig(self: *CliConfigGenerator, config: *const TargetConfig) ![]u8 {
-        var result = std.StringArrayList(u8).init(self.allocator);
+        var result = std.array_list.Managed(u8).init(self.allocator);
         errdefer result.deinit();
 
         try result.appendSlice("{\n");
@@ -119,7 +85,7 @@ pub const CliConfigGenerator = struct {
     /// Generate configuration for Google Gemini CLI
     /// Gemini CLI uses ~/.gemini/config.json
     pub fn generateGeminiCliConfig(self: *CliConfigGenerator, config: *const TargetConfig) ![]u8 {
-        var result = std.StringArrayList(u8).init(self.allocator);
+        var result = std.array_list.Managed(u8).init(self.allocator);
         errdefer result.deinit();
 
         try result.appendSlice("{\n");
@@ -136,7 +102,7 @@ pub const CliConfigGenerator = struct {
     /// Generate configuration for OpenCode
     /// OpenCode uses ~/.opencode/config.yaml
     pub fn generateOpenCodeConfig(self: *CliConfigGenerator, config: *const TargetConfig) ![]u8 {
-        var result = std.StringArrayList(u8).init(self.allocator);
+        var result = std.array_list.Managed(u8).init(self.allocator);
         errdefer result.deinit();
 
         try result.appendSlice("version: \"1.0\"\n");
@@ -160,7 +126,7 @@ pub const CliConfigGenerator = struct {
     /// Generate configuration for OpenClaw
     /// OpenClaw uses ~/.openclaw/config.yaml
     pub fn generateOpenClawConfig(self: *CliConfigGenerator, config: *const TargetConfig) ![]u8 {
-        var result = std.StringArrayList(u8).init(self.allocator);
+        var result = std.array_list.Managed(u8).init(self.allocator);
         errdefer result.deinit();
 
         try result.appendSlice("version: \"1.0\"\n");

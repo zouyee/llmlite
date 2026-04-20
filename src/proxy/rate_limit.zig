@@ -10,7 +10,7 @@ pub const RateLimiter = struct {
 
     /// Rate window for a key
     pub const RateWindow = struct {
-        hits: []i64,
+        hits: std.ArrayList(i64),
         window_start: i64,
         limit: u32,
     };
@@ -26,7 +26,7 @@ pub const RateLimiter = struct {
         var it = self.windows.iterator();
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
-            self.allocator.free(entry.value_ptr.hits);
+            entry.value_ptr.hits.deinit(self.allocator);
         }
         self.windows.deinit();
     }
@@ -39,7 +39,7 @@ pub const RateLimiter = struct {
         const window = try self.windows.getOrPut(key);
         if (!window.found_existing) {
             window.value_ptr.* = .{
-                .hits = &.{},
+                .hits = std.ArrayList(i64){},
                 .window_start = now,
                 .limit = limit,
             };
@@ -47,33 +47,21 @@ pub const RateLimiter = struct {
 
         const rate_window = window.value_ptr;
 
-        // Clean up old hits outside 1-second window and count valid ones
-        var valid_count: u32 = 0;
-        for (rate_window.hits) |hit| {
-            if (now - hit < 1) {
-                valid_count += 1;
+        // Clean up old hits outside 1-second window
+        var i: usize = 0;
+        while (i < rate_window.hits.items.len) {
+            if (now - rate_window.hits.items[i] >= 1) {
+                _ = rate_window.hits.orderedRemove(i);
+            } else {
+                i += 1;
             }
         }
 
-        if (valid_count >= rate_window.limit) {
+        if (rate_window.hits.items.len >= rate_window.limit) {
             return false;
         }
 
-        // Build new hits slice with valid entries plus current
-        const new_len = valid_count + 1;
-        const new_hits = try self.allocator.alloc(i64, new_len);
-        var idx: u32 = 0;
-        for (rate_window.hits) |hit| {
-            if (now - hit < 1) {
-                new_hits[idx] = hit;
-                idx += 1;
-            }
-        }
-        new_hits[idx] = now;
-
-        self.allocator.free(rate_window.hits);
-        rate_window.hits = new_hits;
-
+        try rate_window.hits.append(self.allocator, now);
         return true;
     }
 
@@ -83,7 +71,7 @@ pub const RateLimiter = struct {
         const rate_window = self.windows.get(key) orelse return 0;
 
         var count: u32 = 0;
-        for (rate_window.hits) |hit| {
+        for (rate_window.hits.items) |hit| {
             if (now - hit < 1) {
                 count += 1;
             }
@@ -94,8 +82,7 @@ pub const RateLimiter = struct {
     /// Reset rate limit for a key
     pub fn reset(self: *RateLimiter, key: []const u8) void {
         if (self.windows.get(key)) |rate_window| {
-            self.allocator.free(rate_window.hits);
-            rate_window.hits = &.{};
+            rate_window.hits.clearAndFree(self.allocator);
             rate_window.window_start = std.time.timestamp();
         }
     }

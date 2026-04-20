@@ -80,7 +80,7 @@ pub const Service = struct {
 
     /// Lists vector stores.
     pub fn list(self: *Service, params: ?VectorStoreListParams) !VectorStoreListResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit(self.allocator);
 
         try path.appendSlice(self.allocator, "/vector_stores");
@@ -159,7 +159,7 @@ pub const Service = struct {
 
     /// Lists files in a vector store.
     pub fn listFiles(self: *Service, vector_store_id: []const u8, params: ?VectorStoreFileListParams) !VectorStoreFileListResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit(self.allocator);
 
         try std.fmt.format(path.writer(), "/vector_stores/{s}/files", .{vector_store_id});
@@ -232,7 +232,7 @@ pub const Service = struct {
     // =========================================================================
 
     fn serializeCreateParams(self: *Service, params: VectorStoreCreateParams) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit(self.allocator);
 
         try buf.append(self.allocator, '{');
@@ -277,7 +277,7 @@ pub const Service = struct {
     }
 
     fn serializeUpdateParams(self: *Service, params: VectorStoreUpdateParams) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit(self.allocator);
 
         try buf.append(self.allocator, '{');
@@ -302,7 +302,7 @@ pub const Service = struct {
     }
 
     fn serializeFileCreateParams(self: *Service, params: VectorStoreFileCreateParams) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit(self.allocator);
 
         try buf.append(self.allocator, '{');
@@ -327,7 +327,7 @@ pub const Service = struct {
     }
 
     fn serializeSearchParams(self: *Service, params: VectorStoreSearchParams) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit(self.allocator);
 
         try buf.append(self.allocator, '{');
@@ -359,7 +359,7 @@ pub const Service = struct {
     }
 
     fn serializeChunkingStrategy(self: *Service, strategy: ChunkingStrategy) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         defer buf.deinit(self.allocator);
 
         try buf.appendSlice(self.allocator, "{\"type\":\"static\",\"static\":{");

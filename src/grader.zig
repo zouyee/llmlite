@@ -49,7 +49,7 @@ pub const Service = struct {
     }
 
     fn serializeRunParams(self: *Service, params: GraderRunParams) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         errdefer buf.deinit();
 
         try buf.append('{');
@@ -82,7 +82,7 @@ pub const Service = struct {
     }
 
     fn serializeValidateParams(self: *Service, params: GraderValidateParams) ![]u8 {
-        var buf = std.ArrayList(u8).init(self.allocator);
+        var buf = std.array_list.Managed(u8).init(self.allocator);
         errdefer buf.deinit();
 
         try buf.append('{');

@@ -21,7 +21,7 @@ pub fn filterCurl(output: []const u8, has_json_output: bool) []const u8 {
 
 /// Filter curl JSON output
 fn filterCurlJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Try to parse and summarize JSON
@@ -34,7 +34,7 @@ fn filterCurlJson(output: []const u8) []const u8 {
     // Check if it's a JSON object or array
     if (trimmed[0] == '{') {
         // JSON object - extract keys and summarize
-        var keys = std.ArrayList([]const u8).init(std.heap.page_allocator);
+        var keys = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
         defer keys.deinit();
 
         var pos: usize = 1;
@@ -132,7 +132,7 @@ fn filterCurlJson(output: []const u8) []const u8 {
 
 /// Generic curl filter
 fn filterCurlGeneric(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -166,7 +166,7 @@ fn filterCurlGeneric(output: []const u8) []const u8 {
 pub fn runCurl(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     // Check for -i (include headers) or -v (verbose) which we should remove

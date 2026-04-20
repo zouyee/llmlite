@@ -76,7 +76,7 @@ pub const Service = struct {
 
     /// Lists assistants.
     pub fn listAssistants(self: *Service, params: ?AssistantListParams) !AssistantListResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/assistants");
@@ -118,7 +118,7 @@ pub const Service = struct {
     /// Creates a thread.
     pub fn createThread(self: *Service, params: ?ThreadCreateParams) !Thread {
         const json_str = if (params) |p| try self.serializeThreadCreateParams(p) else "{}";
-        if (params != null) self.allocator.free(json_str);
+        defer if (params != null) self.allocator.free(json_str);
 
         const response = try self.http_client.post("/threads", json_str);
         defer self.allocator.free(response);
@@ -185,7 +185,7 @@ pub const Service = struct {
         const path = try std.fmt.allocPrint(self.allocator, "/threads/{s}/messages", .{thread_id});
         defer self.allocator.free(path);
 
-        var query = std.ArrayList(u8).init(self.allocator);
+        var query = std.array_list.Managed(u8).init(self.allocator);
         defer query.deinit();
 
         if (params) |p| {
@@ -246,7 +246,7 @@ pub const Service = struct {
         const path = try std.fmt.allocPrint(self.allocator, "/threads/{s}/runs", .{thread_id});
         defer self.allocator.free(path);
 
-        var query = std.ArrayList(u8).init(self.allocator);
+        var query = std.array_list.Managed(u8).init(self.allocator);
         defer query.deinit();
 
         if (params) |p| {

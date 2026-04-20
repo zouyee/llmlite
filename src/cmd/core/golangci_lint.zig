@@ -33,10 +33,10 @@ pub fn filterGolangciLint(output: []const u8) []const u8 {
 
 /// Filter golangci-lint JSON output
 fn filterGolangciLintJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
-    var diagnostics = std.ArrayList(GolangciDiagnostic).init(std.heap.page_allocator);
+    var diagnostics = std.array_list.Managed(GolangciDiagnostic).init(std.heap.page_allocator);
     defer diagnostics.deinit();
 
     // Parse each line as JSON object
@@ -67,7 +67,7 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
     }
 
     // Group by file
-    var files = std.StringArrayHashMap(std.ArrayList(usize)).init(std.heap.page_allocator);
+    var files = std.StringArrayHashMap(std.array_list.Managed(usize)).init(std.heap.page_allocator);
     defer {
         var it = files.iterator();
         while (it.next()) |entry| {
@@ -81,7 +81,7 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
         if (file_diagnostics.found_existing) {
             file_diagnostics.value_ptr.append(idx) catch {};
         } else {
-            var list = std.ArrayList(usize).init(std.heap.page_allocator);
+            var list = std.array_list.Managed(usize).init(std.heap.page_allocator);
             list.append(idx) catch {};
             file_diagnostics.value_ptr.* = list;
         }
@@ -131,7 +131,7 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
 
 /// Filter golangci-lint text output
 fn filterGolangciLintText(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -169,7 +169,7 @@ pub fn runGolangciLint(allocator: std.mem.Allocator, args: []const []const u8, v
     const runner = @import("cmd_core_runner");
 
     // Build command - add --format=json
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("golangci-lint");

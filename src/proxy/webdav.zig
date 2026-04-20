@@ -337,7 +337,7 @@ pub const WebDavClient = struct {
 
     /// Parse PROPFIND XML response
     fn parsePropfindResponse(self: *WebDavClient, xml: []const u8) ![]WebDavResource {
-        var results = std.ArrayList(WebDavResource).init(self.allocator);
+        var results = std.array_list.Managed(WebDavResource).init(self.allocator);
 
         // Simple XML parsing for WebDAV responses
         // Look for <d:href> and <d:collection> tags
@@ -658,7 +658,7 @@ pub const WebDavClient = struct {
     fn base64Encode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
         const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-        var result = try std.ArrayList(u8).initCapacity(allocator, 0);
+        var result = try std.array_list.Managed(u8).initCapacity(allocator, 0);
         errdefer result.deinit(allocator);
 
         var i: usize = 0;
@@ -827,7 +827,7 @@ pub const WebDavSyncEngine = struct {
 
     /// Sync all files in a directory recursively
     pub fn syncDirectory(self: *WebDavSyncEngine, relative_path: []const u8, direction: enum { upload, download }) ![]SyncStatus {
-        var results = try std.ArrayList(SyncStatus).initCapacity(self.allocator, 0);
+        var results = try std.array_list.Managed(SyncStatus).initCapacity(self.allocator, 0);
         errdefer results.deinit();
 
         const local_dir = try std.fmt.allocPrint(

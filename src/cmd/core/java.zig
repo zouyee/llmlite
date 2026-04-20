@@ -28,7 +28,7 @@ pub const JavaCommand = enum {
 
 /// Filter javac output
 pub fn filterJavac(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var error_count: usize = 0;
@@ -74,7 +74,7 @@ pub fn filterJavac(output: []const u8) []const u8 {
 
 /// Filter maven output (mvn test, mvn compile)
 pub fn filterMaven(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var test_passed: usize = 0;
@@ -84,7 +84,7 @@ pub fn filterMaven(output: []const u8) []const u8 {
 
     var in_test_results = false;
     var in_failures = false;
-    var failure_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var failure_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer failure_lines.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -186,13 +186,13 @@ pub fn filterMaven(output: []const u8) []const u8 {
 
 /// Filter gradle output
 pub fn filterGradle(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var test_passed: usize = 0;
     var test_failures: usize = 0;
     var in_failures = false;
-    var failure_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var failure_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer failure_lines.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -277,7 +277,7 @@ pub fn filterGradle(output: []const u8) []const u8 {
 
 /// Filter kotlinc output
 pub fn filterKotlinc(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var error_count: usize = 0;
@@ -316,7 +316,7 @@ pub fn filterKotlinc(output: []const u8) []const u8 {
 pub fn runJavac(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("javac");
@@ -339,7 +339,7 @@ pub fn runJavac(allocator: std.mem.Allocator, args: []const []const u8, verbose:
 pub fn runMaven(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("mvn");
@@ -362,7 +362,7 @@ pub fn runMaven(allocator: std.mem.Allocator, args: []const []const u8, verbose:
 pub fn runGradle(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("gradle");

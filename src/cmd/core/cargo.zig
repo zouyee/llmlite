@@ -29,12 +29,12 @@ pub const CargoCommand = enum {
 
 /// Filter cargo build/check output
 pub fn filterCargoBuild(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var in_error = false;
     var error_count: usize = 0;
-    var current_error_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var current_error_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer current_error_lines.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -112,7 +112,7 @@ pub fn filterCargoBuild(output: []const u8) []const u8 {
 
 /// Filter cargo test output (supports --json flag)
 pub fn filterCargoTest(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Check if JSON output
@@ -126,7 +126,7 @@ pub fn filterCargoTest(output: []const u8) []const u8 {
 
     var in_test_header = false;
     var in_failures = false;
-    var failure_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var failure_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer failure_lines.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -210,12 +210,12 @@ pub fn filterCargoTest(output: []const u8) []const u8 {
 
 /// Filter cargo test --json output (simplified JSON parsing)
 fn filterCargoTestJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var pass_count: usize = 0;
     var fail_count: usize = 0;
-    var failures = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var failures = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer failures.deinit();
 
     // Simple JSON line parsing
@@ -293,7 +293,7 @@ fn extractJsonInt(json: []const u8, field: []const u8) ?usize {
 
 /// Filter cargo clippy output
 pub fn filterCargoClippy(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var warning_count: usize = 0;
@@ -331,17 +331,17 @@ pub fn filterCargoClippy(output: []const u8) []const u8 {
 
 /// Filter cargo install output
 pub fn filterCargoInstall(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var installed_crate: []const u8 = "";
     var installed_version: []const u8 = "";
     var error_count: usize = 0;
-    var errors = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var errors = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer errors.deinit();
 
     var in_error = false;
-    var current_error_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var current_error_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer current_error_lines.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -433,7 +433,7 @@ pub fn runCargo(allocator: std.mem.Allocator, cmd: CargoCommand, args: []const [
     };
 
     // Build command
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("cargo");

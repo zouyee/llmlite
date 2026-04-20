@@ -72,7 +72,7 @@ pub const TrackingHandler = struct {
             synced += 1;
         }
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .synced = synced,
             .errors = errors,
         }, .{});
@@ -93,7 +93,7 @@ pub const TrackingHandler = struct {
         // Get statistics from store
         const stats = self.store.getGainStats(query);
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .total_saved_tokens = stats.total_saved_tokens,
             .total_requests = stats.total_requests,
             .avg_savings_pct = stats.avg_savings_pct,
@@ -119,7 +119,7 @@ pub const TrackingHandler = struct {
         else
             0.0;
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .team_id = query.team_id,
             .total_saved_tokens = stats.total_saved_tokens,
             .total_requests = stats.total_requests,
@@ -143,7 +143,7 @@ pub const TrackingHandler = struct {
 
         const sessions = self.store.getSessionOverview(query);
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .sessions_scanned = sessions.len,
             .total_commands = self.countTotalCommands(sessions),
             .llmlite_commands = self.countLlmliteCommands(sessions),

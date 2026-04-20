@@ -29,7 +29,7 @@ pub fn filterPnpm(output: []const u8, subcommand: []const u8) []const u8 {
 
 /// Filter pnpm list --json output
 fn filterPnpmList(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Try JSON parsing
@@ -49,7 +49,7 @@ fn filterPnpmList(output: []const u8) []const u8 {
 
 /// Extract summary from pnpm list JSON
 fn extractPnpmListSummary(obj: *std.json.ObjectMap) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Count packages at root
@@ -86,7 +86,7 @@ fn extractPnpmListSummary(obj: *std.json.ObjectMap) []const u8 {
 
 /// Filter pnpm outdated output
 fn filterPnpmOutdated(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     // Try JSON parsing
@@ -106,7 +106,7 @@ fn filterPnpmOutdated(output: []const u8) []const u8 {
 
 /// Extract summary from pnpm outdated JSON
 fn extractPnpmOutdatedSummary(arr: []json.JsonValue) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     const count = arr.len;
@@ -137,7 +137,7 @@ fn extractPnpmOutdatedSummary(arr: []json.JsonValue) []const u8 {
 
 /// Filter generic pnpm output
 fn filterPnpmGeneric(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -183,7 +183,7 @@ fn filterPnpmGeneric(output: []const u8) []const u8 {
 pub fn runPnpm(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("pnpm");

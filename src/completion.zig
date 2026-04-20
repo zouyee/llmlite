@@ -51,70 +51,98 @@ pub const Service = struct {
     }
 
     fn serializeParams(self: *Service, params: CreateCompletionParams) ![]u8 {
-        var parts = std.ArrayListUnmanaged(u8).empty;
-        errdefer parts.deinit(self.allocator);
+        var parts = std.array_list.Managed(u8).init(self.allocator);
+        errdefer parts.deinit();
 
-        try std.json.stringify(.{
+        const base_json = try std.json.Stringify.valueAlloc(self.allocator, .{
             .model = params.model,
             .prompt = params.prompt,
             .stream = params.stream,
-        }, .{}, parts.writer(self.allocator));
+        }, .{});
+        defer self.allocator.free(base_json);
+        try parts.appendSlice(base_json);
 
         // Add optional fields
         if (params.max_tokens) |v| {
-            try parts.appendSlice(self.allocator, ",\"max_tokens\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"max_tokens\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.temperature) |v| {
-            try parts.appendSlice(self.allocator, ",\"temperature\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"temperature\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.top_p) |v| {
-            try parts.appendSlice(self.allocator, ",\"top_p\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"top_p\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.n) |v| {
-            try parts.appendSlice(self.allocator, ",\"n\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"n\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.stop) |v| {
-            try parts.appendSlice(self.allocator, ",\"stop\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"stop\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.logprobs) |v| {
-            try parts.appendSlice(self.allocator, ",\"logprobs\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"logprobs\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.echo) |v| {
-            try parts.appendSlice(self.allocator, ",\"echo\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"echo\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.best_of) |v| {
-            try parts.appendSlice(self.allocator, ",\"best_of\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"best_of\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.frequency_penalty) |v| {
-            try parts.appendSlice(self.allocator, ",\"frequency_penalty\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"frequency_penalty\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.presence_penalty) |v| {
-            try parts.appendSlice(self.allocator, ",\"presence_penalty\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"presence_penalty\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.seed) |v| {
-            try parts.appendSlice(self.allocator, ",\"seed\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"seed\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.suffix) |v| {
-            try parts.appendSlice(self.allocator, ",\"suffix\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"suffix\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
         if (params.user) |v| {
-            try parts.appendSlice(self.allocator, ",\"user\":");
-            try std.json.stringify(v, .{}, parts.writer(self.allocator));
+            try parts.appendSlice(",\"user\":");
+            const v_json = try std.json.Stringify.valueAlloc(self.allocator, v, .{});
+            defer self.allocator.free(v_json);
+            try parts.appendSlice(v_json);
         }
 
-        return try parts.toOwnedSlice(self.allocator);
+        return parts.toOwnedSlice();
     }
 
     fn parseResponse(self: *Service, response: []const u8) !Completion {

@@ -140,7 +140,7 @@ pub fn collectAll(
     initial_page: ListResponse(void),
     fetch_next: *const fn (after: ?[]const u8) anyerror!ListResponse(void),
 ) ![]void {
-    var all_items = std.ArrayList(void).init(allocator);
+    var all_items = std.array_list.Managed(void).init(allocator);
     errdefer all_items.deinit();
 
     // Add initial items

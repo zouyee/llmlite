@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { sessionApi } from '@/lib/api/llmlite'
+import { sessionApi } from '@/lib/api/sessions'
 
 export function useSessions(tool?: string) {
   return useQuery({
@@ -30,6 +30,16 @@ export function useArchiveSession() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: sessionApi.archive,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    },
+  })
+}
+
+export function useRestoreSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: sessionApi.restore,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sessions'] })
     },

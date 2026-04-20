@@ -169,12 +169,12 @@ pub fn discover(allocator: std.mem.Allocator, options: DiscoverOptions) !void {
         std.debug.print("Commands that could use llmlite:\n\n", .{});
 
         // Sort by count (highest first)
-        var sorted = try std.ArrayList(struct { cmd: []const u8, bucket: SupportedBucket }).initCapacity(allocator, 0);
-        defer sorted.deinit(allocator);
+        var sorted = try std.array_list.Managed(struct { cmd: []const u8, bucket: SupportedBucket }).initCapacity(allocator, 0);
+        defer sorted.deinit();
 
         var sit = report.supported_map.iterator();
         while (sit.next()) |entry| {
-            try sorted.append(allocator, .{ .cmd = entry.key_ptr.*, .bucket = entry.value_ptr.* });
+            try sorted.append(.{ .cmd = entry.key_ptr.*, .bucket = entry.value_ptr.* });
         }
 
         // Simple sort by count descending
@@ -274,8 +274,8 @@ fn scanSessionFile(allocator: std.mem.Allocator, path: []const u8, report: *Disc
 
     // First pass: collect all tool_use Bash commands with their IDs
     // Second pass: match with tool_result for output info
-    var pending_tool_uses = try std.ArrayList(struct { id: []const u8, cmd: []const u8, seq: usize }).initCapacity(allocator, 0);
-    defer pending_tool_uses.deinit(allocator);
+    var pending_tool_uses = try std.array_list.Managed(struct { id: []const u8, cmd: []const u8, seq: usize }).initCapacity(allocator, 0);
+    defer pending_tool_uses.deinit();
 
     var tool_results = std.StringHashMap(ToolResult).init(allocator);
     defer tool_results.deinit();

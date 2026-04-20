@@ -34,7 +34,7 @@ pub const KeyManager = struct {
         const url = try std.mem.concat(self.allocator, u8, &.{ self.proxy_url, "/key/create" });
         defer self.allocator.free(url);
 
-        const body = try std.json.stringifyAlloc(self.allocator, .{
+        const body = try std.json.Stringify.valueAlloc(self.allocator, .{
             .user_id = config.user_id,
             .team_id = config.team_id,
             .rate_limit = config.rate_limit,
@@ -61,7 +61,7 @@ pub const KeyManager = struct {
         const url = try std.mem.concat(self.allocator, u8, &.{ self.proxy_url, "/key/revoke" });
         defer self.allocator.free(url);
 
-        const body = try std.json.stringifyAlloc(self.allocator, .{
+        const body = try std.json.Stringify.valueAlloc(self.allocator, .{
             .key = key,
         }, .{});
         defer self.allocator.free(body);

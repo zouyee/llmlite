@@ -50,7 +50,7 @@ pub const Service = struct {
     /// List file search stores
     /// GET /v1beta/filesearchStores
     pub fn list(self: *Service, params: ?ListFileSearchStoresParams) !ListFileSearchStoresResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/filesearchStores");

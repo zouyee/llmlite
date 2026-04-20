@@ -78,7 +78,7 @@ fn parseQueryParams(path: []const u8) !std.StringArrayHashMap([]const u8) {
 }
 
 fn urlDecode(input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var i: usize = 0;

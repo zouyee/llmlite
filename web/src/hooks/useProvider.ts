@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { providerApi, presetApi, type CreateProviderRequest, type UpdateProviderRequest } from '@/lib/api/llmlite'
+import { providerApi, presetApi, type CreateProviderRequest, type UpdateProviderRequest } from '@/lib/api/providers'
 
 export function useProviders() {
   return useQuery({

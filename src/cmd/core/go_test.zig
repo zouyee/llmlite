@@ -48,13 +48,13 @@ pub fn filterGoTest(output: []const u8) []const u8 {
 
 /// Filter go test -json output (NDJSON)
 fn filterGoTestJson(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var packages = std.StringArrayHashMap(PackageResult).init(std.heap.page_allocator);
     defer packages.deinit();
 
-    var current_test_output = std.StringArrayHashMap(std.ArrayList([]const u8)).init(std.heap.page_allocator);
+    var current_test_output = std.StringArrayHashMap(std.array_list.Managed([]const u8)).init(std.heap.page_allocator);
     defer {
         var it = current_test_output.iterator();
         while (it.next()) |entry| {
@@ -220,13 +220,13 @@ fn extractJsonFloat(input: []const u8, field: []const u8) ?f64 {
 
 /// Filter go test text output
 fn filterGoTestText(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var pass_count: usize = 0;
     var fail_count: usize = 0;
     var in_failures = false;
-    var failure_lines = std.ArrayList([]const u8).init(std.heap.page_allocator);
+    var failure_lines = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
     defer failure_lines.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -273,7 +273,7 @@ fn filterGoTestText(output: []const u8) []const u8 {
 
 /// Filter go build output
 pub fn filterGoBuild(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -305,7 +305,7 @@ pub fn filterGoBuild(output: []const u8) []const u8 {
 
 /// Filter go vet output
 pub fn filterGoVet(output: []const u8) []const u8 {
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, output, '\n');
@@ -335,7 +335,7 @@ pub fn runGoTest(allocator: std.mem.Allocator, args: []const []const u8, verbose
     const runner = @import("cmd_core_runner");
 
     // Build command - always use -json for structured output
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("go");
@@ -367,7 +367,7 @@ pub fn runGoTest(allocator: std.mem.Allocator, args: []const []const u8, verbose
 pub fn runGoBuild(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("go");
@@ -392,7 +392,7 @@ pub fn runGoBuild(allocator: std.mem.Allocator, args: []const []const u8, verbos
 pub fn runGoVet(allocator: std.mem.Allocator, args: []const []const u8, verbose: u8) !i32 {
     const runner = @import("cmd_core_runner");
 
-    var cmd_args = std.ArrayList([]const u8).init(allocator);
+    var cmd_args = std.array_list.Managed([]const u8).init(allocator);
     defer cmd_args.deinit();
 
     try cmd_args.append("go");

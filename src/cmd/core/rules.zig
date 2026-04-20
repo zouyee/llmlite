@@ -258,7 +258,7 @@ pub fn freeCompiledRules() void {
 /// Convert a prefix pattern to a regex pattern
 fn prefixToRegex(prefix: []const u8) ![]const u8 {
     // Simple conversion: escape special chars and add anchors
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     try result.append('^');
 
     for (prefix) |c| {
@@ -1394,22 +1394,22 @@ pub fn rewrite(input: []const u8) ?[]const u8 {
 
     // Prepend env_prefix and git_opts if present
     if (normalized.env_prefix.len > 0 or normalized.git_opts.len > 0) {
-        var full_result = std.ArrayList(u8).initCapacity(std.heap.page_allocator, 0) catch return rewritten;
+        var full_result = std.array_list.Managed(u8).initCapacity(std.heap.page_allocator, 0) catch return rewritten;
 
         // Add env_prefix (e.g., "sudo " or "FOO=bar ")
         if (normalized.env_prefix.len > 0) {
-            full_result.appendSlice(std.heap.page_allocator, normalized.env_prefix) catch return rewritten;
+            full_result.appendSlice(normalized.env_prefix) catch return rewritten;
         }
 
         // Add git_opts (e.g., "-C /tmp ")
         if (normalized.git_opts.len > 0) {
-            full_result.appendSlice(std.heap.page_allocator, normalized.git_opts) catch return rewritten;
+            full_result.appendSlice(normalized.git_opts) catch return rewritten;
         }
 
         // Add the rewritten command
-        full_result.appendSlice(std.heap.page_allocator, rewritten.?) catch return rewritten;
+        full_result.appendSlice(rewritten.?) catch return rewritten;
 
-        return full_result.toOwnedSlice(std.heap.page_allocator) catch return rewritten;
+        return full_result.toOwnedSlice() catch return rewritten;
     }
 
     return rewritten;
@@ -1422,7 +1422,7 @@ pub fn rewriteCompound(input: []const u8) ?[]const u8 {
     if (segments.len == 0) return null;
     if (segments.len == 1) return rewrite(segments[0]);
 
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     const tokens = lexer.tokenize(input);
     var segment_idx: usize = 0;
 

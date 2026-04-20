@@ -62,7 +62,7 @@ pub const Service = struct {
 
     /// Lists all batches.
     pub fn listBatches(self: *Service, params: ?BatchListParams) !BatchListResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/batches");

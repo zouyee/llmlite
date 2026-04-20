@@ -50,10 +50,10 @@ pub const UsageTracker = struct {
 
     /// Parse usage from Anthropic response JSON.
     /// Expects: { "usage": { "input_tokens": N, "output_tokens": N, ... }, "model": "..." }
-    pub fn parseAnthropicUsage(_: *UsageTracker, body_json: []const u8) UsageInfo {
+    pub fn parseAnthropicUsage(self: *UsageTracker, body_json: []const u8) UsageInfo {
         var info = UsageInfo{};
 
-        const parsed = json.parseFromSlice(json.Value, std.heap.page_allocator, body_json, .{
+        const parsed = json.parseFromSlice(json.Value, self.allocator, body_json, .{
             .ignore_unknown_fields = true,
         }) catch return info;
         defer parsed.deinit();
@@ -84,10 +84,10 @@ pub const UsageTracker = struct {
 
     /// Parse usage from OpenAI response JSON.
     /// Expects: { "usage": { "prompt_tokens": N, "completion_tokens": N, "total_tokens": N }, "model": "..." }
-    pub fn parseOpenAIUsage(_: *UsageTracker, body_json: []const u8) UsageInfo {
+    pub fn parseOpenAIUsage(self: *UsageTracker, body_json: []const u8) UsageInfo {
         var info = UsageInfo{};
 
-        const parsed = json.parseFromSlice(json.Value, std.heap.page_allocator, body_json, .{
+        const parsed = json.parseFromSlice(json.Value, self.allocator, body_json, .{
             .ignore_unknown_fields = true,
         }) catch return info;
         defer parsed.deinit();
@@ -116,10 +116,10 @@ pub const UsageTracker = struct {
 
     /// Parse usage from Gemini response JSON.
     /// Expects: { "usageMetadata": { "promptTokenCount": N, "candidatesTokenCount": N, "totalTokenCount": N } }
-    pub fn parseGeminiUsage(_: *UsageTracker, body_json: []const u8) UsageInfo {
+    pub fn parseGeminiUsage(self: *UsageTracker, body_json: []const u8) UsageInfo {
         var info = UsageInfo{};
 
-        const parsed = json.parseFromSlice(json.Value, std.heap.page_allocator, body_json, .{
+        const parsed = json.parseFromSlice(json.Value, self.allocator, body_json, .{
             .ignore_unknown_fields = true,
         }) catch return info;
         defer parsed.deinit();
@@ -142,8 +142,8 @@ pub const UsageTracker = struct {
     /// Accumulate usage from an SSE event data string into an existing UsageInfo.
     /// Parses the event data as JSON and extracts incremental usage fields.
     /// Supports both Anthropic (message_delta.usage) and OpenAI (usage) formats.
-    pub fn accumulateSseUsage(_: *UsageTracker, accumulated: *UsageInfo, event_data: []const u8) void {
-        const parsed = json.parseFromSlice(json.Value, std.heap.page_allocator, event_data, .{
+    pub fn accumulateSseUsage(self: *UsageTracker, accumulated: *UsageInfo, event_data: []const u8) void {
+        const parsed = json.parseFromSlice(json.Value, self.allocator, event_data, .{
             .ignore_unknown_fields = true,
         }) catch return;
         defer parsed.deinit();

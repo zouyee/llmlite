@@ -86,6 +86,13 @@ pub const ConfigLoader = struct {
             router_config = self.parseRouterConfig(r);
         }
 
+        var database_path: []const u8 = "./data/proxy.db";
+        if (json.database) |db| {
+            if (db.path) |p| {
+                database_path = try self.allocator.dupe(u8, p);
+            }
+        }
+
         return plugin.ProxyConfig{
             .host = json.host orelse "0.0.0.0",
             .port = json.port orelse 4000,
@@ -93,6 +100,7 @@ pub const ConfigLoader = struct {
             .features = features,
             .kv = kv_config,
             .router = router_config,
+            .database_path = database_path,
         };
     }
 
@@ -167,6 +175,10 @@ pub const ConfigLoader = struct {
 
 // ============ JSON Config Structures ============
 
+const JsonDatabaseConfig = struct {
+    path: ?[]const u8 = null,
+};
+
 const JsonProxyConfig = struct {
     host: ?[]const u8 = null,
     port: ?u16 = null,
@@ -174,6 +186,7 @@ const JsonProxyConfig = struct {
     features: ?JsonFeatures = null,
     kv: ?JsonKvConfig = null,
     router: ?JsonRouterConfig = null,
+    database: ?JsonDatabaseConfig = null,
 };
 
 const JsonFeatures = struct {

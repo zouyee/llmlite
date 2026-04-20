@@ -99,10 +99,10 @@ pub const EmbeddingsHandler = struct {
 
         switch (req.input) {
             .string => |s| {
-                input_json = try std.json.stringifyAlloc(self.allocator, s, .{});
+                input_json = try std.json.Stringify.valueAlloc(self.allocator, s, .{});
             },
             .strings => |arr| {
-                input_json = try std.json.stringifyAlloc(self.allocator, arr, .{});
+                input_json = try std.json.Stringify.valueAlloc(self.allocator, arr, .{});
             },
         }
         defer self.allocator.free(input_json);
@@ -121,15 +121,15 @@ pub const EmbeddingsHandler = struct {
 
         switch (req.input) {
             .string => |s| {
-                instances = try std.json.stringifyAlloc(self.allocator, &.{.{ .content = s }}, .{});
+                instances = try std.json.Stringify.valueAlloc(self.allocator, &.{.{ .content = s }}, .{});
             },
             .strings => |arr| {
-                var instances_arr = std.ArrayList(struct { content: []const u8 }).init(self.allocator);
+                var instances_arr = std.array_list.Managed(struct { content: []const u8 }).init(self.allocator);
                 defer instances_arr.deinit();
                 for (arr) |s| {
                     instances_arr.append(.{ .content = s }) catch {};
                 }
-                instances = try std.json.stringifyAlloc(self.allocator, instances_arr.items, .{});
+                instances = try std.json.Stringify.valueAlloc(self.allocator, instances_arr.items, .{});
             },
         }
         defer self.allocator.free(instances);
@@ -159,7 +159,7 @@ pub const EmbeddingsHandler = struct {
         }, self.allocator, response, .{});
         defer parsed.deinit();
 
-        var data_items = std.ArrayList(struct {
+        var data_items = std.array_list.Managed(struct {
             object: []const u8,
             embedding: []f64,
             index: u32,
@@ -188,7 +188,7 @@ pub const EmbeddingsHandler = struct {
             total_tokens += @intCast(item.embedding.len);
         }
 
-        return std.json.stringifyAlloc(self.allocator, .{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = data_items.items,
             .model = "gemini-embedding",

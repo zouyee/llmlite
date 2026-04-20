@@ -146,13 +146,11 @@ pub const ManagementHandler = struct {
     fn handleListPresets(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         const presets = self.preset_store.listPresets();
 
-        var result = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(result.writer(), .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = presets,
         }, .{});
-
-        const response = try result.toOwnedSlice();
+        defer self.allocator.free(response);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -173,10 +171,8 @@ pub const ManagementHandler = struct {
             return;
         };
 
-        var result = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(result.writer(), p, .{});
-
-        const response = try result.toOwnedSlice();
+        const response = try std.json.Stringify.valueAlloc(self.allocator, p, .{});
+        defer self.allocator.free(response);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -241,7 +237,7 @@ pub const ManagementHandler = struct {
         // Get current config for the tool
         const current = self.cli_switcher.getCurrentConfig(export_req.value.tool) catch null;
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .preset = current,
         }, .{});
 
@@ -264,7 +260,7 @@ pub const ManagementHandler = struct {
         const config = self.cli_switcher.getCurrentConfig(tool) catch null;
 
         if (config) |c| {
-            const response = try std.json.stringifyAlloc(self.allocator, c, .{});
+            const response = try std.json.Stringify.valueAlloc(self.allocator, c, .{});
             try request.respond(.{
                 .status = .ok,
                 .content_type = .json,
@@ -361,7 +357,7 @@ pub const ManagementHandler = struct {
         };
         defer self.allocator.free(config_content);
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .tool = gen_req.value.tool,
             .content = config_content,
             .path = cli_config.CliConfigGenerator.getConfigPath(gen_req.value.tool),
@@ -380,13 +376,11 @@ pub const ManagementHandler = struct {
         _ = request;
         const servers = self.mcp_manager.listServers();
 
-        var response = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(response.writer(), .{
+        const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = servers,
         }, .{});
-
-        const resp = try response.toOwnedSlice();
+        defer self.allocator.free(resp);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -514,7 +508,7 @@ pub const ManagementHandler = struct {
             return;
         };
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .tool = tool_name,
             .servers = config,
         }, .{});
@@ -532,13 +526,11 @@ pub const ManagementHandler = struct {
         _ = request;
         const items = self.sync_engine.listItems();
 
-        var response = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(response.writer(), .{
+        const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = items,
         }, .{});
-
-        const resp = try response.toOwnedSlice();
+        defer self.allocator.free(resp);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -612,7 +604,7 @@ pub const ManagementHandler = struct {
             return;
         };
 
-        const response = try std.json.stringifyAlloc(self.allocator, result, .{});
+        const response = try std.json.Stringify.valueAlloc(self.allocator, result, .{});
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -706,14 +698,12 @@ pub const ManagementHandler = struct {
 
         const sessions = try self.session_store.listSessions(tool, limit, offset);
 
-        var response = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(response.writer(), .{
+        const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = sessions,
             .tool = @tagName(tool),
         }, .{});
-
-        const resp = try response.toOwnedSlice();
+        defer self.allocator.free(resp);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -734,7 +724,7 @@ pub const ManagementHandler = struct {
             return;
         };
 
-        const response = try std.json.stringifyAlloc(self.allocator, session, .{});
+        const response = try std.json.Stringify.valueAlloc(self.allocator, session, .{});
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -782,13 +772,11 @@ pub const ManagementHandler = struct {
 
         const results = try self.session_store.searchSessions(search_req.value.query, search_req.value.limit);
 
-        var response = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(response.writer(), .{
+        const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = results,
         }, .{});
-
-        const resp = try response.toOwnedSlice();
+        defer self.allocator.free(resp);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -827,15 +815,13 @@ pub const ManagementHandler = struct {
             return;
         };
 
-        var response = std.StringArrayList(u8).init(self.allocator);
-        try std.json.stringify(response.writer(), .{
+        const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
             .action_type = action.action_type,
             .url = action.url,
             .tool = action.tool,
             .provider = action.provider,
         }, .{});
-
-        const resp = try response.toOwnedSlice();
+        defer self.allocator.free(resp);
         try request.respond(.{
             .status = .ok,
             .content_type = .json,
@@ -870,12 +856,10 @@ pub const ManagementHandler = struct {
                     try all_backups.put(try self.allocator.dupe(u8, cat), backups);
                 }
 
-                var response = std.StringArrayList(u8).init(self.allocator);
-                try std.json.stringify(response.writer(), .{
+                const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
                     .backups = all_backups,
                 }, .{});
-
-                const resp = try response.toOwnedSlice();
+                defer self.allocator.free(resp);
                 try request.respond(.{
                     .status = .ok,
                     .content_type = .json,
@@ -895,13 +879,11 @@ pub const ManagementHandler = struct {
                     self.allocator.free(backups);
                 }
 
-                var response = std.StringArrayList(u8).init(self.allocator);
-                try std.json.stringify(response.writer(), .{
+                const resp = try std.json.Stringify.valueAlloc(self.allocator, .{
                     .category = category,
                     .backups = backups,
                 }, .{});
-
-                const resp = try response.toOwnedSlice();
+                defer self.allocator.free(resp);
                 try request.respond(.{
                     .status = .ok,
                     .content_type = .json,

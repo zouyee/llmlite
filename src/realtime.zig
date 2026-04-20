@@ -33,6 +33,12 @@ pub const RealtimeClient = struct {
     pub fn deinit(self: *RealtimeClient) void {
         if (self.connection) |conn| {
             conn.close();
+            self.allocator.free(conn.url);
+            self.connection = null;
+        }
+        var it = self.event_handlers.iterator();
+        while (it.next()) |entry| {
+            self.allocator.free(entry.key_ptr.*);
         }
         self.event_handlers.deinit();
     }
@@ -250,22 +256,22 @@ pub const RealtimeEventHandler = fn (allocator: std.mem.Allocator, event: []cons
 // ============================================================================
 
 fn serializeSessionUpdate(allocator: std.mem.Allocator, params: SessionUpdateParams) ![]u8 {
-    var parts = std.ArrayList(u8).init(allocator);
+    var parts = std.array_list.Managed(u8).init(allocator);
     defer parts.deinit();
 
-    try parts.appendSlice(`{"type":"session.update","session":{`);
+    try parts.appendSlice("{\"type\":\"session.update\",\"session\":");
 
     var first = true;
 
     if (params.modalities) |m| {
         if (!first) try parts.appendSlice(",");
         first = false;
-        try parts.appendSlice(`"modalities":[`);
+        try parts.appendSlice("\"modalities\":[");
         for (m, 0..) |modality, i| {
             if (i > 0) try parts.appendSlice(",");
-            try parts.appendSlice(`"`);
+            try parts.appendSlice("\"");
             try parts.appendSlice(modality);
-            try parts.appendSlice(`"`);
+            try parts.appendSlice("\"");
         }
         try parts.appendSlice("]");
     }
@@ -273,16 +279,16 @@ fn serializeSessionUpdate(allocator: std.mem.Allocator, params: SessionUpdatePar
     if (params.instructions) |inst| {
         if (!first) try parts.appendSlice(",");
         first = false;
-        try parts.appendSlice(`"instructions":"`);
+        try parts.appendSlice("\"instructions\":\"");
         try parts.appendSlice(inst);
-        try parts.appendSlice(`"`);
+        try parts.appendSlice("\"");
     }
 
     if (params.voice) |v| {
         if (!first) try parts.appendSlice(",");
-        try parts.appendSlice(`"voice":"`);
+        try parts.appendSlice("\"voice\":\"");
         try parts.appendSlice(v);
-        try parts.appendSlice(`"`);
+        try parts.appendSlice("\"");
     }
 
     try parts.appendSlice("}}");
@@ -318,13 +324,13 @@ fn extractEventType(event_json: []const u8) ?[]const u8 {
 pub const AudioStreamHandler = struct {
     allocator: std.mem.Allocator,
     client: *RealtimeClient,
-    audio_buffer: std.ArrayList(u8),
+    audio_buffer: std.array_list.Managed(u8),
 
     pub fn init(allocator: std.mem.Allocator, client: *RealtimeClient) AudioStreamHandler {
         return .{
             .allocator = allocator,
             .client = client,
-            .audio_buffer = std.ArrayList(u8).init(allocator),
+            .audio_buffer = std.array_list.Managed(u8).init(allocator),
         };
     }
 

@@ -91,17 +91,19 @@ pub const Service = struct {
     }
 
     fn serializeParams(self: *Service, params: CreateThreadParams) ![]u8 {
-        var parts = std.ArrayList(u8).init(self.allocator);
+        var parts = std.array_list.Managed(u8).init(self.allocator);
         errdefer parts.deinit();
 
         if (params.messages) |messages| {
             try parts.appendSlice("{\"messages\":[");
             for (messages, 0..) |msg, i| {
                 if (i > 0) try parts.appendSlice(",");
-                try std.json.stringify(.{
+                const msg_json = try std.json.Stringify.valueAlloc(self.allocator, .{
                     .role = msg.role,
                     .content = msg.content,
-                }, .{}, parts.writer());
+                }, .{});
+                defer self.allocator.free(msg_json);
+                try parts.appendSlice(msg_json);
             }
             try parts.appendSlice("]");
         } else {
@@ -112,25 +114,17 @@ pub const Service = struct {
     }
 
     fn serializeUpdateParams(self: *Service, params: UpdateThreadParams) ![]u8 {
-        var parts = std.ArrayList(u8).init(self.allocator);
-        errdefer parts.deinit();
-
-        try std.json.stringify(params, .{}, parts.writer());
-        return parts.toOwnedSlice();
+        _ = self;
+        return std.json.Stringify.valueAlloc(self.allocator, params, .{});
     }
 
     fn serializeCreateAndRunParams(self: *Service, params: CreateAndRunParams) ![]u8 {
         _ = self;
-        var parts = std.ArrayList(u8).init(self.allocator);
-        errdefer parts.deinit();
-
-        try std.json.stringify(.{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .assistant_id = params.assistant_id,
             .model = params.model,
             .instructions = params.instructions,
-        }, .{}, parts.writer());
-
-        return parts.toOwnedSlice();
+        }, .{});
     }
 
     fn parseThreadResponse(self: *Service, response: []const u8) !Thread {
@@ -221,9 +215,9 @@ pub const RunService = struct {
         const path = try std.fmt.allocPrint(self.allocator, "/threads/{s}/runs/{s}/submit_tool_outputs", .{ thread_id, run_id });
         defer self.allocator.free(path);
 
-        const json_str = try std.fmt.allocPrint(self.allocator, "{{\"tool_outputs\":{s}}}", .{
-            try std.json.stringify(outputs, .{}),
-        });
+        const outputs_json = try std.json.Stringify.valueAlloc(self.allocator, outputs, .{});
+        defer self.allocator.free(outputs_json);
+        const json_str = try std.fmt.allocPrint(self.allocator, "{{\"tool_outputs\":{s}}}", .{outputs_json});
         defer self.allocator.free(json_str);
 
         const response = try self.http_client.post(path, json_str);
@@ -331,15 +325,10 @@ pub const MessageService = struct {
 
     fn serializeParams(self: *MessageService, params: CreateMessageParams) ![]u8 {
         _ = self;
-        var parts = std.ArrayList(u8).init(self.allocator);
-        errdefer parts.deinit();
-
-        try std.json.stringify(.{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .role = params.role,
             .content = params.content,
-        }, .{}, parts.writer());
-
-        return parts.toOwnedSlice();
+        }, .{});
     }
 
     fn parseMessageResponse(self: *MessageService, response: []const u8) !ThreadMessage {

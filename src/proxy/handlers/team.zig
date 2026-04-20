@@ -145,7 +145,7 @@ pub const TeamHandler = struct {
     }
 
     fn handleListTeams(self: *TeamHandler, request: *std.http.Server.Request) !void {
-        var teams_array = std.ArrayList([]const u8).init(self.allocator);
+        var teams_array = std.array_list.Managed([]const u8).init(self.allocator);
         defer {
             for (teams_array.items) |item| self.allocator.free(item);
             teams_array.deinit();
@@ -157,7 +157,7 @@ pub const TeamHandler = struct {
             try teams_array.append(info);
         }
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = teams_array.items,
         }, .{});
@@ -171,7 +171,7 @@ pub const TeamHandler = struct {
     }
 
     fn formatTeamInfo(self: *TeamHandler, t: *const team_pkg.Team) ![]u8 {
-        return std.json.stringifyAlloc(self.allocator, .{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .id = t.id,
             .name = t.name,
             .object = "team",
@@ -291,7 +291,7 @@ pub const TeamHandler = struct {
     }
 
     fn handleListProjects(self: *TeamHandler, request: *std.http.Server.Request) !void {
-        var projects_array = std.ArrayList([]const u8).init(self.allocator);
+        var projects_array = std.array_list.Managed([]const u8).init(self.allocator);
         defer {
             for (projects_array.items) |item| self.allocator.free(item);
             projects_array.deinit();
@@ -303,7 +303,7 @@ pub const TeamHandler = struct {
             try projects_array.append(info);
         }
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = projects_array.items,
         }, .{});
@@ -317,7 +317,7 @@ pub const TeamHandler = struct {
     }
 
     fn formatProjectInfo(self: *TeamHandler, p: *const team_pkg.Project) ![]u8 {
-        return std.json.stringifyAlloc(self.allocator, .{
+        return std.json.Stringify.valueAlloc(self.allocator, .{
             .id = p.id,
             .team_id = p.team_id,
             .name = p.name,

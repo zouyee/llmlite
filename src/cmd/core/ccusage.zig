@@ -160,7 +160,7 @@ fn parseJson(json_text: []const u8, granularity: Granularity) ![]CcusagePeriod {
     const array_text = json_text[data_start..data_end];
     
     // Parse each object in the array
-    var periods = std.ArrayList(CcusagePeriod).init(global_allocator);
+    var periods = std.array_list.Managed(CcusagePeriod).init(global_allocator);
     errdefer periods.deinit();
 
     var pos: usize = 0;

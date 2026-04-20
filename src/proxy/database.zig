@@ -196,7 +196,7 @@ pub const Database = struct {
     }
 
     fn saveProviders(self: *Database) !void {
-        var records = std.ArrayList(ProviderRecord).init(self.allocator);
+        var records = std.array_list.Managed(ProviderRecord).init(self.allocator);
         defer records.deinit();
 
         var it = self.providers.iterator();
@@ -204,7 +204,7 @@ pub const Database = struct {
             try records.append(entry.value_ptr.*);
         }
 
-        const content = try std.json.stringifyAlloc(self.allocator, records.items, .{
+        const content = try std.json.Stringify.valueAlloc(self.allocator, records.items, .{
             .whitespace = .indent_tab,
         });
         defer self.allocator.free(content);
@@ -244,7 +244,7 @@ pub const Database = struct {
     }
 
     pub fn listProviders(self: *Database) []ProviderRecord {
-        var result = std.ArrayList(ProviderRecord).init(self.allocator);
+        var result = std.array_list.Managed(ProviderRecord).init(self.allocator);
         var it = self.providers.iterator();
         while (it.next()) |entry| {
             result.append(entry.value_ptr.*) catch {};
@@ -289,7 +289,7 @@ pub const Database = struct {
     }
 
     fn saveMcpServers(self: *Database) !void {
-        var records = std.ArrayList(McpServerRecord).init(self.allocator);
+        var records = std.array_list.Managed(McpServerRecord).init(self.allocator);
         defer records.deinit();
 
         var it = self.mcp_servers.iterator();
@@ -297,7 +297,7 @@ pub const Database = struct {
             try records.append(entry.value_ptr.*);
         }
 
-        const content = try std.json.stringifyAlloc(self.allocator, records.items, .{
+        const content = try std.json.Stringify.valueAlloc(self.allocator, records.items, .{
             .whitespace = .indent_tab,
         });
         defer self.allocator.free(content);
@@ -337,7 +337,7 @@ pub const Database = struct {
     }
 
     pub fn listMcpServers(self: *Database) []McpServerRecord {
-        var result = std.ArrayList(McpServerRecord).init(self.allocator);
+        var result = std.array_list.Managed(McpServerRecord).init(self.allocator);
         var it = self.mcp_servers.iterator();
         while (it.next()) |entry| {
             result.append(entry.value_ptr.*) catch {};
@@ -371,7 +371,7 @@ pub const Database = struct {
     }
 
     fn saveSyncItems(self: *Database) !void {
-        var records = std.ArrayList(SyncItemRecord).init(self.allocator);
+        var records = std.array_list.Managed(SyncItemRecord).init(self.allocator);
         defer records.deinit();
 
         var it = self.sync_items.iterator();
@@ -379,7 +379,7 @@ pub const Database = struct {
             try records.append(entry.value_ptr.*);
         }
 
-        const content = try std.json.stringifyAlloc(self.allocator, records.items, .{
+        const content = try std.json.Stringify.valueAlloc(self.allocator, records.items, .{
             .whitespace = .indent_tab,
         });
         defer self.allocator.free(content);
@@ -419,7 +419,7 @@ pub const Database = struct {
     }
 
     pub fn listSyncItems(self: *Database) []SyncItemRecord {
-        var result = std.ArrayList(SyncItemRecord).init(self.allocator);
+        var result = std.array_list.Managed(SyncItemRecord).init(self.allocator);
         var it = self.sync_items.iterator();
         while (it.next()) |entry| {
             result.append(entry.value_ptr.*) catch {};
@@ -451,7 +451,7 @@ pub const Database = struct {
     }
 
     fn saveGlobalConfig(self: *Database) !void {
-        const content = try std.json.stringifyAlloc(self.allocator, self.global_config, .{
+        const content = try std.json.Stringify.valueAlloc(self.allocator, self.global_config, .{
             .whitespace = .indent_tab,
         });
         defer self.allocator.free(content);
@@ -484,7 +484,7 @@ pub const Database = struct {
         );
         defer self.allocator.free(file_path);
 
-        const content = try std.json.stringifyAlloc(self.allocator, session, .{
+        const content = try std.json.Stringify.valueAlloc(self.allocator, session, .{
             .whitespace = .indent_tab,
         });
         defer self.allocator.free(content);
@@ -518,7 +518,7 @@ pub const Database = struct {
     }
 
     pub fn listSessions(self: *Database) ![]const []const u8 {
-        var result = std.ArrayList([]const u8).init(self.allocator);
+        var result = std.array_list.Managed([]const u8).init(self.allocator);
         errdefer result.deinit();
 
         const dir = try std.fs.cwd().openDir(self.sessions_dir, .{ .iterate = true });

@@ -104,7 +104,7 @@ pub const TrayManager = struct {
     }
 
     fn updateMacos(self: *TrayManager) !void {
-        var script = std.ArrayList(u8).init(self.allocator);
+        var script = std.array_list.Managed(u8).init(self.allocator);
         defer script.deinit();
 
         try script.appendSlice("display notification \"llmlite-proxy\" with title \"llmlite\"");
@@ -148,7 +148,7 @@ pub fn createTrayMenuForProviders(
     providers: []const []const u8,
     current: ?[]const u8,
 ) !TrayMenu {
-    var items = std.ArrayList(TrayMenuItem).init(allocator);
+    var items = std.array_list.Managed(TrayMenuItem).init(allocator);
     defer items.deinit();
 
     for (providers) |provider| {

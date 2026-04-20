@@ -59,7 +59,7 @@ const TestClient = struct {
 
         try req.finish();
 
-        var response_body = std.ArrayList(u8).init(self.allocator);
+        var response_body = std.array_list.Managed(u8).init(self.allocator);
         errdefer response_body.deinit();
 
         try req.reader().readAllArrayList(&response_body, 10_000_000);
@@ -182,7 +182,7 @@ pub fn main() !void {
     try req.writeAll(chat_body);
     try req.finish();
 
-    var response_body = std.ArrayList(u8).init(allocator);
+    var response_body = std.array_list.Managed(u8).init(allocator);
     defer response_body.deinit();
 
     const reader = req.reader();
@@ -222,7 +222,7 @@ pub fn main() !void {
     try req2.writeAll(chat_body);
     try req2.finish();
 
-    var response_body2 = std.ArrayList(u8).init(allocator);
+    var response_body2 = std.array_list.Managed(u8).init(allocator);
     defer response_body2.deinit();
 
     const reader2 = req2.reader();

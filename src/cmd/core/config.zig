@@ -5,11 +5,26 @@
 
 const std = @import("std");
 const fs = std.fs;
+const modes = @import("modes");
 
 pub const Config = struct {
     tracking: TrackingConfig = .{},
     hooks: HooksConfig = .{},
     tee: TeeConfig = .{},
+    memory: MemoryConfig = .{},
+    analytics: AnalyticsConfig = .{},
+    analytics_proxy: AnalyticsProxyConfig = .{},
+};
+
+pub const AnalyticsConfig = struct {
+    enabled: bool = true,
+    retention_days: u32 = 90,
+    sync_interval_secs: u32 = 300,
+};
+
+pub const AnalyticsProxyConfig = struct {
+    host: []const u8 = "localhost",
+    port: u16 = 4001,
 };
 
 pub const TrackingConfig = struct {
@@ -24,6 +39,20 @@ pub const TeeConfig = struct {
     enabled: bool = true,
     mode: enum { failures, always, never } = .failures,
     max_files: u32 = 20,
+};
+
+pub const MemoryConfig = struct {
+    enabled: bool = true,
+    auto_record: bool = true,
+    max_context_length: u32 = 2000,
+    dedup_window_secs: u32 = 30,
+    mode: modes.WorkMode = .code,
+    privacy: PrivacyConfig = .{},
+};
+
+pub const PrivacyConfig = struct {
+    mode: enum { normal, private } = .normal,
+    excluded_patterns: []const []const u8 = &.{},
 };
 
 pub fn loadConfig(allocator: std.mem.Allocator) !?Config {
@@ -45,8 +74,12 @@ pub fn loadConfig(allocator: std.mem.Allocator) !?Config {
     return try parseConfig(allocator, content);
 }
 
-fn parseConfig(allocator: std.mem.Allocator, content: []const u8) !Config {
-    var config = Config{};
+pub fn parseConfig(allocator: std.mem.Allocator, content: []const u8) !Config {
+    var config = Config{
+        .analytics_proxy = .{
+            .host = try allocator.dupe(u8, "localhost"),
+        },
+    };
     var current_section: ?[]const u8 = null;
 
     var lines = std.mem.splitScalar(u8, content, '\n');
@@ -88,9 +121,59 @@ fn parseConfig(allocator: std.mem.Allocator, content: []const u8) !Config {
                 } else if (std.mem.eql(u8, key, "max_files")) {
                     config.tee.max_files = std.fmt.parseInt(u32, value, 10) catch 20;
                 }
+            } else if (std.mem.eql(u8, current_section orelse "", "memory")) {
+                if (std.mem.eql(u8, key, "enabled")) {
+                    config.memory.enabled = std.mem.eql(u8, value, "true");
+                } else if (std.mem.eql(u8, key, "auto_record")) {
+                    config.memory.auto_record = std.mem.eql(u8, value, "true");
+                } else if (std.mem.eql(u8, key, "max_context_length")) {
+                    config.memory.max_context_length = std.fmt.parseInt(u32, value, 10) catch 2000;
+                } else if (std.mem.eql(u8, key, "dedup_window_secs")) {
+                    config.memory.dedup_window_secs = std.fmt.parseInt(u32, value, 10) catch 30;
+                } else if (std.mem.eql(u8, key, "mode")) {
+                    if (modes.WorkMode.fromString(value)) |m| {
+                        config.memory.mode = m;
+                    }
+                }
+            } else if (std.mem.eql(u8, current_section orelse "", "memory.privacy")) {
+                if (std.mem.eql(u8, key, "mode")) {
+                    config.memory.privacy.mode = if (std.mem.eql(u8, value, "private"))
+                        .private
+                    else
+                        .normal;
+                } else if (std.mem.eql(u8, key, "excluded_patterns")) {
+                    config.memory.privacy.excluded_patterns = try parseStringArray(allocator, value);
+                }
+            } else if (std.mem.eql(u8, current_section orelse "", "analytics")) {
+                if (std.mem.eql(u8, key, "enabled")) {
+                    config.analytics.enabled = std.mem.eql(u8, value, "true");
+                } else if (std.mem.eql(u8, key, "retention_days")) {
+                    config.analytics.retention_days = std.fmt.parseInt(u32, value, 10) catch 90;
+                } else if (std.mem.eql(u8, key, "sync_interval_secs")) {
+                    config.analytics.sync_interval_secs = std.fmt.parseInt(u32, value, 10) catch 300;
+                }
+            } else if (std.mem.eql(u8, current_section orelse "", "analytics.proxy")) {
+                if (std.mem.eql(u8, key, "host")) {
+                    allocator.free(config.analytics_proxy.host);
+                    config.analytics_proxy.host = try parseString(allocator, value);
+                } else if (std.mem.eql(u8, key, "port")) {
+                    config.analytics_proxy.port = std.fmt.parseInt(u16, value, 10) catch 4001;
+                }
             }
         }
     }
+
+    // Environment variable overrides
+    if (std.process.getEnvVarOwned(allocator, "LLMLITE_PROXY_HOST")) |env_host| {
+        allocator.free(config.analytics_proxy.host);
+        config.analytics_proxy.host = env_host;
+    } else |_| {}
+    if (std.process.getEnvVarOwned(allocator, "LLMLITE_PROXY_PORT")) |env_port_str| {
+        defer allocator.free(env_port_str);
+        if (std.fmt.parseInt(u16, env_port_str, 10)) |env_port| {
+            config.analytics_proxy.port = env_port;
+        } else |_| {}
+    } else |_| {}
 
     return config;
 }
@@ -109,7 +192,7 @@ fn parseString(allocator: std.mem.Allocator, value: []const u8) ![]const u8 {
 
 fn parseStringArray(allocator: std.mem.Allocator, value: []const u8) ![]const []const u8 {
     // Parse comma-separated values like ["a", "b", "c"]
-    var values = std.ArrayList([]const u8).init(allocator);
+    var values = std.array_list.Managed([]const u8).init(allocator);
     defer values.deinit();
 
     // Skip brackets
@@ -176,6 +259,25 @@ pub fn createDefaultConfig(allocator: std.mem.Allocator) !void {
         \\[hooks]
         \\# Commands to exclude from auto-rewrite
         \\exclude_commands = ["curl", "playwright"]
+        \\
+        \\# [memory]
+        \\# Enable memory recording (default: true)
+        \\# enabled = true
+        \\# Auto-record command executions (default: true)
+        \\# auto_record = true
+        \\# Maximum context length to store (default: 2000)
+        \\# max_context_length = 2000
+        \\# Deduplication window in seconds (default: 30)
+        \\# dedup_window_secs = 30
+        \\# Work mode: code, infra, data, writing (default: code)
+        \\# mode = "code"
+        \\
+        \\# [memory.privacy]
+        \\# Privacy mode: normal or private (default: normal)
+        \\# In private mode, no commands are recorded
+        \\# mode = "normal"
+        \\# Glob patterns for commands to exclude from recording
+        \\# excluded_patterns = ["*password*", "*secret*", "*token*"]
     ;
 
     const file = try fs.createFileAbsolute(config_path, .{});

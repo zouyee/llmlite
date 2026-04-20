@@ -23,7 +23,7 @@ llmlite 是一个**零依赖、边缘就绪的 LLM SDK 和 AI 网关**，使用 
 |------|------|--------|
 | **llmlite SDK** | 统一的多 Provider LLM 客户端库 | `llmlite` |
 | **llmlite-proxy** | 生产级 AI 网关 / Edge Router | `llmlite-proxy` |
-| **llmlite-cmd** | CLI 命令代理，减少 60-90% LLM token 消耗 | `llmlite-cmd` |
+| **llmlite-cmd** | 开发者命令助手：智能输出过滤、跨会话记忆、Shell Hook、Token 节省追踪 | `llmlite-cmd` |
 | **llmlite-mcp** | MCP (Model Context Protocol) 服务器 | `llmlite-mcp` |
 | **Web Dashboard** | React 管理面板 | `web/` |
 
@@ -90,12 +90,17 @@ llmlite 是一个**零依赖、边缘就绪的 LLM SDK 和 AI 网关**，使用 
 - **语义缓存** - 基于 Embedding 的相似度缓存
 - **热重载** - 零停机配置更新
 - **插件系统** - 可扩展的插件架构
+- **Savings 追踪** - 接收 llmlite-cmd 上报的 token 节省数据
+- **统一分析** - 聚合 API 成本 + cmd savings 统一视图
+- **SQLite 持久化** - Virtual Key / Team / Project / Spend 数据持久化
 
 ### CLI 工具 (llmlite-cmd)
 
 - **命令输出过滤** - 60-90% Token 减少
 - **50+ 命令支持** - git, cargo, npm, pytest, docker, kubectl 等
 - **SQLite 追踪** - 持久化 Token 节省统计
+- **异步上报** - 向 llmlite-proxy 上报 savings 数据（JSONL 本地队列兜底）
+- **CLI Memory** - 跨会话命令记忆，自动分类 + FTS5 全文搜索（inspired by claude-mem）
 - **Shell Hook** - bash/zsh 自动集成
 - **失败恢复** - Tee 机制保存原始输出
 
@@ -192,8 +197,24 @@ llmlite-cmd git status
 llmlite-cmd cargo test
 llmlite-cmd npm test
 
-# 查看节省统计
+# 查看节省统计（优先查询 proxy unified 端点，fallback 到本地）
 llmlite-cmd gain
+llmlite-cmd gain --local     # 强制使用本地 history.db
+llmlite-cmd gain --graph
+llmlite-cmd gain --json
+llmlite-cmd gain --csv
+
+# CLI Memory（跨会话命令记忆）
+llmlite-cmd memory search "auth bug"    # 全文搜索记忆
+llmlite-cmd memory list --cat fix       # 列出近期 bug 修复
+llmlite-cmd memory show 42              # 查看完整记忆详情
+llmlite-cmd memory timeline 42          # 查看记忆上下文
+llmlite-cmd memory stats                # 记忆统计
+
+# 工作模式（影响记录的类别）
+llmlite-cmd memory mode show            # 当前模式及设置
+llmlite-cmd memory mode set infra       # 切换到 infra 模式
+llmlite-cmd memory mode list            # 列出所有模式
 ```
 
 ### Gemini 高级 API
@@ -274,7 +295,8 @@ const tuning = try provider.tunings().create(.{
 │  CLI 工具 (llmlite-cmd)                                    │
 │  ├── 命令输出过滤 (60-90% Token 减少)                      │
 │  ├── 50+ 命令支持                                          │
-│  └── SQLite 追踪 + Shell Hook                             │
+│  ├── SQLite 追踪 + Shell Hook                             │
+│  └── CLI Memory (跨会话记忆 + FTS5 搜索)                  │
 ├─────────────────────────────────────────────────────────────┤
 │  MCP 服务器 (llmlite-mcp)                                  │
 │  └── AI Agent 工具接口                                     │
@@ -298,7 +320,13 @@ const tuning = try provider.tunings().create(.{
 ```bash
 make build              # 构建项目
 make build-release      # 构建 Release 版本
-make test               # 运行所有测试
+make test               # 运行单元测试
+make test-all           # 运行所有测试（含 property / integration / persistence）
+make test-property      # Property-Based 正确性测试
+make test-integration   # Proxy-cmd 集成测试
+make test-persistence   # Proxy SQLite 持久化测试
+make test-savings-reporter # Savings reporter 单元测试
+make test-gain          # Gain 命令单元测试
 make fmt                # 格式化代码
 make check              # 运行所有检查
 make clean              # 清理构建产物

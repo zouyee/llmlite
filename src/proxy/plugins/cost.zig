@@ -21,13 +21,13 @@ pub const ModelPricing = struct {
 pub const MemoryCostTracker = struct {
     allocator: std.mem.Allocator,
     pricing: std.StringArrayHashMap(ModelPricing),
-    spend_entries: std.ArrayList(plugin.CostEntry),
+    spend_entries: std.array_list.Managed(plugin.CostEntry),
 
     pub fn init(allocator: std.mem.Allocator) MemoryCostTracker {
         var tracker = MemoryCostTracker{
             .allocator = allocator,
             .pricing = std.StringArrayHashMap(ModelPricing).init(allocator),
-            .spend_entries = std.ArrayList(plugin.CostEntry).init(allocator),
+            .spend_entries = std.array_list.Managed(plugin.CostEntry).init(allocator),
         };
         tracker.initDefaultPricing();
         return tracker;

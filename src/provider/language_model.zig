@@ -176,7 +176,8 @@ fn parseResponseWithFallback(allocator: std.mem.Allocator, provider: ProviderTyp
 /// Main response parsing function
 fn parseResponse(allocator: std.mem.Allocator, provider: ProviderType, response: []const u8) !chat_pkg.ChatCompletion {
     return switch (provider) {
-        .openai, .moonshot, .minimax, .deepseek, .cohere, .fireworks, .cerebras, .mistral, .perplexity, .openai_compatible, .google => openai.parseResponse(allocator, response),
+        .openai, .moonshot, .minimax, .deepseek, .cohere, .fireworks, .cerebras, .mistral, .perplexity, .openai_compatible => openai.parseResponse(allocator, response),
+        .google => google.parseResponse(allocator, response),
         .anthropic => anthropic.parseResponse(allocator, response),
         .custom => openai.parseResponse(allocator, response),
     };

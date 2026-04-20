@@ -219,15 +219,15 @@ pub fn untrustFilter(allocator: std.mem.Allocator, filter_path: []const u8) !voi
 pub fn listTrusted(allocator: std.mem.Allocator) ![]const []const u8 {
     const store = try loadStore(allocator);
 
-    var result = try std.ArrayList([]const u8).initCapacity(allocator, 0);
-    errdefer result.deinit(allocator);
+    var result = try std.array_list.Managed([]const u8).initCapacity(allocator, 0);
+    errdefer result.deinit();
 
     var it = store.trusted.iterator();
     while (it.next()) |entry| {
-        try result.append(allocator, entry.key_ptr.*);
+        try result.append(entry.key_ptr.*);
     }
 
-    return result.toOwnedSlice(allocator);
+    return result.toOwnedSlice();
 }
 
 /// Show trust status for a filter

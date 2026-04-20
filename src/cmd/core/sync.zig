@@ -120,7 +120,7 @@ pub fn syncPending() !void {
 const Sync = struct {
     allocator: std.mem.Allocator,
     config: SyncConfig,
-    pending: std.ArrayList(SyncRecord),
+    pending: std.array_list.Managed(SyncRecord),
     last_sync: ?i64,
     last_error: ?[]const u8,
     proxy_reachable: bool,
@@ -129,7 +129,7 @@ const Sync = struct {
         var sync = Sync{
             .allocator = allocator,
             .config = config,
-            .pending = std.ArrayList(SyncRecord).init(allocator),
+            .pending = std.array_list.Managed(SyncRecord).init(allocator),
             .last_sync = null,
             .last_error = null,
             .proxy_reachable = false,
@@ -298,7 +298,7 @@ const Sync = struct {
         }
 
         // Build queue file content (JSON array)
-        var json = std.ArrayList(u8).init(self.allocator);
+        var json = std.array_list.Managed(u8).init(self.allocator);
         defer json.deinit();
 
         try json.appendSlice("[");
@@ -395,7 +395,7 @@ const Sync = struct {
 
     fn buildSyncRequest(self: *Sync) ![]u8 {
         // Build a JSON array of records
-        var json_items = std.ArrayList(u8).init(self.allocator);
+        var json_items = std.array_list.Managed(u8).init(self.allocator);
         defer json_items.deinit();
 
         try json_items.appendSlice(self.allocator, "{\"records\":[");

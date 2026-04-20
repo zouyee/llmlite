@@ -27,7 +27,7 @@ pub const Provider = struct {
     metadata: ?[]const u8, // JSON string for extra data
 
     pub fn formatJson(self: *const Provider, allocator: std.mem.Allocator) ![]u8 {
-        return std.json.stringifyAlloc(allocator, .{
+        return std.json.Stringify.valueAlloc(allocator, .{
             .id = self.id,
             .name = self.name,
             .base_url = self.base_url,
@@ -233,7 +233,7 @@ pub const ProviderHandler = struct {
     fn handleListProviders(self: *ProviderHandler, request: *std.http.Server.Request) !void {
         const sorted = self.store.getSorted();
 
-        var items = std.ArrayList([]const u8).init(self.allocator);
+        var items = std.array_list.Managed([]const u8).init(self.allocator);
         defer {
             for (items.items) |item| self.allocator.free(item);
             items.deinit();
@@ -244,7 +244,7 @@ pub const ProviderHandler = struct {
             try items.append(json);
         }
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = items.items,
             .current = self.store.getCurrent(),
@@ -498,7 +498,7 @@ pub const ProviderHandler = struct {
 
         const latency_ms = @as(u64, @intCast(std.time.timestamp() - start_time));
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .success = true,
             .latency_ms = latency_ms,
             .provider_id = id,
@@ -620,7 +620,7 @@ pub const ProviderHandler = struct {
             },
         };
 
-        const response = try std.json.stringifyAlloc(self.allocator, .{
+        const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .object = "list",
             .data = presets,
         }, .{});

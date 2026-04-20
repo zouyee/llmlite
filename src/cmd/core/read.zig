@@ -153,7 +153,7 @@ fn formatWithLineNumbers(content: []const u8) []const u8 {
     const line_count = lines.count();
     const width = if (line_count > 0) numDigits(line_count) else 1;
 
-    var result = std.ArrayList(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
     var line_num: usize = 1;
@@ -194,7 +194,7 @@ fn applyLineWindow(
         if (n >= line_count) return allocator.dupe(u8, content);
 
         const start = line_count - n;
-        var result = std.ArrayList(u8).init(allocator);
+        var result = std.array_list.Managed(u8).init(allocator);
         errdefer result.deinit();
 
         var current_line: usize = 0;
@@ -221,7 +221,7 @@ fn applyLineWindow(
 
         if (line_count <= n) return allocator.dupe(u8, content);
 
-        var result = std.ArrayList(u8).init(allocator);
+        var result = std.array_list.Managed(u8).init(allocator);
         errdefer result.deinit();
 
         var current_line: usize = 0;

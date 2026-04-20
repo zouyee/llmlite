@@ -5,6 +5,7 @@ const core = @import("cmd_core");
 
 var global_verbose: u8 = 0;
 var global_ultra_compact: bool = false;
+var g_cmd_allocator: std.mem.Allocator = std.heap.page_allocator;
 
 pub fn dispatch(
     allocator: std.mem.Allocator,
@@ -13,7 +14,7 @@ pub fn dispatch(
     verbose: u8,
     ultra_compact: bool,
 ) !i32 {
-    _ = allocator;
+    g_cmd_allocator = allocator;
     global_verbose = verbose;
     global_ultra_compact = ultra_compact;
 
@@ -185,6 +186,8 @@ pub fn dispatch(
         return dispatchZig(args);
     } else if (std.mem.eql(u8, command, "kiro")) {
         return dispatchKiro(args);
+    } else if (std.mem.eql(u8, command, "memory") or std.mem.eql(u8, command, "mem")) {
+        return dispatchMemory(args);
     } else {
         std.log.err("unknown command: {s}", .{command});
         std.debug.print("unknown command: {s}\n", .{command});
@@ -201,190 +204,190 @@ fn dispatchGit(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "status")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "status" }, "git status", "git status", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "status" }, "git status", "git status", .{
             .verbose = global_verbose,
             .strategy = if (global_ultra_compact) .ultra_compact else .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "diff")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "diff" }, "git diff", "git diff", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "diff" }, "git diff", "git diff", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "log")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "log" }, "git log", "git log", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "log" }, "git log", "git log", .{
             .verbose = global_verbose,
             .strategy = .git_log,
         });
     } else if (std.mem.eql(u8, subcmd, "add")) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{ "git", "add" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "add" }, global_verbose);
     } else if (std.mem.eql(u8, subcmd, "commit")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "commit" }, "git commit", "git commit", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "commit" }, "git commit", "git commit", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "push")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "push" }, "git push", "git push", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "push" }, "git push", "git push", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "pull")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "pull" }, "git pull", "git pull", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "pull" }, "git pull", "git pull", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "branch")) {
         // RTK-style: compact branch listing with current branch marked
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "branch" }, "git branch", "git branch", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "branch" }, "git branch", "git branch", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "checkout")) {
         // Just pass through - checkout can have many forms
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{ "git", "checkout" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "checkout" }, global_verbose);
     } else if (std.mem.eql(u8, subcmd, "fetch")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "fetch" }, "git fetch", "git fetch", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "fetch" }, "git fetch", "git fetch", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "stash")) {
         // git stash list, pop, push, drop
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("git");
         try argv.append("stash");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "git stash", "git stash", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "git stash", "git stash", .{
             .tee_label = "git",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "worktree")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("git");
         try argv.append("worktree");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "git worktree", "git worktree", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "git worktree", "git worktree", .{
             .tee_label = "git",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "show")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "show" }, "git show", "git show", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "show" }, "git show", "git show", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "rebase")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "rebase" }, "git rebase", "git rebase", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "rebase" }, "git rebase", "git rebase", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "merge")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "merge" }, "git merge", "git merge", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "merge" }, "git merge", "git merge", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "reset")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "reset" }, "git reset", "git reset", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "reset" }, "git reset", "git reset", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "restore")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "restore" }, "git restore", "git restore", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "restore" }, "git restore", "git restore", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "bisect")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "bisect" }, "git bisect", "git bisect", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "bisect" }, "git bisect", "git bisect", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "blame")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "blame" }, "git blame", "git blame", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "blame" }, "git blame", "git blame", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "clean")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "clean" }, "git clean", "git clean", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "clean" }, "git clean", "git clean", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "cherry-pick")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "cherry-pick" }, "git cherry-pick", "git cherry-pick", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "cherry-pick" }, "git cherry-pick", "git cherry-pick", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "revert")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "revert" }, "git revert", "git revert", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "revert" }, "git revert", "git revert", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "tag")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "tag" }, "git tag", "git tag", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "tag" }, "git tag", "git tag", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "submodule")) {
-        var argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-        defer std.heap.page_allocator.free(argv);
+        var argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+        defer g_cmd_allocator.free(argv);
         argv[0] = "git";
         for (args, 1..) |arg, i| argv[i] = arg;
-        return core.runner.runFiltered(std.heap.page_allocator, argv, "git submodule", "git submodule", .{
+        return core.runner.runFiltered(g_cmd_allocator, argv, "git submodule", "git submodule", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "describe")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "describe" }, "git describe", "git describe", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "describe" }, "git describe", "git describe", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "shortlog")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "shortlog" }, "git shortlog", "git shortlog", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "shortlog" }, "git shortlog", "git shortlog", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "reflog")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "reflog" }, "git reflog", "git reflog", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "reflog" }, "git reflog", "git reflog", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "remote")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "remote" }, "git remote", "git remote", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "remote" }, "git remote", "git remote", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "ls-files")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "ls-files" }, "git ls-files", "git ls-files", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "ls-files" }, "git ls-files", "git ls-files", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "ls-tree")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "ls-tree" }, "git ls-tree", "git ls-tree", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "ls-tree" }, "git ls-tree", "git ls-tree", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "grep")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "git", "grep" }, "git grep", "git grep", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "grep" }, "git grep", "git grep", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "stash")) {
         // Already handled above, but add list/show variants
-        var argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-        defer std.heap.page_allocator.free(argv);
+        var argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+        defer g_cmd_allocator.free(argv);
         argv[0] = "git";
         for (args, 1..) |arg, i| argv[i] = arg;
-        return core.runner.runFiltered(std.heap.page_allocator, argv, "git stash", "git stash", .{
+        return core.runner.runFiltered(g_cmd_allocator, argv, "git stash", "git stash", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
         // Passthrough for any other git subcommand
-        var argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-        defer std.heap.page_allocator.free(argv);
+        var argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+        defer g_cmd_allocator.free(argv);
         argv[0] = "git";
         for (args, 1..) |arg, i| argv[i] = arg;
-        return core.runner.runPassthrough(std.heap.page_allocator, argv, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, argv, global_verbose);
     }
 }
 
@@ -397,115 +400,115 @@ fn dispatchCargo(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "test")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "test" }, "cargo test", "cargo test", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "test" }, "cargo test", "cargo test", .{
             .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "build" }, "cargo build", "cargo build", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "build" }, "cargo build", "cargo build", .{
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "clippy")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "clippy" }, "cargo clippy", "cargo clippy", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "clippy" }, "cargo clippy", "cargo clippy", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "check")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "check" }, "cargo check", "cargo check", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "check" }, "cargo check", "cargo check", .{
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "nextest")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "nextest", "run" }, "cargo nextest", "cargo nextest run", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "nextest", "run" }, "cargo nextest", "cargo nextest run", .{
             .tee_label = "cargo-nextest",
             .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "bench")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "bench" }, "cargo bench", "cargo bench", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "bench" }, "cargo bench", "cargo bench", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "tree")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "tree" }, "cargo tree", "cargo tree", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "tree" }, "cargo tree", "cargo tree", .{
             .verbose = global_verbose,
             .strategy = .tree_compression,
         });
     } else if (std.mem.eql(u8, subcmd, "search")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "search" }, "cargo search", "cargo search", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "search" }, "cargo search", "cargo search", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "install")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "install" }, "cargo install", "cargo install", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "install" }, "cargo install", "cargo install", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "uninstall")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "uninstall" }, "cargo uninstall", "cargo uninstall", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "uninstall" }, "cargo uninstall", "cargo uninstall", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "doc")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "doc" }, "cargo doc", "cargo doc", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "doc" }, "cargo doc", "cargo doc", .{
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "publish")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "publish" }, "cargo publish", "cargo publish", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "publish" }, "cargo publish", "cargo publish", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "update")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "update" }, "cargo update", "cargo update", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "update" }, "cargo update", "cargo update", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "clean")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "clean" }, "cargo clean", "cargo clean", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "clean" }, "cargo clean", "cargo clean", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "fmt")) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{ "cargo", "fmt" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "fmt" }, global_verbose);
     } else if (std.mem.eql(u8, subcmd, "fix")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "fix" }, "cargo fix", "cargo fix", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "fix" }, "cargo fix", "cargo fix", .{
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "add")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "add" }, "cargo add", "cargo add", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "add" }, "cargo add", "cargo add", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "remove")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "remove" }, "cargo remove", "cargo remove", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "remove" }, "cargo remove", "cargo remove", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "generate-lockfile")) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{ "cargo", "generate-lockfile" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "generate-lockfile" }, global_verbose);
     } else if (std.mem.eql(u8, subcmd, "metadata")) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{ "cargo", "metadata" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "metadata" }, global_verbose);
     } else if (std.mem.eql(u8, subcmd, "package")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "package" }, "cargo package", "cargo package", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "package" }, "cargo package", "cargo package", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "report")) {
         // cargo report (future, new in 1.74+)
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "report" }, "cargo report", "cargo report", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "report" }, "cargo report", "cargo report", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
         // Passthrough for any other cargo subcommand
-        var argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-        defer std.heap.page_allocator.free(argv);
+        var argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+        defer g_cmd_allocator.free(argv);
         argv[0] = "cargo";
         for (args, 1..) |arg, i| argv[i] = arg;
-        return core.runner.runPassthrough(std.heap.page_allocator, argv, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, argv, global_verbose);
     }
 }
 
@@ -523,19 +526,19 @@ fn dispatchNpm(args: []const [:0]u8) !i32 {
     if (std.mem.eql(u8, subcmd, "test")) {
         // For test, use the detected package manager's test runner
         switch (pm) {
-            .pnpm => return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "test" }, "pnpm test", "npm test", .{
+            .pnpm => return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "test" }, "pnpm test", "npm test", .{
                 .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
-            .yarn => return core.runner.runFiltered(std.heap.page_allocator, &.{ "yarn", "test" }, "yarn test", "npm test", .{
+            .yarn => return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "test" }, "yarn test", "npm test", .{
                 .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
-            .bun => return core.runner.runFiltered(std.heap.page_allocator, &.{ "bun", "test" }, "bun test", "npm test", .{
+            .bun => return core.runner.runFiltered(g_cmd_allocator, &.{ "bun", "test" }, "bun test", "npm test", .{
                 .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
-            else => return core.runner.runFiltered(std.heap.page_allocator, &.{ "npm", "test" }, "npm test", "npm test", .{
+            else => return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "test" }, "npm test", "npm test", .{
                 .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
@@ -543,49 +546,49 @@ fn dispatchNpm(args: []const [:0]u8) !i32 {
     } else if (std.mem.eql(u8, subcmd, "run")) {
         // npm run <script> - detect package manager
         switch (pm) {
-            .pnpm => return core.runner.runFiltered(std.heap.page_allocator, &.{"pnpm"}, "pnpm", "npm run", .{
+            .pnpm => return core.runner.runFiltered(g_cmd_allocator, &.{"pnpm"}, "pnpm", "npm run", .{
                 .verbose = global_verbose,
                 .strategy = .errors_only,
             }),
-            .yarn => return core.runner.runFiltered(std.heap.page_allocator, &.{"yarn"}, "yarn", "npm run", .{
+            .yarn => return core.runner.runFiltered(g_cmd_allocator, &.{"yarn"}, "yarn", "npm run", .{
                 .verbose = global_verbose,
                 .strategy = .errors_only,
             }),
-            .bun => return core.runner.runFiltered(std.heap.page_allocator, &.{"bun"}, "bun", "npm run", .{
+            .bun => return core.runner.runFiltered(g_cmd_allocator, &.{"bun"}, "bun", "npm run", .{
                 .verbose = global_verbose,
                 .strategy = .errors_only,
             }),
             else => {
                 // Build full command with args using array_list.Managed
-                var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+                var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
                 try argv.append("npm");
                 for (args) |arg| try argv.append(arg);
-                return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "npm run", "npm run", .{
+                return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "npm run", "npm run", .{
                     .verbose = global_verbose,
                     .strategy = .errors_only,
                 });
             },
         }
     } else if (std.mem.eql(u8, subcmd, "install")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npm", "install" }, "npm install", "npm install", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "install" }, "npm install", "npm install", .{
             .verbose = global_verbose,
             .strategy = .progress_strip,
         });
     } else if (std.mem.eql(u8, subcmd, "list")) {
         switch (pm) {
-            .pnpm => return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "list" }, "pnpm list", "npm list", .{
+            .pnpm => return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list" }, "pnpm list", "npm list", .{
                 .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
-            .yarn => return core.runner.runFiltered(std.heap.page_allocator, &.{ "yarn", "list" }, "yarn list", "npm list", .{
+            .yarn => return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "list" }, "yarn list", "npm list", .{
                 .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
-            .bun => return core.runner.runFiltered(std.heap.page_allocator, &.{ "bun", "pm", "ls" }, "bun pm ls", "npm list", .{
+            .bun => return core.runner.runFiltered(g_cmd_allocator, &.{ "bun", "pm", "ls" }, "bun pm ls", "npm list", .{
                 .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
-            else => return core.runner.runFiltered(std.heap.page_allocator, &.{ "npm", "list" }, "npm list", "npm list", .{
+            else => return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "list" }, "npm list", "npm list", .{
                 .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
@@ -598,7 +601,7 @@ fn dispatchNpm(args: []const [:0]u8) !i32 {
 
 fn dispatchPytest(args: []const [:0]u8) !i32 {
     _ = args;
-    return core.runner.runFiltered(std.heap.page_allocator, &.{"pytest"}, "pytest", "pytest", .{
+    return core.runner.runFiltered(g_cmd_allocator, &.{"pytest"}, "pytest", "pytest", .{
         .verbose = global_verbose,
         .strategy = .state_machine,
     });
@@ -613,47 +616,47 @@ fn dispatchDocker(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "ps")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "ps" }, "docker ps", "docker ps", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "ps" }, "docker ps", "docker ps", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "images")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "images" }, "docker images", "docker images", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "images" }, "docker images", "docker images", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "logs")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "logs" }, "docker logs", "docker logs", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "logs" }, "docker logs", "docker logs", .{
             .verbose = global_verbose,
             .strategy = .deduplication,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "build" }, "docker build", "docker build", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "build" }, "docker build", "docker build", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "run")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "run" }, "docker run", "docker run", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "run" }, "docker run", "docker run", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "pull")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "pull" }, "docker pull", "docker pull", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "pull" }, "docker pull", "docker pull", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "push")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "push" }, "docker push", "docker push", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "push" }, "docker push", "docker push", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "inspect")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "inspect" }, "docker inspect", "docker inspect", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "inspect" }, "docker inspect", "docker inspect", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{"docker"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"docker"}, global_verbose);
     }
 }
 
@@ -666,86 +669,86 @@ fn dispatchKubectl(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "get")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "get" }, "kubectl get", "kubectl get", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "get" }, "kubectl get", "kubectl get", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "logs")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "logs" }, "kubectl logs", "kubectl logs", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "logs" }, "kubectl logs", "kubectl logs", .{
             .verbose = global_verbose,
             .strategy = .deduplication,
         });
     } else if (std.mem.eql(u8, subcmd, "pods")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("kubectl");
         try argv.append("get");
         try argv.append("pods");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "kubectl pods", "kubectl get pods", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "kubectl pods", "kubectl get pods", .{
             .tee_label = "kubectl",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "services") or std.mem.eql(u8, subcmd, "svc")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("kubectl");
         try argv.append("get");
         try argv.append("services");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "kubectl services", "kubectl get services", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "kubectl services", "kubectl get services", .{
             .tee_label = "kubectl",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "describe")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "describe" }, "kubectl describe", "kubectl describe", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "describe" }, "kubectl describe", "kubectl describe", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "apply")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "apply" }, "kubectl apply", "kubectl apply", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "apply" }, "kubectl apply", "kubectl apply", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "delete")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "delete" }, "kubectl delete", "kubectl delete", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "delete" }, "kubectl delete", "kubectl delete", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "top")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "top" }, "kubectl top", "kubectl top", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "top" }, "kubectl top", "kubectl top", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "exec")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "exec" }, "kubectl exec", "kubectl exec", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "exec" }, "kubectl exec", "kubectl exec", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "rollout")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "rollout" }, "kubectl rollout", "kubectl rollout", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "rollout" }, "kubectl rollout", "kubectl rollout", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "config")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "config" }, "kubectl config", "kubectl config", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "config" }, "kubectl config", "kubectl config", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "port-forward")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "port-forward" }, "kubectl port-forward", "kubectl port-forward", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "port-forward" }, "kubectl port-forward", "kubectl port-forward", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "scale")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "kubectl", "scale" }, "kubectl scale", "kubectl scale", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "scale" }, "kubectl scale", "kubectl scale", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{"kubectl"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"kubectl"}, global_verbose);
     }
 }
 
@@ -760,7 +763,7 @@ fn dispatchConfig(args: []const [:0]u8) !i32 {
     }
 
     if (create_config) {
-        core.config.createDefaultConfig(std.heap.page_allocator) catch |err| {
+        core.config.createDefaultConfig(g_cmd_allocator) catch |err| {
             std.debug.print("Failed to create config: {}\n", .{err});
             return 1;
         };
@@ -768,11 +771,11 @@ fn dispatchConfig(args: []const [:0]u8) !i32 {
     }
 
     // Show current config path
-    const config_path = core.config.getConfigPath(std.heap.page_allocator) catch |err| {
+    const config_path = core.config.getConfigPath(g_cmd_allocator) catch |err| {
         std.debug.print("Failed to get config path: {}\n", .{err});
         return 1;
     };
-    defer std.heap.page_allocator.free(config_path);
+    defer g_cmd_allocator.free(config_path);
 
     std.debug.print("Config: {s}\n", .{config_path});
     std.debug.print("Run 'llmlite-cmd config create' to create default config.\n", .{});
@@ -794,7 +797,7 @@ fn dispatchInit(args: []const [:0]u8) !i32 {
             }
         } else if (std.mem.eql(u8, args[i], "--show")) {
             // Show installation status
-            try core.hook.printInstallStatus(std.heap.page_allocator);
+            try core.hook.printInstallStatus(g_cmd_allocator);
             return 0;
         } else if (std.mem.eql(u8, args[i], "--uninstall")) {
             // Uninstall hooks
@@ -806,7 +809,7 @@ fn dispatchInit(args: []const [:0]u8) !i32 {
             else
                 core.hook.HookTool.claude_code;
 
-            try core.hook.uninstallHook(std.heap.page_allocator, tool);
+            try core.hook.uninstallHook(g_cmd_allocator, tool);
             std.debug.print("Hook uninstalled.\n", .{});
             return 0;
         }
@@ -821,14 +824,14 @@ fn dispatchInit(args: []const [:0]u8) !i32 {
         };
 
         switch (tool) {
-            .claude_code => try core.hook.installClaudeCodeHook(std.heap.page_allocator, true),
-            .cursor => try core.hook.installCursorHook(std.heap.page_allocator, true),
-            .gemini => try core.hook.installGeminiHook(std.heap.page_allocator, true),
-            .opencode => try core.hook.installOpenCodeHook(std.heap.page_allocator, true),
-            .windsurf => try core.hook.installWindsurfHook(std.heap.page_allocator, true),
-            .cline => try core.hook.installClineHook(std.heap.page_allocator, true),
-            .codex => try core.hook.installCodexHook(std.heap.page_allocator, true),
-            .kiro => try core.hook.installKiroHook(std.heap.page_allocator, true),
+            .claude_code => try core.hook.installClaudeCodeHook(g_cmd_allocator, true),
+            .cursor => try core.hook.installCursorHook(g_cmd_allocator, true),
+            .gemini => try core.hook.installGeminiHook(g_cmd_allocator, true),
+            .opencode => try core.hook.installOpenCodeHook(g_cmd_allocator, true),
+            .windsurf => try core.hook.installWindsurfHook(g_cmd_allocator, true),
+            .cline => try core.hook.installClineHook(g_cmd_allocator, true),
+            .codex => try core.hook.installCodexHook(g_cmd_allocator, true),
+            .kiro => try core.hook.installKiroHook(g_cmd_allocator, true),
             else => {
                 std.debug.print("Hook not supported for this agent.\n", .{});
                 return 1;
@@ -872,6 +875,8 @@ fn dispatchGain(args: []const [:0]u8) !i32 {
     var days: u32 = 90;
     var team_mode = false;
 
+    var local_mode = false;
+
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         if (std.mem.eql(u8, args[i], "--graph")) {
@@ -886,6 +891,8 @@ fn dispatchGain(args: []const [:0]u8) !i32 {
             show_daily = true;
         } else if (std.mem.eql(u8, args[i], "--team")) {
             team_mode = true;
+        } else if (std.mem.eql(u8, args[i], "--local")) {
+            local_mode = true;
         }
     }
 
@@ -894,12 +901,13 @@ fn dispatchGain(args: []const [:0]u8) !i32 {
         return dispatchGainFromProxy(show_json);
     }
 
-    core.gain.showGain(std.heap.page_allocator, .{
+    core.gain.showGain(g_cmd_allocator, .{
         .show_graph = show_graph,
         .show_history = show_history,
         .show_daily = show_daily,
         .days = days,
         .format = if (show_json) .json else .text,
+        .local = local_mode,
     }) catch {
         std.debug.print("Token Savings Report\n", .{});
         std.debug.print("====================\n\n", .{});
@@ -915,7 +923,7 @@ fn dispatchGainFromProxy(show_json: bool) !i32 {
     // Query proxy for team-level gain statistics
     const proxy_url = "http://localhost:4000";
 
-    var client = std.http.Client{ .allocator = std.heap.page_allocator };
+    var client = std.http.Client{ .allocator = g_cmd_allocator };
     defer client.deinit();
 
     const uri = std.Uri.parse(proxy_url ++ "/analytics/gain") catch {
@@ -923,7 +931,7 @@ fn dispatchGainFromProxy(show_json: bool) !i32 {
         return 1;
     };
 
-    var response_writer = std.io.Writer.Allocating.init(std.heap.page_allocator);
+    var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
     defer response_writer.deinit();
 
     const response = client.fetch(.{
@@ -962,7 +970,7 @@ fn dispatchGainFromProxy(show_json: bool) !i32 {
                 avg_savings_pct: f64,
             },
         },
-        std.heap.page_allocator,
+        g_cmd_allocator,
         body,
         .{},
     ) catch {
@@ -1009,7 +1017,7 @@ fn dispatchDiscover(args: []const [:0]u8) !i32 {
         }
     }
 
-    core.discover.discover(std.heap.page_allocator, .{
+    core.discover.discover(g_cmd_allocator, .{
         .all = all,
         .since_days = days,
     }) catch {
@@ -1024,22 +1032,22 @@ fn dispatchLint(args: []const [:0]u8) !i32 {
     if (args.len == 0) {
         // Auto-detect linter
         if (core.utils.fileExists("biome.json") or core.utils.fileExists("biome.jsonc")) {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome check", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome check", .{
                 .verbose = global_verbose,
                 .strategy = .grouping,
             });
         } else if (core.utils.fileExists(".eslintrc.js") or core.utils.fileExists(".eslintrc.json") or core.utils.fileExists("eslint.config.js")) {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "eslint", "." }, "eslint", "eslint", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint", "." }, "eslint", "eslint", .{
                 .verbose = global_verbose,
                 .strategy = .grouping,
             });
         } else if (core.utils.fileExists("ruff.toml")) {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff check", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff check", .{
                 .verbose = global_verbose,
                 .strategy = .grouping,
             });
         } else if (core.utils.fileExists(".prettierrc") or core.utils.fileExists(".prettierrc.json")) {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
                 .verbose = global_verbose,
                 .strategy = .errors_only,
             });
@@ -1054,27 +1062,27 @@ fn dispatchLint(args: []const [:0]u8) !i32 {
     const linter = args[0];
 
     if (std.mem.eql(u8, linter, "eslint")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "eslint" }, "eslint", "eslint", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint" }, "eslint", "eslint", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, linter, "biome")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, linter, "ruff")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, linter, "prettier")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, linter, "tsc")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "tsc", "--noEmit" }, "tsc", "tsc", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "tsc", "--noEmit" }, "tsc", "tsc", .{
             .verbose = global_verbose,
             .strategy = .grouping,
         });
@@ -1095,33 +1103,33 @@ fn dispatchGo(args: []const [:0]u8) !i32 {
 
     if (std.mem.eql(u8, subcmd, "test")) {
         // Go test with NDJSON output - use ndjson_stream filter
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "test" }, "go test", "go test", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "test" }, "go test", "go test", .{
             .verbose = global_verbose,
             .strategy = .ndjson_stream,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "build" }, "go build", "go build", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "build" }, "go build", "go build", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "vet")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "vet" }, "go vet", "go vet", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "vet" }, "go vet", "go vet", .{
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "fmt")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "fmt" }, "go fmt", "go fmt", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "fmt" }, "go fmt", "go fmt", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "mod")) {
         // go mod tidy, download, etc
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "mod" }, "go mod", "go mod", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "mod" }, "go mod", "go mod", .{
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "get")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "get" }, "go get", "go get", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "get" }, "go get", "go get", .{
             .verbose = global_verbose,
             .strategy = .progress_strip,
         });
@@ -1158,7 +1166,7 @@ fn dispatchHook(args: []const [:0]u8) !i32 {
     }
 
     if (show_mode) {
-        try core.hook.printInstallStatus(std.heap.page_allocator);
+        try core.hook.printInstallStatus(g_cmd_allocator);
         return 0;
     }
 
@@ -1172,23 +1180,23 @@ fn dispatchHook(args: []const [:0]u8) !i32 {
         core.hook.HookTool.claude_code; // default
 
     if (uninstall_mode) {
-        try core.hook.uninstallHook(std.heap.page_allocator, tool);
+        try core.hook.uninstallHook(g_cmd_allocator, tool);
         std.debug.print("Hook uninstalled for {s}\n", .{agent orelse "claude_code"});
         return 0;
     }
 
     if (install_mode) {
         switch (tool) {
-            .claude_code => try core.hook.installClaudeCodeHook(std.heap.page_allocator, verbose),
-            .cursor => try core.hook.installCursorHook(std.heap.page_allocator, verbose),
-            .gemini => try core.hook.installGeminiHook(std.heap.page_allocator, verbose),
-            .opencode => try core.hook.installOpenCodeHook(std.heap.page_allocator, verbose),
-            .windsurf => try core.hook.installWindsurfHook(std.heap.page_allocator, verbose),
-            .cline => try core.hook.installClineHook(std.heap.page_allocator, verbose),
-            .codex => try core.hook.installCodexHook(std.heap.page_allocator, verbose),
-            .zsh => try core.hook.installZshHook(std.heap.page_allocator, verbose),
-            .fish => try core.hook.installFishHook(std.heap.page_allocator, verbose),
-            .kiro => try core.hook.installKiroHook(std.heap.page_allocator, verbose),
+            .claude_code => try core.hook.installClaudeCodeHook(g_cmd_allocator, verbose),
+            .cursor => try core.hook.installCursorHook(g_cmd_allocator, verbose),
+            .gemini => try core.hook.installGeminiHook(g_cmd_allocator, verbose),
+            .opencode => try core.hook.installOpenCodeHook(g_cmd_allocator, verbose),
+            .windsurf => try core.hook.installWindsurfHook(g_cmd_allocator, verbose),
+            .cline => try core.hook.installClineHook(g_cmd_allocator, verbose),
+            .codex => try core.hook.installCodexHook(g_cmd_allocator, verbose),
+            .zsh => try core.hook.installZshHook(g_cmd_allocator, verbose),
+            .fish => try core.hook.installFishHook(g_cmd_allocator, verbose),
+            .kiro => try core.hook.installKiroHook(g_cmd_allocator, verbose),
             .copilot, .openclaw => {
                 std.debug.print("Hook installation not yet supported for {s}.\n", .{agent orelse "claude_code"});
                 return 1;
@@ -1200,7 +1208,7 @@ fn dispatchHook(args: []const [:0]u8) !i32 {
     }
 
     // Default: show status
-    try core.hook.printInstallStatus(std.heap.page_allocator);
+    try core.hook.printInstallStatus(g_cmd_allocator);
     return 0;
 }
 
@@ -1210,7 +1218,7 @@ fn dispatchLs(args: []const [:0]u8) !i32 {
 
     // Use ls -R for recursive listing
     const result = std.process.Child.run(.{
-        .allocator = std.heap.page_allocator,
+        .allocator = g_cmd_allocator,
         .argv = &.{ "ls", "-R", "-l", path },
     }) catch {
         std.debug.print("ls: failed to list directory\n", .{});
@@ -1267,15 +1275,15 @@ fn dispatchRead(args: []const [:0]u8) !i32 {
     };
     defer file.close();
 
-    var content: []const u8 = @constCast(try file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024));
-    defer std.heap.page_allocator.free(@constCast(content));
+    var content: []const u8 = @constCast(try file.readToEndAlloc(g_cmd_allocator, 1024 * 1024));
+    defer g_cmd_allocator.free(@constCast(content));
 
     // Apply code filtering based on level
     if (std.mem.eql(u8, filter_level, "minimal") or
         std.mem.eql(u8, filter_level, "standard") or
         std.mem.eql(u8, filter_level, "aggressive"))
     {
-        const filtered = try core.filter.filter(std.heap.page_allocator, content, .{
+        const filtered = try core.filter.filter(g_cmd_allocator, content, .{
             .strategy = .code_filter,
             .level = if (std.mem.eql(u8, filter_level, "minimal"))
                 .minimal
@@ -1284,7 +1292,7 @@ fn dispatchRead(args: []const [:0]u8) !i32 {
             else
                 .aggressive,
         });
-        std.heap.page_allocator.free(content);
+        g_cmd_allocator.free(content);
         content = filtered.filtered;
     }
 
@@ -1326,7 +1334,7 @@ fn dispatchFind(args: []const [:0]u8) !i32 {
     // Run find with the specified arguments
     // Use find . -type f as base
     const result = std.process.Child.run(.{
-        .allocator = std.heap.page_allocator,
+        .allocator = g_cmd_allocator,
         .argv = &.{ "find", path, "-type", find_type orelse "f" },
     }) catch {
         std.debug.print("find: failed to execute\n", .{});
@@ -1364,7 +1372,7 @@ fn dispatchGrep(args: []const [:0]u8) !i32 {
     const search_path = if (args.len > 1 and args[1].len > 0 and args[1][0] != '-') args[1] else ".";
 
     const result = std.process.Child.run(.{
-        .allocator = std.heap.page_allocator,
+        .allocator = g_cmd_allocator,
         .argv = &.{ "grep", "-r", "--color=never", pattern, search_path },
     }) catch {
         std.debug.print("grep: failed to execute\n", .{});
@@ -1391,7 +1399,7 @@ fn dispatchGh(args: []const [:0]u8) !i32 {
     _ = args;
 
     const result = std.process.Child.run(.{
-        .allocator = std.heap.page_allocator,
+        .allocator = g_cmd_allocator,
         .argv = &.{ "gh", "help" },
     }) catch {
         std.debug.print("gh: failed to execute - is GitHub CLI installed?\n", .{});
@@ -1424,11 +1432,11 @@ fn dispatchDiff(args: []const [:0]u8) !i32 {
     const file2 = args[1];
 
     // Build args string for tee recovery
-    const args_str = try std.mem.concat(std.heap.page_allocator, u8, &.{ "diff ", file1, " ", file2 });
-    defer std.heap.page_allocator.free(args_str);
+    const args_str = try std.mem.concat(g_cmd_allocator, u8, &.{ "diff ", file1, " ", file2 });
+    defer g_cmd_allocator.free(args_str);
 
     // Use runFiltered with tee support for failure recovery
-    return core.runner.runFiltered(std.heap.page_allocator, &.{ "diff", "-u", file1, file2 }, "diff", args_str, .{
+    return core.runner.runFiltered(g_cmd_allocator, &.{ "diff", "-u", file1, file2 }, "diff", args_str, .{
         .tee_label = "diff",
         .strategy = .none,
     });
@@ -1451,17 +1459,17 @@ fn dispatchTree(args: []const [:0]u8) !i32 {
     }
 
     // Format depth as string for tree command
-    const depth_str = try std.fmt.allocPrint(std.heap.page_allocator, "{}", .{max_depth});
-    defer std.heap.page_allocator.free(depth_str);
+    const depth_str = try std.fmt.allocPrint(g_cmd_allocator, "{}", .{max_depth});
+    defer g_cmd_allocator.free(depth_str);
 
     // Build args string for tee recovery
     const tree_args = if (path_idx) |idx|
-        try std.mem.concat(std.heap.page_allocator, u8, &.{ "tree -L ", depth_str, " ", args[idx] })
+        try std.mem.concat(g_cmd_allocator, u8, &.{ "tree -L ", depth_str, " ", args[idx] })
     else
-        try std.mem.concat(std.heap.page_allocator, u8, &.{ "tree -L ", depth_str, " ." });
-    defer std.heap.page_allocator.free(tree_args);
+        try std.mem.concat(g_cmd_allocator, u8, &.{ "tree -L ", depth_str, " ." });
+    defer g_cmd_allocator.free(tree_args);
 
-    const tree_exit = try core.runner.runFiltered(std.heap.page_allocator, if (path_idx) |idx|
+    const tree_exit = try core.runner.runFiltered(g_cmd_allocator, if (path_idx) |idx|
         &.{ "tree", "-L", depth_str, args[idx] }
     else
         &.{ "tree", "-L", depth_str, "." }, "tree", tree_args, .{
@@ -1474,12 +1482,12 @@ fn dispatchTree(args: []const [:0]u8) !i32 {
 
     // Fallback to ls if tree is not available (exit code != 0 means failure)
     const fallback_args = if (path_idx) |idx|
-        try std.mem.concat(std.heap.page_allocator, u8, &.{ "ls -R ", args[idx] })
+        try std.mem.concat(g_cmd_allocator, u8, &.{ "ls -R ", args[idx] })
     else
-        try std.heap.page_allocator.dupe(u8, "ls -R .");
-    defer std.heap.page_allocator.free(fallback_args);
+        try g_cmd_allocator.dupe(u8, "ls -R .");
+    defer g_cmd_allocator.free(fallback_args);
 
-    return core.runner.runFiltered(std.heap.page_allocator, if (path_idx) |idx|
+    return core.runner.runFiltered(g_cmd_allocator, if (path_idx) |idx|
         &.{ "ls", "-R", args[idx] }
     else
         &.{ "ls", "-R", "." }, "tree", fallback_args, .{
@@ -1504,18 +1512,18 @@ fn dispatchJson(args: []const [:0]u8) !i32 {
     };
     defer file.close();
 
-    const content = file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024) catch {
+    const content = file.readToEndAlloc(g_cmd_allocator, 1024 * 1024) catch {
         std.debug.print("json: cannot read '{s}'\n", .{file_path});
         return 1;
     };
-    defer std.heap.page_allocator.free(content);
+    defer g_cmd_allocator.free(content);
 
     // Parse JSON and extract structure
     // This is a simplified version - just shows top-level keys
-    const parsed = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, content, .{}) catch {
+    const parsed = std.json.parseFromSlice(std.json.Value, g_cmd_allocator, content, .{}) catch {
         // Tee recovery on parse failure - save raw content
-        const args_str = try std.mem.concat(std.heap.page_allocator, u8, &.{ "json ", file_path });
-        defer std.heap.page_allocator.free(args_str);
+        const args_str = try std.mem.concat(g_cmd_allocator, u8, &.{ "json ", file_path });
+        defer g_cmd_allocator.free(args_str);
         _ = core.tee.save("json", args_str, content) catch null;
         std.debug.print("json: invalid JSON in '{s}'\n", .{file_path});
         return 1;
@@ -1580,7 +1588,7 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
 
     // Run env command and capture output
     const result = std.process.Child.run(.{
-        .allocator = std.heap.page_allocator,
+        .allocator = g_cmd_allocator,
         .argv = &.{"env"},
     }) catch {
         std.debug.print("env: failed to get environment\n", .{});
@@ -1596,10 +1604,10 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
     };
     if (env_exit != 0) {
         const args_str = if (filter_pattern) |p|
-            try std.mem.concat(std.heap.page_allocator, u8, &.{ "env -f ", p })
+            try std.mem.concat(g_cmd_allocator, u8, &.{ "env -f ", p })
         else
-            try std.heap.page_allocator.dupe(u8, "env");
-        defer std.heap.page_allocator.free(args_str);
+            try g_cmd_allocator.dupe(u8, "env");
+        defer g_cmd_allocator.free(args_str);
         _ = core.tee.save("env", args_str, result.stdout) catch null;
     }
 
@@ -1672,14 +1680,14 @@ fn dispatchSmart(args: []const [:0]u8) !i32 {
     };
     defer file.close();
 
-    const content = file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024) catch {
+    const content = file.readToEndAlloc(g_cmd_allocator, 1024 * 1024) catch {
         std.debug.print("smart: cannot read '{s}'\n", .{file_path});
         return 1;
     };
-    defer std.heap.page_allocator.free(content);
+    defer g_cmd_allocator.free(content);
 
     // Heuristic: extract function signatures and first line of each function
-    var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
+    var result = std.array_list.Managed(u8).init(g_cmd_allocator);
     defer result.deinit();
 
     var lines = std.mem.splitScalar(u8, content, '\n');
@@ -1756,7 +1764,7 @@ fn dispatchVitest(args: []const [:0]u8) !i32 {
     else
         &.{ "npx", "vitest", "run" };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "vitest", "vitest run", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "vitest", "vitest run", .{
         .tee_label = "vitest",
         .verbose = global_verbose,
         .strategy = .state_machine,
@@ -1766,7 +1774,7 @@ fn dispatchVitest(args: []const [:0]u8) !i32 {
 fn dispatchGolangciLint(args: []const [:0]u8) !i32 {
     // golangci-lint run - Go linting with JSON output
     _ = args; // unused
-    return core.runner.runFiltered(std.heap.page_allocator, &.{ "golangci-lint", "run", "--out-format=json" }, "golangci-lint", "golangci-lint run", .{
+    return core.runner.runFiltered(g_cmd_allocator, &.{ "golangci-lint", "run", "--out-format=json" }, "golangci-lint", "golangci-lint run", .{
         .tee_label = "golangci-lint",
         .verbose = global_verbose,
         .strategy = .json_dual,
@@ -1785,7 +1793,7 @@ fn dispatchCurl(args: []const [:0]u8) !i32 {
     // Build curl command with flags to avoid progress bars
     const argv = &.{ "curl", "-s", "-S", "-L", url };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "curl", url, .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "curl", url, .{
         .tee_label = "curl",
         .verbose = global_verbose,
         .strategy = .progress_strip,
@@ -1800,15 +1808,15 @@ fn dispatchAws(args: []const [:0]u8) !i32 {
     }
 
     // Build argv: ["aws", subcommand, args...]
-    const argv = try std.heap.page_allocator.alloc([]const u8, 1 + args.len);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, 1 + args.len);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "aws";
     for (args, 1..) |arg, i| argv[i] = arg;
 
-    const cmd_str = try std.mem.concat(std.heap.page_allocator, u8, &.{"aws"});
-    defer std.heap.page_allocator.free(cmd_str);
+    const cmd_str = try std.mem.concat(g_cmd_allocator, u8, &.{"aws"});
+    defer g_cmd_allocator.free(cmd_str);
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "aws", cmd_str, .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "aws", cmd_str, .{
         .tee_label = "aws",
         .verbose = global_verbose,
         .strategy = .stats,
@@ -1824,19 +1832,19 @@ fn dispatchDeps(args: []const [:0]u8) !i32 {
     if (core.utils.fileExists("package.json")) {
         // Check for pnpm/yarn/npm
         if (core.utils.fileExists("pnpm-lock.yaml")) {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "list", "--depth=0" }, "deps", "pnpm list", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list", "--depth=0" }, "deps", "pnpm list", .{
                 .tee_label = "deps",
                 .verbose = global_verbose,
                 .strategy = .stats,
             });
         } else if (core.utils.fileExists("yarn.lock")) {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "yarn", "list", "--depth=0" }, "deps", "yarn list", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "list", "--depth=0" }, "deps", "yarn list", .{
                 .tee_label = "deps",
                 .verbose = global_verbose,
                 .strategy = .stats,
             });
         } else {
-            return core.runner.runFiltered(std.heap.page_allocator, &.{ "npm", "list", "--depth=0" }, "deps", "npm list", .{
+            return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "list", "--depth=0" }, "deps", "npm list", .{
                 .tee_label = "deps",
                 .verbose = global_verbose,
                 .strategy = .stats,
@@ -1846,7 +1854,7 @@ fn dispatchDeps(args: []const [:0]u8) !i32 {
 
     // Check for Cargo.toml
     if (core.utils.fileExists("Cargo.toml")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "cargo", "tree", "--depth=1" }, "deps", "cargo tree", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "tree", "--depth=1" }, "deps", "cargo tree", .{
             .tee_label = "deps",
             .verbose = global_verbose,
             .strategy = .tree_compression,
@@ -1855,7 +1863,7 @@ fn dispatchDeps(args: []const [:0]u8) !i32 {
 
     // Check for go.mod
     if (core.utils.fileExists("go.mod")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "list", "-m", "all" }, "deps", "go list -m all", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "list", "-m", "all" }, "deps", "go list -m all", .{
             .tee_label = "deps",
             .verbose = global_verbose,
             .strategy = .stats,
@@ -1879,7 +1887,7 @@ fn dispatchPlaywright(args: []const [:0]u8) !i32 {
     else
         &.{ "npx", "playwright", "test" };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "playwright", "playwright test", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "playwright", "playwright test", .{
         .tee_label = "playwright",
         .verbose = global_verbose,
         .strategy = .failure_focus,
@@ -1892,7 +1900,7 @@ fn dispatchRake(args: []const [:0]u8) !i32 {
         &.{"rake"}
     else
         &.{ "rake", args[0] };
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "rake", "rake", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "rake", "rake", .{
         .tee_label = "rake",
         .verbose = global_verbose,
         .strategy = .failure_focus,
@@ -1903,7 +1911,7 @@ fn dispatchRspec(args: []const [:0]u8) !i32 {
     // rspec - Ruby RSpec test runner (JSON format)
     _ = args; // args passed through bundle exec rspec
     const argv: []const []const u8 = &.{ "bundle", "exec", "rspec" };
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "rspec", "rspec", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "rspec", "rspec", .{
         .tee_label = "rspec",
         .verbose = global_verbose,
         .strategy = .json_dual,
@@ -1914,7 +1922,7 @@ fn dispatchRubocop(args: []const [:0]u8) !i32 {
     // rubocop - Ruby linting (JSON format)
     _ = args; // args passed through bundle exec rubocop
     const argv: []const []const u8 = &.{ "bundle", "exec", "rubocop" };
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "rubocop", "rubocop", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "rubocop", "rubocop", .{
         .tee_label = "rubocop",
         .verbose = global_verbose,
         .strategy = .json_dual,
@@ -1932,7 +1940,7 @@ fn dispatchBundle(args: []const [:0]u8) !i32 {
     else
         &.{"bundle"};
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "bundle", "bundle", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "bundle", "bundle", .{
         .tee_label = "bundle",
         .verbose = global_verbose,
         .strategy = .deduplication,
@@ -1956,7 +1964,7 @@ fn dispatchPip(args: []const [:0]u8) !i32 {
     else
         &.{ "pip", subcmd };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "pip", "pip", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "pip", "pip", .{
         .tee_label = "pip",
         .verbose = global_verbose,
         .strategy = .structure_only,
@@ -1974,7 +1982,7 @@ fn dispatchWget(args: []const [:0]u8) !i32 {
     // Build wget command with flags to avoid progress bars
     const argv: []const []const u8 = &.{ "wget", "-q", "-O", "-", url };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "wget", url, .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "wget", url, .{
         .tee_label = "wget",
         .verbose = global_verbose,
         .strategy = .progress_strip,
@@ -1992,7 +2000,7 @@ fn dispatchPrettier(args: []const [:0]u8) !i32 {
     else
         &.{ "prettier", "." };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "prettier", "prettier", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "prettier", "prettier", .{
         .tee_label = "prettier",
         .verbose = global_verbose,
         .strategy = .grouping,
@@ -2019,7 +2027,7 @@ fn dispatchUv(args: []const [:0]u8) !i32 {
     else
         &.{ "uv", subcmd };
 
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "uv", "uv", .{
+    return core.runner.runFiltered(g_cmd_allocator, argv, "uv", "uv", .{
         .tee_label = "uv",
         .verbose = global_verbose,
         .strategy = .structure_only,
@@ -2060,7 +2068,7 @@ fn dispatchSession(args: []const [:0]u8) !i32 {
         return dispatchSessionFromProxy(options.format);
     }
 
-    try core.session.runSessionAnalysis(std.heap.page_allocator, options);
+    try core.session.runSessionAnalysis(g_cmd_allocator, options);
     return 0;
 }
 
@@ -2068,7 +2076,7 @@ fn dispatchSessionFromProxy(format: []const u8) !i32 {
     // Query proxy for team-level session overview
     const proxy_url = "http://localhost:4000";
 
-    var client = std.http.Client{ .allocator = std.heap.page_allocator };
+    var client = std.http.Client{ .allocator = g_cmd_allocator };
     defer client.deinit();
 
     const uri = std.Uri.parse(proxy_url ++ "/analytics/sessions") catch {
@@ -2076,7 +2084,7 @@ fn dispatchSessionFromProxy(format: []const u8) !i32 {
         return 1;
     };
 
-    var response_writer = std.io.Writer.Allocating.init(std.heap.page_allocator);
+    var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
     defer response_writer.deinit();
 
     const response = client.fetch(.{
@@ -2118,7 +2126,7 @@ fn dispatchSessionFromProxy(format: []const u8) !i32 {
                 output_tokens: usize,
             },
         },
-        std.heap.page_allocator,
+        g_cmd_allocator,
         body,
         .{},
     ) catch {
@@ -2160,7 +2168,7 @@ fn dispatchPrisma(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     // Build argv: ["npx", "prisma", subcmd, args...]
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
 
     // Auto-detect package manager
@@ -2191,7 +2199,7 @@ fn dispatchPrisma(args: []const [:0]u8) !i32 {
     else
         .state_machine;
 
-    return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "prisma", "prisma", .{
+    return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "prisma", "prisma", .{
         .tee_label = "prisma",
         .verbose = global_verbose,
         .strategy = strategy,
@@ -2208,7 +2216,7 @@ fn dispatchNext(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     // Build argv
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
 
     // Auto-detect package manager
@@ -2239,7 +2247,7 @@ fn dispatchNext(args: []const [:0]u8) !i32 {
     else
         .stats;
 
-    return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "next", "next", .{
+    return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "next", "next", .{
         .tee_label = "next",
         .verbose = global_verbose,
         .strategy = strategy,
@@ -2264,17 +2272,17 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
         }
     }
 
-    const home_dir = std.process.getEnvVarOwned(std.heap.page_allocator, "HOME") catch {
+    const home_dir = std.process.getEnvVarOwned(g_cmd_allocator, "HOME") catch {
         std.debug.print("log: HOME not set\n", .{});
         return 1;
     };
-    defer std.heap.page_allocator.free(home_dir);
+    defer g_cmd_allocator.free(home_dir);
 
-    const history_path = std.fs.path.join(std.heap.page_allocator, &.{ home_dir, ".local/share/llmlite/history.db" }) catch {
+    const history_path = std.fs.path.join(g_cmd_allocator, &.{ home_dir, ".local/share/llmlite/history.db" }) catch {
         std.debug.print("log: failed to build path\n", .{});
         return 1;
     };
-    defer std.heap.page_allocator.free(history_path);
+    defer g_cmd_allocator.free(history_path);
 
     const file = std.fs.openFileAbsolute(history_path, .{ .mode = .read_only }) catch {
         std.debug.print("No log history found. Run 'llmlite-cmd init -g' first.\n", .{});
@@ -2283,7 +2291,7 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
     defer file.close();
 
     var buf: [8192]u8 = undefined;
-    var file_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
+    var file_buffer = std.array_list.Managed(u8).init(g_cmd_allocator);
     defer file_buffer.deinit();
 
     while (true) {
@@ -2293,11 +2301,11 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
     }
 
     // Parse and deduplicate if requested
-    var entries = std.array_list.Managed(LogEntry).init(std.heap.page_allocator);
+    var entries = std.array_list.Managed(LogEntry).init(g_cmd_allocator);
     defer {
         for (entries.items) |e| {
-            std.heap.page_allocator.free(e.original);
-            std.heap.page_allocator.free(e.rtk);
+            g_cmd_allocator.free(e.original);
+            g_cmd_allocator.free(e.rtk);
         }
         entries.deinit();
     }
@@ -2314,8 +2322,8 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
 
         entries.append(.{
             .timestamp = timestamp,
-            .original = try std.heap.page_allocator.dupe(u8, original),
-            .rtk = try std.heap.page_allocator.dupe(u8, rtk),
+            .original = try g_cmd_allocator.dupe(u8, original),
+            .rtk = try g_cmd_allocator.dupe(u8, rtk),
         }) catch continue;
     }
 
@@ -2330,7 +2338,7 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
 
     if (show_dedup) {
         // Deduplicated view - show unique commands
-        var seen = std.StringHashMap(struct { count: u32, last_ts: i64 }).init(std.heap.page_allocator);
+        var seen = std.StringHashMap(struct { count: u32, last_ts: i64 }).init(g_cmd_allocator);
         defer seen.deinit();
 
         for (entries.items) |entry| {
@@ -2376,17 +2384,17 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
     _ = args; // Currently no options
     const CmdCount = struct { cmd: []const u8, count: u32 };
 
-    const home_dir = std.process.getEnvVarOwned(std.heap.page_allocator, "HOME") catch {
+    const home_dir = std.process.getEnvVarOwned(g_cmd_allocator, "HOME") catch {
         std.debug.print("summary: HOME not set\n", .{});
         return 1;
     };
-    defer std.heap.page_allocator.free(home_dir);
+    defer g_cmd_allocator.free(home_dir);
 
-    const history_path = std.fs.path.join(std.heap.page_allocator, &.{ home_dir, ".local/share/llmlite/history.db" }) catch {
+    const history_path = std.fs.path.join(g_cmd_allocator, &.{ home_dir, ".local/share/llmlite/history.db" }) catch {
         std.debug.print("summary: failed to build path\n", .{});
         return 1;
     };
-    defer std.heap.page_allocator.free(history_path);
+    defer g_cmd_allocator.free(history_path);
 
     const file = std.fs.openFileAbsolute(history_path, .{ .mode = .read_only }) catch {
         std.debug.print("No summary available. Run 'llmlite-cmd init -g' first.\n", .{});
@@ -2395,7 +2403,7 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
     defer file.close();
 
     var buf: [8192]u8 = undefined;
-    var file_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
+    var file_buffer = std.array_list.Managed(u8).init(g_cmd_allocator);
     defer file_buffer.deinit();
 
     while (true) {
@@ -2405,7 +2413,7 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
     }
 
     // Count commands by category
-    var cmd_counts = std.StringHashMap(u32).init(std.heap.page_allocator);
+    var cmd_counts = std.StringHashMap(u32).init(g_cmd_allocator);
     defer cmd_counts.deinit();
 
     var total_saved: usize = 0;
@@ -2437,7 +2445,7 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
     std.debug.print("\n=== llmlite Command Summary ===\n\n", .{});
 
     // Sort by count
-    var sorted = std.array_list.Managed(CmdCount).init(std.heap.page_allocator);
+    var sorted = std.array_list.Managed(CmdCount).init(g_cmd_allocator);
     defer sorted.deinit();
 
     var it = cmd_counts.iterator();
@@ -2482,7 +2490,7 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
         // Start the proxy in background
         std.debug.print("Starting llmlite-proxy...\n", .{});
         const result = std.process.Child.run(.{
-            .allocator = std.heap.page_allocator,
+            .allocator = g_cmd_allocator,
             .argv = &.{"llmlite-proxy"},
         }) catch {
             std.debug.print("proxy: failed to start llmlite-proxy\n", .{});
@@ -2502,7 +2510,7 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
     } else if (std.mem.eql(u8, subcmd, "status")) {
         // Check if proxy is running
         const result = std.process.Child.run(.{
-            .allocator = std.heap.page_allocator,
+            .allocator = g_cmd_allocator,
             .argv = &.{ "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:4000/health/live" },
         }) catch {
             std.debug.print("proxy: failed to check status (curl not available?)\n", .{});
@@ -2520,7 +2528,7 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
     } else if (std.mem.eql(u8, subcmd, "logs")) {
         // Show recent logs (if journald available)
         const result = std.process.Child.run(.{
-            .allocator = std.heap.page_allocator,
+            .allocator = g_cmd_allocator,
             .argv = &.{ "journalctl", "-u", "llmlite-proxy", "-n", "50", "--no-pager" },
         }) catch {
             std.debug.print("proxy logs: journalctl not available\n", .{});
@@ -2570,7 +2578,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
 
     if (std.mem.eql(u8, action, "list")) {
         // List all keys
-        var client = std.http.Client{ .allocator = std.heap.page_allocator };
+        var client = std.http.Client{ .allocator = g_cmd_allocator };
         defer client.deinit();
 
         const uri = std.Uri.parse(proxy_url ++ "/keys") catch {
@@ -2578,7 +2586,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
             return 1;
         };
 
-        var response_writer = std.io.Writer.Allocating.init(std.heap.page_allocator);
+        var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -2628,38 +2636,38 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
         // Build request body
         var body_json: []u8 = undefined;
         if (key_id != null or team_id != null or rate_limit != null) {
-            var fields = try std.ArrayList(u8).initCapacity(std.heap.page_allocator, 256);
-            defer fields.deinit(std.heap.page_allocator);
+            var fields = try std.ArrayList(u8).initCapacity(g_cmd_allocator, 256);
+            defer fields.deinit(g_cmd_allocator);
 
-            try fields.appendSlice(std.heap.page_allocator, "{");
+            try fields.appendSlice(g_cmd_allocator, "{");
             var first = true;
             if (key_id) |id| {
-                try fields.appendSlice(std.heap.page_allocator, "\"key_id\":\"");
-                try fields.appendSlice(std.heap.page_allocator, id);
-                try fields.appendSlice(std.heap.page_allocator, "\"");
+                try fields.appendSlice(g_cmd_allocator, "\"key_id\":\"");
+                try fields.appendSlice(g_cmd_allocator, id);
+                try fields.appendSlice(g_cmd_allocator, "\"");
                 first = false;
             }
             if (team_id) |tid| {
-                if (!first) try fields.appendSlice(std.heap.page_allocator, ",");
-                try fields.appendSlice(std.heap.page_allocator, "\"team_id\":\"");
-                try fields.appendSlice(std.heap.page_allocator, tid);
-                try fields.appendSlice(std.heap.page_allocator, "\"");
+                if (!first) try fields.appendSlice(g_cmd_allocator, ",");
+                try fields.appendSlice(g_cmd_allocator, "\"team_id\":\"");
+                try fields.appendSlice(g_cmd_allocator, tid);
+                try fields.appendSlice(g_cmd_allocator, "\"");
                 first = false;
             }
             if (rate_limit) |rl| {
-                if (!first) try fields.appendSlice(std.heap.page_allocator, ",");
-                try fields.appendSlice(std.heap.page_allocator, "\"rate_limit\":");
-                const rl_str = std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{rl}) catch "";
-                try fields.appendSlice(std.heap.page_allocator, rl_str);
+                if (!first) try fields.appendSlice(g_cmd_allocator, ",");
+                try fields.appendSlice(g_cmd_allocator, "\"rate_limit\":");
+                const rl_str = std.fmt.allocPrint(g_cmd_allocator, "{d}", .{rl}) catch "";
+                try fields.appendSlice(g_cmd_allocator, rl_str);
                 first = false;
             }
-            try fields.appendSlice(std.heap.page_allocator, "}");
-            body_json = try fields.toOwnedSlice(std.heap.page_allocator);
+            try fields.appendSlice(g_cmd_allocator, "}");
+            body_json = try fields.toOwnedSlice(g_cmd_allocator);
         } else {
-            body_json = try std.heap.page_allocator.dupe(u8, "{}");
+            body_json = try g_cmd_allocator.dupe(u8, "{}");
         }
 
-        var client = std.http.Client{ .allocator = std.heap.page_allocator };
+        var client = std.http.Client{ .allocator = g_cmd_allocator };
         defer client.deinit();
 
         const uri = std.Uri.parse(proxy_url ++ "/key/create") catch {
@@ -2667,7 +2675,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
             return 1;
         };
 
-        var response_writer = std.io.Writer.Allocating.init(std.heap.page_allocator);
+        var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -2700,18 +2708,18 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
 
         const key_to_revoke = args[1];
 
-        var client = std.http.Client{ .allocator = std.heap.page_allocator };
+        var client = std.http.Client{ .allocator = g_cmd_allocator };
         defer client.deinit();
 
-        const body = try std.fmt.allocPrint(std.heap.page_allocator, "{{\"key\":\"{s}\"}}", .{key_to_revoke});
-        defer std.heap.page_allocator.free(body);
+        const body = try std.fmt.allocPrint(g_cmd_allocator, "{{\"key\":\"{s}\"}}", .{key_to_revoke});
+        defer g_cmd_allocator.free(body);
 
         const uri = std.Uri.parse(proxy_url ++ "/key/revoke") catch {
             std.debug.print("proxy keys revoke: failed to parse URL\n", .{});
             return 1;
         };
 
-        var response_writer = std.io.Writer.Allocating.init(std.heap.page_allocator);
+        var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -2743,13 +2751,13 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
 fn dispatchPsql(args: []const [:0]u8) !i32 {
     // psql - PostgreSQL client with compact output
     // Strip borders and compress tables for token savings
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
 
     try argv.append("psql");
     for (args) |arg| try argv.append(arg);
 
-    return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "psql", "psql", .{
+    return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "psql", "psql", .{
         .tee_label = "psql",
         .verbose = global_verbose,
         .strategy = .structure_only,
@@ -2759,114 +2767,114 @@ fn dispatchPsql(args: []const [:0]u8) !i32 {
 fn dispatchPnpm(args: []const [:0]u8) !i32 {
     // pnpm - pnpm package manager with ultra-compact output
     if (args.len == 0) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{"pnpm"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"pnpm"}, global_verbose);
     }
 
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "list")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "list", "--depth=0" }, "pnpm list", "pnpm list", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list", "--depth=0" }, "pnpm list", "pnpm list", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .tree_compression,
         });
     } else if (std.mem.eql(u8, subcmd, "outdated")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "outdated" }, "pnpm outdated", "pnpm outdated", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "outdated" }, "pnpm outdated", "pnpm outdated", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "install")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "install" }, "pnpm install", "pnpm install", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "install" }, "pnpm install", "pnpm install", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .progress_strip,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "build" }, "pnpm build", "pnpm build", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "build" }, "pnpm build", "pnpm build", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "test")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "test" }, "pnpm test", "pnpm test", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "test" }, "pnpm test", "pnpm test", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "dev")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "dev" }, "pnpm dev", "pnpm dev", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "dev" }, "pnpm dev", "pnpm dev", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .none,
         });
     } else if (std.mem.eql(u8, subcmd, "typecheck")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "pnpm", "typecheck" }, "pnpm typecheck", "pnpm typecheck", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "typecheck" }, "pnpm typecheck", "pnpm typecheck", .{
             .tee_label = "pnpm",
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else {
         // Passthrough for other pnpm commands
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("pnpm");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 }
 
 fn dispatchDotnet(args: []const [:0]u8) !i32 {
     // dotnet - .NET CLI with compact output
     if (args.len == 0) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{"dotnet"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"dotnet"}, global_verbose);
     }
 
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "build")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "dotnet", "build" }, "dotnet build", "dotnet build", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "build" }, "dotnet build", "dotnet build", .{
             .tee_label = "dotnet",
             .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "test")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "dotnet", "test" }, "dotnet test", "dotnet test", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "test" }, "dotnet test", "dotnet test", .{
             .tee_label = "dotnet",
             .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "restore")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "dotnet", "restore" }, "dotnet restore", "dotnet restore", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "restore" }, "dotnet restore", "dotnet restore", .{
             .tee_label = "dotnet",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "format")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "dotnet", "format" }, "dotnet format", "dotnet format", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "format" }, "dotnet format", "dotnet format", .{
             .tee_label = "dotnet",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "run")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "dotnet", "run" }, "dotnet run", "dotnet run", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "run" }, "dotnet run", "dotnet run", .{
             .tee_label = "dotnet",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "publish")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "dotnet", "publish" }, "dotnet publish", "dotnet publish", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "publish" }, "dotnet publish", "dotnet publish", .{
             .tee_label = "dotnet",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
         // Passthrough for other dotnet commands
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("dotnet");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 }
 
@@ -2880,74 +2888,74 @@ fn dispatchCompose(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "ps")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "compose", "ps" }, "compose ps", "docker compose ps", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "compose", "ps" }, "compose ps", "docker compose ps", .{
             .tee_label = "compose",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "logs")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("docker");
         try argv.append("compose");
         try argv.append("logs");
         // Optional service name as second arg
         if (args.len > 1) try argv.append(args[1]);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "compose logs", "docker compose logs", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "compose logs", "docker compose logs", .{
             .tee_label = "compose",
             .verbose = global_verbose,
             .strategy = .deduplication,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("docker");
         try argv.append("compose");
         try argv.append("build");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "compose build", "docker compose build", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "compose build", "docker compose build", .{
             .tee_label = "compose",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "up")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("docker");
         try argv.append("compose");
         try argv.append("up");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "compose up", "docker compose up", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "compose up", "docker compose up", .{
             .tee_label = "compose",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "down")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "docker", "compose", "down" }, "compose down", "docker compose down", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "compose", "down" }, "compose down", "docker compose down", .{
             .tee_label = "compose",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
         // Passthrough for other compose commands
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("docker");
         try argv.append("compose");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 }
 
 fn dispatchWc(args: []const [:0]u8) !i32 {
     // wc - Word/line/byte count with compact output
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
 
     try argv.append("wc");
     for (args) |arg| try argv.append(arg);
 
-    return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "wc", "wc", .{
+    return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "wc", "wc", .{
         .tee_label = "wc",
         .verbose = global_verbose,
         .strategy = .stats,
@@ -2956,13 +2964,13 @@ fn dispatchWc(args: []const [:0]u8) !i32 {
 
 fn dispatchMypy(args: []const [:0]u8) !i32 {
     // mypy - Mypy type checker with grouped error output
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
 
     try argv.append("mypy");
     for (args) |arg| try argv.append(arg);
 
-    return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "mypy", "mypy", .{
+    return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "mypy", "mypy", .{
         .tee_label = "mypy",
         .verbose = global_verbose,
         .strategy = .grouping,
@@ -2979,124 +2987,124 @@ fn dispatchGt(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "log")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("gt");
         try argv.append("log");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "gt log", "gt log", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "gt log", "gt log", .{
             .tee_label = "gt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "submit")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("gt");
         try argv.append("submit");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "gt submit", "gt submit", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "gt submit", "gt submit", .{
             .tee_label = "gt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "sync")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "gt", "sync" }, "gt sync", "gt sync", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "gt", "sync" }, "gt sync", "gt sync", .{
             .tee_label = "gt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "restack")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "gt", "restack" }, "gt restack", "gt restack", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "gt", "restack" }, "gt restack", "gt restack", .{
             .tee_label = "gt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "create")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "gt", "create" }, "gt create", "gt create", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "gt", "create" }, "gt create", "gt create", .{
             .tee_label = "gt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "branch")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("gt");
         try argv.append("branch");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "gt branch", "gt branch", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "gt branch", "gt branch", .{
             .tee_label = "gt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
         // Passthrough for other gt commands
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("gt");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 }
 
 fn dispatchNpx(args: []const [:0]u8) !i32 {
     // npx - npx with intelligent routing
     if (args.len == 0) {
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{"npx"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"npx"}, global_verbose);
     }
 
     const cmd = args[0];
 
     // Route to specialized filters if available
     if (std.mem.eql(u8, cmd, "tsc")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "tsc" }, "tsc", "npx tsc", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "tsc" }, "tsc", "npx tsc", .{
             .tee_label = "tsc",
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, cmd, "eslint")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "eslint" }, "eslint", "npx eslint", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint" }, "eslint", "npx eslint", .{
             .tee_label = "eslint",
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, cmd, "prettier")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "prettier" }, "prettier", "npx prettier", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier" }, "prettier", "npx prettier", .{
             .tee_label = "prettier",
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, cmd, "prisma")) {
         // Route to prisma
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("npx");
         try argv.append("prisma");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "prisma", "npx prisma", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "prisma", "npx prisma", .{
             .tee_label = "prisma",
             .verbose = global_verbose,
             .strategy = .state_machine,
         });
     } else if (std.mem.eql(u8, cmd, "vitest")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "vitest" }, "vitest", "npx vitest", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "vitest" }, "vitest", "npx vitest", .{
             .tee_label = "vitest",
             .verbose = global_verbose,
             .strategy = .state_machine,
         });
     } else if (std.mem.eql(u8, cmd, "playwright")) {
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "npx", "playwright" }, "playwright", "npx playwright", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "playwright" }, "playwright", "npx playwright", .{
             .tee_label = "playwright",
             .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else {
         // Passthrough for other npx commands
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("npx");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 }
 
@@ -3107,12 +3115,12 @@ fn dispatchErr(args: []const [:0]u8) !i32 {
         return 1;
     }
 
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
 
     for (args) |arg| try argv.append(arg);
 
-    return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "err", args[0], .{
+    return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "err", args[0], .{
         .tee_label = "err",
         .verbose = global_verbose,
         .strategy = .errors_only,
@@ -3130,8 +3138,8 @@ fn dispatchRewrite(args: []const [:0]u8) !i32 {
     }
 
     // Reconstruct command from args (handles: llmlite rewrite ls -la vs llmlite rewrite "ls -la")
-    const input = try std.mem.join(std.heap.page_allocator, " ", args[0..]);
-    defer std.heap.page_allocator.free(input);
+    const input = try std.mem.join(g_cmd_allocator, " ", args[0..]);
+    defer g_cmd_allocator.free(input);
 
     // Try to find a rewrite rule
     if (core.hook.shouldRewrite(input)) {
@@ -3157,43 +3165,43 @@ fn dispatchFormat(args: []const [:0]u8) !i32 {
 
     if (has_prettier) {
         // Use prettier for JS/TS projects
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("npx");
         try argv.append("prettier");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "prettier", "format", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "prettier", "format", .{
             .tee_label = "prettier",
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (has_ruff) {
         // Use ruff for Python projects
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("ruff");
         try argv.append("format");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "ruff format", "format", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "ruff format", "format", .{
             .tee_label = "ruff",
             .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (has_rustfmt) {
         // Use rustfmt for Rust projects
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("cargo");
         try argv.append("fmt");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "cargo fmt", "format", .{
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "cargo fmt", "format", .{
             .tee_label = "rustfmt",
             .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (has_gofmt) {
         // Use gofmt/go fmt for Go projects
-        return core.runner.runFiltered(std.heap.page_allocator, &.{ "go", "fmt" }, "go fmt", "format", .{
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "fmt" }, "go fmt", "format", .{
             .tee_label = "gofmt",
             .verbose = global_verbose,
             .strategy = .stats,
@@ -3230,15 +3238,19 @@ fn dispatchAudit(args: []const [:0]u8) !i32 {
         .verbose = verbose,
     };
 
-    try core.audit.showAudit(std.heap.page_allocator, options);
+    try core.audit.showAudit(g_cmd_allocator, options);
     return 0;
 }
 
 fn dispatchVerify(args: []const [:0]u8) !i32 {
     // verify - Check hook integrity (SHA-256 verification)
     _ = args;
-    try core.integrity.showVerificationStatus(std.heap.page_allocator);
+    try core.integrity.showVerificationStatus(g_cmd_allocator);
     return 0;
+}
+
+fn dispatchMemory(args: []const [:0]u8) !i32 {
+    return core.memory_cmd.dispatch(g_cmd_allocator, args);
 }
 
 fn dispatchLearn(args: []const [:0]u8) !i32 {
@@ -3270,7 +3282,7 @@ fn dispatchLearn(args: []const [:0]u8) !i32 {
         .write_rules = write_rules,
     };
 
-    try core.learn.analyzeCorrections(std.heap.page_allocator, options);
+    try core.learn.analyzeCorrections(g_cmd_allocator, options);
     return 0;
 }
 
@@ -3295,7 +3307,7 @@ fn dispatchEconomics(args: []const [:0]u8) !i32 {
         .format = if (format_json) .json else .text,
     };
 
-    try core.cc_economics.showEconomics(std.heap.page_allocator, options);
+    try core.cc_economics.showEconomics(g_cmd_allocator, options);
     return 0;
 }
 
@@ -3310,10 +3322,10 @@ fn dispatchTrust(args: []const [:0]u8) !i32 {
     }
 
     if (list_only) {
-        const trusted = core.trust.listTrusted(std.heap.page_allocator) catch &.{};
+        const trusted = core.trust.listTrusted(g_cmd_allocator) catch &.{};
         defer {
-            for (trusted) |t| std.heap.page_allocator.free(t);
-            std.heap.page_allocator.free(trusted);
+            for (trusted) |t| g_cmd_allocator.free(t);
+            g_cmd_allocator.free(trusted);
         }
 
         std.debug.print("Trusted filters:\n", .{});
@@ -3330,7 +3342,7 @@ fn dispatchTrust(args: []const [:0]u8) !i32 {
     // Trust a specific filter file
     const filter_path = ".llmlite/filters.toml";
 
-    core.trust.trustFilter(std.heap.page_allocator, filter_path) catch |err| {
+    core.trust.trustFilter(g_cmd_allocator, filter_path) catch |err| {
         std.debug.print("Failed to trust filter: {}\n", .{err});
         return 1;
     };
@@ -3344,7 +3356,7 @@ fn dispatchUntrust(args: []const [:0]u8) !i32 {
     // untrust - Revoke trust for a project-local TOML filter
     const filter_path = ".llmlite/filters.toml";
 
-    core.trust.untrustFilter(std.heap.page_allocator, filter_path) catch |err| {
+    core.trust.untrustFilter(g_cmd_allocator, filter_path) catch |err| {
         std.debug.print("Failed to untrust filter: {}\n", .{err});
         return 1;
     };
@@ -3355,13 +3367,13 @@ fn dispatchUntrust(args: []const [:0]u8) !i32 {
 
 fn dispatchTerraform(args: []const [:0]u8) !i32 {
     // terraform - Infrastructure as Code with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "terraform";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "terraform ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "terraform", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "terraform ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "terraform", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3369,13 +3381,13 @@ fn dispatchTerraform(args: []const [:0]u8) !i32 {
 
 fn dispatchHelm(args: []const [:0]u8) !i32 {
     // helm - Kubernetes package manager with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "helm";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "helm ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "helm", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "helm ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "helm", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3383,13 +3395,13 @@ fn dispatchHelm(args: []const [:0]u8) !i32 {
 
 fn dispatchGcloud(args: []const [:0]u8) !i32 {
     // gcloud - GCP CLI with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "gcloud";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "gcloud ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "gcloud", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "gcloud ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "gcloud", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3397,13 +3409,13 @@ fn dispatchGcloud(args: []const [:0]u8) !i32 {
 
 fn dispatchAnsiblePlaybook(args: []const [:0]u8) !i32 {
     // ansible-playbook - Ansible playbook runner with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "ansible-playbook";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "ansible-playbook ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "ansible-playbook", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "ansible-playbook ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "ansible-playbook", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3411,13 +3423,13 @@ fn dispatchAnsiblePlaybook(args: []const [:0]u8) !i32 {
 
 fn dispatchMake(args: []const [:0]u8) !i32 {
     // make - Build tool with filtered output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "make";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "make ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "make", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "make ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "make", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3425,13 +3437,13 @@ fn dispatchMake(args: []const [:0]u8) !i32 {
 
 fn dispatchMix(args: []const [:0]u8) !i32 {
     // mix - Elixir build tool with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "mix";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "mix ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "mix", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "mix ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "mix", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3439,13 +3451,13 @@ fn dispatchMix(args: []const [:0]u8) !i32 {
 
 fn dispatchPreCommit(args: []const [:0]u8) !i32 {
     // pre-commit - Git hooks framework with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "pre-commit";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "pre-commit ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "pre-commit", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "pre-commit ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "pre-commit", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3453,13 +3465,13 @@ fn dispatchPreCommit(args: []const [:0]u8) !i32 {
 
 fn dispatchShellcheck(args: []const [:0]u8) !i32 {
     // shellcheck - Shell script linter with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "shellcheck";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "shellcheck ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "shellcheck", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "shellcheck ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "shellcheck", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3467,13 +3479,13 @@ fn dispatchShellcheck(args: []const [:0]u8) !i32 {
 
 fn dispatchHadolint(args: []const [:0]u8) !i32 {
     // hadolint - Dockerfile linter with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "hadolint";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "hadolint ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "hadolint", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "hadolint ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "hadolint", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3481,13 +3493,13 @@ fn dispatchHadolint(args: []const [:0]u8) !i32 {
 
 fn dispatchGradle(args: []const [:0]u8) !i32 {
     // gradle - Java build tool with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "gradle";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "gradle ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "gradle", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "gradle ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "gradle", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3495,13 +3507,13 @@ fn dispatchGradle(args: []const [:0]u8) !i32 {
 
 fn dispatchMvn(args: []const [:0]u8) !i32 {
     // mvn - Maven build tool with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "mvn";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "mvn ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "mvn", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "mvn ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "mvn", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3509,13 +3521,13 @@ fn dispatchMvn(args: []const [:0]u8) !i32 {
 
 fn dispatchSwift(args: []const [:0]u8) !i32 {
     // swift - Swift build tool with compact output
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "swift";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "swift ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "swift", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "swift ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "swift", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3523,13 +3535,13 @@ fn dispatchSwift(args: []const [:0]u8) !i32 {
 
 fn dispatchJust(args: []const [:0]u8) !i32 {
     // just - Command runner (rust)
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "just";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "just ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "just", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "just ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "just", raw_args, .{
         .strategy = .stats,
         .verbose = global_verbose,
     });
@@ -3537,13 +3549,13 @@ fn dispatchJust(args: []const [:0]u8) !i32 {
 
 fn dispatchMise(args: []const [:0]u8) !i32 {
     // mise - Rust version manager
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "mise";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "mise ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "mise", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "mise ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "mise", raw_args, .{
         .strategy = .stats,
         .verbose = global_verbose,
     });
@@ -3551,13 +3563,13 @@ fn dispatchMise(args: []const [:0]u8) !i32 {
 
 fn dispatchTask(args: []const [:0]u8) !i32 {
     // task - Task runner (go-task)
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "task";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "task ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "task", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "task ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "task", raw_args, .{
         .strategy = .stats,
         .verbose = global_verbose,
     });
@@ -3565,13 +3577,13 @@ fn dispatchTask(args: []const [:0]u8) !i32 {
 
 fn dispatchJj(args: []const [:0]u8) !i32 {
     // jj - Jujutsu VCS (Git-compatible)
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "jj";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "jj ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "jj", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "jj ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "jj", raw_args, .{
         .strategy = .stats,
         .verbose = global_verbose,
     });
@@ -3579,13 +3591,13 @@ fn dispatchJj(args: []const [:0]u8) !i32 {
 
 fn dispatchRuff(args: []const [:0]u8) !i32 {
     // ruff - Python linter and formatter
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "ruff";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "ruff ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "ruff", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "ruff ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "ruff", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3593,13 +3605,13 @@ fn dispatchRuff(args: []const [:0]u8) !i32 {
 
 fn dispatchBiome(args: []const [:0]u8) !i32 {
     // biome - JS/TS linter and formatter
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "biome";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "biome ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "biome", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "biome ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "biome", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3607,13 +3619,13 @@ fn dispatchBiome(args: []const [:0]u8) !i32 {
 
 fn dispatchEslint(args: []const [:0]u8) !i32 {
     // eslint - JavaScript/TypeScript linter
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "eslint";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "eslint ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "eslint", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "eslint ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "eslint", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3621,13 +3633,13 @@ fn dispatchEslint(args: []const [:0]u8) !i32 {
 
 fn dispatchTsc(args: []const [:0]u8) !i32 {
     // tsc - TypeScript compiler
-    const argv = try std.heap.page_allocator.alloc([]const u8, args.len + 1);
-    defer std.heap.page_allocator.free(argv);
+    const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
+    defer g_cmd_allocator.free(argv);
     argv[0] = "tsc";
     for (args, 1..) |arg, i| argv[i] = arg;
-    const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "tsc ", try std.mem.join(std.heap.page_allocator, " ", args) });
-    defer std.heap.page_allocator.free(raw_args);
-    return core.runner.runFiltered(std.heap.page_allocator, argv, "tsc", raw_args, .{
+    const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "tsc ", try std.mem.join(g_cmd_allocator, " ", args) });
+    defer g_cmd_allocator.free(raw_args);
+    return core.runner.runFiltered(g_cmd_allocator, argv, "tsc", raw_args, .{
         .strategy = .errors_only,
         .verbose = global_verbose,
     });
@@ -3645,14 +3657,14 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig build - filtered for errors/warnings
     if (std.mem.eql(u8, subcmd, "build")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("build");
         for (args[1..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig build ", try std.mem.join(std.heap.page_allocator, " ", args[1..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig build", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig build ", try std.mem.join(g_cmd_allocator, " ", args[1..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig build", raw_args, .{
             .strategy = .errors_only,
             .verbose = global_verbose,
         });
@@ -3660,14 +3672,14 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig test - filtered for test results
     if (std.mem.eql(u8, subcmd, "test")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("test");
         for (args[1..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig test ", try std.mem.join(std.heap.page_allocator, " ", args[1..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig test", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig test ", try std.mem.join(g_cmd_allocator, " ", args[1..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig test", raw_args, .{
             .strategy = .failure_focus,
             .verbose = global_verbose,
         });
@@ -3675,34 +3687,34 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig fmt - passthrough (formatting is visual)
     if (std.mem.eql(u8, subcmd, "fmt")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("fmt");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 
     // zig ast - show AST (passthrough for inspection)
     if (std.mem.eql(u8, subcmd, "ast")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("ast");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 
     // zig translate-c - C to Zig translation
     if (std.mem.eql(u8, subcmd, "translate-c")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("translate-c");
         for (args[1..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig translate-c ", try std.mem.join(std.heap.page_allocator, " ", args[1..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig translate-c", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig translate-c ", try std.mem.join(g_cmd_allocator, " ", args[1..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig translate-c", raw_args, .{
             .strategy = .stats,
             .verbose = global_verbose,
         });
@@ -3710,24 +3722,24 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig std - show standard library
     if (std.mem.eql(u8, subcmd, "std")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("std");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
     }
 
     // zig build-obj - compile object file
     if (std.mem.eql(u8, subcmd, "build-obj")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("build-obj");
         for (args[1..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig build-obj ", try std.mem.join(std.heap.page_allocator, " ", args[1..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig build-obj", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig build-obj ", try std.mem.join(g_cmd_allocator, " ", args[1..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig build-obj", raw_args, .{
             .strategy = .errors_only,
             .verbose = global_verbose,
         });
@@ -3735,14 +3747,14 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig build-lib - compile library
     if (std.mem.eql(u8, subcmd, "build-lib")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("build-lib");
         for (args[1..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig build-lib ", try std.mem.join(std.heap.page_allocator, " ", args[1..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig build-lib", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig build-lib ", try std.mem.join(g_cmd_allocator, " ", args[1..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig build-lib", raw_args, .{
             .strategy = .errors_only,
             .verbose = global_verbose,
         });
@@ -3750,14 +3762,14 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig build-exe - compile executable
     if (std.mem.eql(u8, subcmd, "build-exe")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("build-exe");
         for (args[1..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig build-exe ", try std.mem.join(std.heap.page_allocator, " ", args[1..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig build-exe", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig build-exe ", try std.mem.join(g_cmd_allocator, " ", args[1..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig build-exe", raw_args, .{
             .strategy = .errors_only,
             .verbose = global_verbose,
         });
@@ -3765,26 +3777,26 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
 
     // zig fmt --check - check formatting without changes
     if (std.mem.eql(u8, subcmd, "fmt") and args.len > 1 and std.mem.eql(u8, args[1], "--check")) {
-        var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
         defer argv.deinit();
         try argv.append("zig");
         try argv.append("fmt");
         try argv.append("--check");
         for (args[2..]) |arg| try argv.append(arg);
-        const raw_args = try std.mem.concat(std.heap.page_allocator, u8, &.{ "zig fmt --check ", try std.mem.join(std.heap.page_allocator, " ", args[2..]) });
-        defer std.heap.page_allocator.free(raw_args);
-        return core.runner.runFiltered(std.heap.page_allocator, try argv.toOwnedSlice(), "zig fmt --check", raw_args, .{
+        const raw_args = try std.mem.concat(g_cmd_allocator, u8, &.{ "zig fmt --check ", try std.mem.join(g_cmd_allocator, " ", args[2..]) });
+        defer g_cmd_allocator.free(raw_args);
+        return core.runner.runFiltered(g_cmd_allocator, try argv.toOwnedSlice(), "zig fmt --check", raw_args, .{
             .strategy = .stats,
             .verbose = global_verbose,
         });
     }
 
     // Default: passthrough for unknown subcommands
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
     try argv.append("zig");
     for (args) |arg| try argv.append(arg);
-    return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+    return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
 }
 
 fn dispatchKiro(args: []const [:0]u8) !i32 {
@@ -3794,14 +3806,14 @@ fn dispatchKiro(args: []const [:0]u8) !i32 {
 
     if (args.len == 0) {
         // No args - just launch kiro interactive chat
-        return core.runner.runPassthrough(std.heap.page_allocator, &.{"kiro"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"kiro"}, global_verbose);
     }
 
     // Build kiro-cli command
-    var argv = std.array_list.Managed([]const u8).init(std.heap.page_allocator);
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
     try argv.append("kiro");
     for (args) |arg| try argv.append(arg);
 
-    return core.runner.runPassthrough(std.heap.page_allocator, try argv.toOwnedSlice(), global_verbose);
+    return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
 }

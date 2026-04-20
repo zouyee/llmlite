@@ -51,7 +51,7 @@ pub const Service = struct {
 
     /// Lists all conversations.
     pub fn list(self: *Service, params: ?ConversationListParams) !ConversationListResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/conversations");
@@ -93,7 +93,7 @@ pub const Service = struct {
 
     /// Retrieves items in a conversation.
     pub fn listItems(self: *Service, conversation_id: []const u8, params: ?ConversationItemListParams) !ConversationItemListResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.writer().print("/conversations/{s}/items", .{conversation_id});

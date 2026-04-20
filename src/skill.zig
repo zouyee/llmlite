@@ -96,11 +96,7 @@ pub const Service = struct {
 
     fn serializeUpdateParams(self: *Service, params: UpdateSkillParams) ![]u8 {
         _ = self;
-        var parts = std.ArrayList(u8).init(self.allocator);
-        errdefer parts.deinit();
-
-        try std.json.stringify(.{ .default_version = params.default_version }, .{}, parts.writer());
-        return parts.toOwnedSlice();
+        return std.json.Stringify.valueAlloc(self.allocator, .{ .default_version = params.default_version }, .{});
     }
 
     fn serializeListParams(self: *Service, params: ListSkillsParams) ![]u8 {

@@ -26,7 +26,7 @@ pub const Service = struct {
     /// List documents
     /// GET /v1beta/documents
     pub fn list(self: *Service, params: ?ListDocumentsParams) !ListDocumentsResponse {
-        var path = std.ArrayList(u8).init(self.allocator);
+        var path = std.array_list.Managed(u8).init(self.allocator);
         defer path.deinit();
 
         try path.appendSlice("/documents");

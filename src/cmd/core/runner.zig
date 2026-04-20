@@ -2,14 +2,16 @@
 //!
 //! This module implements the core execution flow used by all command modules.
 //!
-//! ## 6-Phase Execution
+//! ## Execution Phases
 //!
 //! ```text
 //! Phase 1: EXECUTE  → std.process.Child.run()
 //! Phase 2: FILTER   → filter.zig (12+ strategies)
 //! Phase 3: TEE      → tee.zig (failure recovery)
 //! Phase 4: PRINT    → stdout output
-//! Phase 5: TRACK    → tracking.zig (SQLite)
+//! Phase 5: TRACK    → tracking.zig (file-based)
+//! Phase 5.3: REPORT → savings_reporter.zig (proxy-cmd integration)
+//! Phase 5.5: MEMORY → memory.zig (claude-mem migration)
 //! Phase 6: EXIT     → return original exit code
 //! ```
 
@@ -17,6 +19,10 @@ const std = @import("std");
 const filter = @import("filter");
 const tracking = @import("tracking");
 const tee = @import("tee");
+const memory = @import("memory");
+const config_mod = @import("config");
+const shared = @import("shared_analytics");
+const savings_reporter = @import("savings_reporter");
 
 pub const RunOptions = struct {
     /// Combine stdout and stderr for filtering
@@ -86,15 +92,22 @@ pub fn runFiltered(
     if (options.strategy == .none) {
         filtered = raw_output;
     } else {
-        const filter_result = filter.filter(allocator, raw_output, .{
-            .strategy = options.strategy,
-            .level = options.level,
-        }) catch {
-            if (options.verbose > 0) {
-                std.log.warn("filter failed, using raw output", .{});
-            }
-            filtered = raw_output;
-            return RunError.FilterFailed;
+        const filter_result = blk: {
+            break :blk filter.filter(allocator, raw_output, .{
+                .strategy = options.strategy,
+                .level = options.level,
+            }) catch |err| {
+                if (options.verbose > 0) {
+                    std.log.warn("filter failed: {}, using raw output", .{err});
+                }
+                break :blk filter.FilterResult{
+                    .filtered = raw_output,
+                    .original_len = raw_output.len,
+                    .filtered_len = raw_output.len,
+                    .reduction_pct = 0,
+                    .strategy_used = options.strategy,
+                };
+            };
         };
         filtered = filter_result.filtered;
     }
@@ -128,6 +141,108 @@ pub fn runFiltered(
             std.log.warn("tracking failed", .{});
         }
     };
+
+    // Phase 5.3: REPORT (proxy-cmd integration)
+    const report_config = blk: {
+        const cfg_result = config_mod.loadConfig(allocator) catch break :blk null;
+        break :blk cfg_result;
+    };
+    if (report_config) |c| {
+        defer {
+            // Config fields may contain allocated strings; free them
+            // Note: Config currently lacks a deinit method, so we only free
+            // the analytics_proxy.host if it was allocated
+            allocator.free(c.analytics_proxy.host);
+        }
+
+        if (c.analytics.enabled) {
+            const raw_tokens = shared.estimateTokens(raw_output.len);
+            const filtered_tokens = shared.estimateTokens(filtered.len);
+            const saved_tokens = if (raw_tokens > filtered_tokens) raw_tokens - filtered_tokens else 0;
+            const savings_pct = if (raw_tokens > 0)
+                @as(f64, @floatFromInt(saved_tokens)) / @as(f64, @floatFromInt(raw_tokens)) * 100.0
+            else
+                0.0;
+
+            const hostname = std.process.getEnvVarOwned(allocator, "HOSTNAME") catch
+                std.process.getEnvVarOwned(allocator, "COMPUTERNAME") catch
+                allocator.dupe(u8, "unknown") catch "unknown";
+            defer allocator.free(hostname);
+
+            const report = shared.SavingsReport{
+                .timestamp = std.time.timestamp(),
+                .original_cmd = raw_args,
+                .raw_output_tokens = raw_tokens,
+                .filtered_output_tokens = filtered_tokens,
+                .saved_tokens = saved_tokens,
+                .savings_pct = savings_pct,
+                .exit_code = exit_code,
+                .hostname = hostname,
+            };
+
+            var reporter = savings_reporter.SavingsReporter.init(
+                allocator,
+                c.analytics_proxy.host,
+                c.analytics_proxy.port,
+            ) catch |err| blk: {
+                if (options.verbose > 0) std.log.warn("savings reporter init failed: {}", .{err});
+                break :blk null;
+            };
+            if (reporter) |*r| {
+                defer r.deinit();
+                r.reportAsync(report);
+            }
+        }
+    }
+
+    // Phase 5.5: MEMORY (claude-mem migration)
+    var mem_db: ?memory.MemoryDb = memory.MemoryDb.init(allocator) catch |err| blk: {
+        if (options.verbose > 0) std.log.warn("memory init failed: {}", .{err});
+        break :blk null;
+    };
+
+    if (mem_db) |*mdb| {
+        defer mdb.deinit();
+
+        // Load config first to get privacy mode for both SessionManager and Recorder
+        const recorder_config = blk: {
+            if (config_mod.loadConfig(allocator)) |maybe_cfg| {
+                if (maybe_cfg) |cfg| {
+                    break :blk memory.Recorder.RecorderConfig{
+                        .enabled = cfg.memory.enabled,
+                        .auto_record = cfg.memory.auto_record,
+                        .max_context_length = cfg.memory.max_context_length,
+                        .dedup_window_secs = cfg.memory.dedup_window_secs,
+                        .excluded_patterns = cfg.memory.privacy.excluded_patterns,
+                        .privacy_mode = switch (cfg.memory.privacy.mode) {
+                            .normal => .normal,
+                            .private => .private,
+                        },
+                    };
+                }
+            } else |_| {}
+            break :blk memory.Recorder.RecorderConfig{};
+        };
+
+        // Initialize SessionManager with privacy mode so it skips writing session.json in private mode
+        var session_mgr = memory.SessionManager.initWithPrivacy(allocator, @constCast(mdb), recorder_config.privacy_mode);
+        defer session_mgr.deinit();
+
+        var session_id: []const u8 = "unknown";
+        var session_id_owned = false;
+        if (session_mgr.getSessionId()) |sid| {
+            session_id = sid;
+            session_id_owned = true;
+        } else |err| {
+            if (options.verbose > 0) std.log.warn("session get failed: {}", .{err});
+        }
+        defer if (session_id_owned) allocator.free(session_id);
+
+        var rec = memory.Recorder.init(allocator, mdb, recorder_config);
+        _ = rec.record(raw_args, filtered, exit_code, session_id) catch |err| {
+            std.log.warn("memory record failed: {}", .{err});
+        };
+    }
 
     // Phase 6: EXIT
     return exit_code;

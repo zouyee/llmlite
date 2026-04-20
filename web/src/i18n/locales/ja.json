@@ -4,52 +4,218 @@
     "loading": "読み込み中..."
   },
   "nav": {
-    "providers": "プロバイダー",
-    "mcp": "MCPサーバー",
+    "providers": "プロバイダ",
+    "mcp": "MCP サーバー",
     "sessions": "セッション",
-    "settings": "設定"
+    "settings": "設定",
+    "proxy": "プロキシ",
+    "skills": "スキル",
+    "prompts": "プロンプト",
+    "usage": "使用量",
+    "workspace": "ワークスペース",
+    "openclaw": "OpenClaw"
   },
   "provider": {
-    "title": "プロバイダー管理",
-    "add": "追加",
+    "title": "プロバイダ管理",
+    "add": "プロバイダを追加",
+    "addFirst": "最初のプロバイダを追加",
     "edit": "編集",
     "delete": "削除",
-    "setActive": "デフォルトに設定",
+    "setActive": "アクティブに設定",
     "test": "テスト",
-    "searchPlaceholder": "プロバイダーを検索...",
-    "noProviders": "プロバイダーが設定されていません",
+    "searchPlaceholder": "プロバイダを検索...",
+    "noProviders": "プロバイダが設定されていません",
+    "importPreset": "プリセットをインポート",
+    "disabled": "無効",
+    "enabled": "有効",
+    "official": "公式",
+    "custom": "カスタム",
     "form": {
-      "name": "名前",
-      "baseUrl": "URL",
-      "apiKey": "API Key",
-      "model": "モデル"
+      "name": "プロバイダ名",
+      "baseUrl": "ベース URL",
+      "apiKey": "API キー",
+      "model": "デフォルトモデル"
     }
   },
   "mcp": {
-    "title": "MCPサーバー管理",
-    "add": "追加",
-    "start": "起動",
+    "title": "MCP サーバー管理",
+    "add": "サーバーを追加",
+    "start": "開始",
     "stop": "停止",
     "restart": "再起動",
-    "noServers": "MCPサーバーが設定されていません"
+    "noServers": "MCP サーバーが設定されていません",
+    "wizard": {
+      "title": "MCP ウィザード",
+      "step1": "プリセットを選択",
+      "step2": "サーバーを設定",
+      "step3": "確認",
+      "custom": "カスタム設定",
+      "next": "次へ",
+      "back": "戻る",
+      "finish": "完了"
+    },
+    "name": "名前",
+    "command": "コマンド",
+    "args": "引数",
+    "autoStart": "自動開始"
   },
   "session": {
     "title": "セッション履歴",
     "searchPlaceholder": "セッションを検索...",
     "noSessions": "セッションが見つかりません",
     "archived": "アーカイブ済み",
-    "delete": "削除"
+    "delete": "削除",
+    "confirmDeleteTitle": "セッションを削除",
+    "confirmDeleteContent": "このセッションを削除してもよろしいですか？この操作は元に戻せません。"
   },
   "settings": {
     "title": "設定",
-    "port": "ポート",
+    "port": "プロキシポート",
     "save": "保存",
     "reload": "設定を再読み込み",
-    "apiKey": "API Key"
+    "apiKey": "API キー",
+    "theme": "テーマ",
+    "mode": "モード",
+    "dark": "ダーク",
+    "light": "ライト",
+    "primaryColor": "プライマリカラー",
+    "language": "言語",
+    "directory": "ディレクトリ",
+    "workspaceDir": "ワークスペースディレクトリ",
+    "sessionDir": "セッションディレクトリ",
+    "backup": "バックアップ",
+    "exportBackup": "バックアップをエクスポート",
+    "importBackup": "バックアップをインポート",
+    "webdav": "WebDAV",
+    "webdavUrl": "サーバーURL",
+    "webdavUsername": "ユーザー名",
+    "webdavPassword": "パスワード",
+    "webdavSync": "今すぐ同期",
+    "terminal": "ターミナル",
+    "shellPath": "Shell パス",
+    "shellArgs": "Shell 引数",
+    "window": "ウィンドウ",
+    "alwaysOnTop": "常に最前面",
+    "showInDock": "Dock に表示"
   },
   "health": {
-    "healthy": "正常",
+    "healthy": "健全",
     "degraded": "低下",
-    "unhealthy": "異常"
+    "unhealthy": "不良"
+  },
+  "proxy": {
+    "title": "プロキシ制御",
+    "status": "状態",
+    "running": "実行中",
+    "stopped": "停止",
+    "start": "開始",
+    "stop": "停止",
+    "failover": "フェイルオーバー",
+    "failoverEnabled": "フェイルオーバー有効",
+    "queue": "フェイルオーバーキュー",
+    "autoFailover": "自動フェイルオーバー設定",
+    "maxRetries": "最大再試行回数",
+    "retryInterval": "再試行間隔 (ms)",
+    "timeout": "タイムアウト (ms)",
+    "circuitBreaker": "サーキットブレーカー",
+    "failureThreshold": "失敗閾値",
+    "recoveryTimeout": "復旧タイムアウト (ms)",
+    "halfOpenMax": "半開放最大リクエスト数"
+  },
+  "skills": {
+    "title": "スキル",
+    "installed": "インストール済み",
+    "available": "利用可能",
+    "install": "インストール",
+    "uninstall": "アンインストール",
+    "update": "更新",
+    "repos": {
+      "title": "スキルリポジトリ",
+      "add": "リポジトリを追加",
+      "empty": "リポジトリが設定されていません"
+    }
+  },
+  "prompts": {
+    "title": "プロンプト",
+    "add": "プロンプトを追加",
+    "edit": "プロンプトを編集",
+    "category": "カテゴリ",
+    "enabled": "有効",
+    "disabled": "無効",
+    "content": "内容"
+  },
+  "usage": {
+    "title": "使用量ダッシュボード",
+    "overview": "概要",
+    "totalRequests": "総リクエスト数",
+    "totalTokens": "総トークン数",
+    "totalCost": "総費用",
+    "activeProviders": "アクティブプロバイダ数",
+    "trends": "トレンド",
+    "daily": "日",
+    "weekly": "週",
+    "monthly": "月",
+    "logs": "リクエストログ",
+    "models": "モデル統計",
+    "costConfig": "費用設定",
+    "export": "CSV をエクスポート",
+    "provider": "プロバイダ",
+    "model": "モデル",
+    "status": "状態",
+    "tokensIn": "入力トークン",
+    "tokensOut": "出力トークン",
+    "latency": "遅延 (ms)",
+    "inputPrice": "入力単価",
+    "outputPrice": "出力単価"
+  },
+  "deeplink": {
+    "title": "ディープリンク",
+    "confirmTitle": "インポートを確認",
+    "importType": "インポート中",
+    "exportTitle": "設定をエクスポート",
+    "type": "タイプ",
+    "id": "ID",
+    "generate": "リンクを生成",
+    "generating": "生成中..."
+  },
+  "workspace": {
+    "title": "ワークスペース",
+    "files": "ファイル",
+    "dailyMemory": "日次メモリ",
+    "memoryPlaceholder": "今日の作業を記録...",
+    "noFiles": "ファイルがありません"
+  },
+  "openclaw": {
+    "title": "OpenClaw 設定",
+    "agent": {
+      "title": "エージェントのデフォルト",
+      "model": "デフォルトモデル",
+      "temperature": "温度",
+      "maxTokens": "最大トークン数"
+    },
+    "env": {
+      "title": "環境変数",
+      "key": "キー",
+      "value": "値"
+    },
+    "tools": {
+      "title": "ツール",
+      "empty": "利用可能なツールがありません"
+    }
+  },
+  "common": {
+    "cancel": "キャンセル",
+    "confirm": "確認",
+    "confirmImport": "インポートを確認",
+    "importing": "インポート中...",
+    "save": "保存",
+    "edit": "編集",
+    "delete": "削除",
+    "add": "追加",
+    "copy": "コピー",
+    "back": "戻る",
+    "next": "次へ",
+    "finish": "完了",
+    "create": "作成"
   }
 }

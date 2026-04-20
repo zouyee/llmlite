@@ -165,7 +165,7 @@ pub const SemanticCacheEntry = struct {
 pub const SemanticCache = struct {
     /// Entries stored as a list for similarity search
     /// Note: For production with many entries, use a vector index (HNSW, IVF-PQ)
-    entries: std.ArrayList(SemanticCacheEntry),
+    entries: std.array_list.Managed(SemanticCacheEntry),
     allocator: std.mem.Allocator,
     ttl_seconds: u32,
     max_entries: u32,
@@ -188,7 +188,7 @@ pub const SemanticCache = struct {
         embedding_dim: u32,
     ) SemanticCache {
         return .{
-            .entries = std.ArrayList(SemanticCacheEntry).init(allocator),
+            .entries = std.array_list.Managed(SemanticCacheEntry).init(allocator),
             .allocator = allocator,
             .ttl_seconds = ttl_seconds,
             .max_entries = max_entries,
@@ -382,7 +382,7 @@ pub const SemanticCache = struct {
 /// Extract text content from a chat completion request JSON
 /// Concatenates all message content into a single searchable string
 fn extractTextFromMessages(allocator: std.mem.Allocator, json_str: []const u8) ![]u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     errdefer result.deinit();
 
     // Find "messages" array in JSON
@@ -523,7 +523,7 @@ fn parseEmbeddingResponse(allocator: std.mem.Allocator, response: []const u8) ![
     const emb_str = response[arr_start..i];
 
     // Parse float array
-    var floats = std.ArrayList(f32).init(allocator);
+    var floats = std.array_list.Managed(f32).init(allocator);
     errdefer floats.deinit();
 
     var num_start: ?usize = null;

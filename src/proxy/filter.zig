@@ -100,7 +100,7 @@ pub fn filter(
 
 fn filterStats(allocator: std.mem.Allocator, input: []const u8, _: FilterLevel) ![]const u8 {
     // Try to extract useful stats from the output
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
 
     // Count lines
     const lines = std.mem.splitScalar(u8, input, '\n');
@@ -140,7 +140,7 @@ fn filterStats(allocator: std.mem.Allocator, input: []const u8, _: FilterLevel) 
 // ============ Strategy 2: Error Only ============
 
 fn filterErrorsOnly(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var found_errors = false;
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -204,8 +204,8 @@ fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
         }
     }
 
-    var result = std.ArrayList(u8).init(allocator);
-    var sorted = std.ArrayList(struct { key: []const u8, count: usize }).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
+    var sorted = std.array_list.Managed(struct { key: []const u8, count: usize }).init(allocator);
     defer sorted.deinit();
 
     var it = groups.iterator();
@@ -231,7 +231,7 @@ fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
 // ============ Strategy 4: Deduplication ============
 
 fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var lines = std.ArrayList(struct { text: []const u8, count: usize }).init(allocator);
+    var lines = std.array_list.Managed(struct { text: []const u8, count: usize }).init(allocator);
     defer lines.deinit();
 
     var seen = std.StringArrayHashMap(usize).init(allocator);
@@ -250,7 +250,7 @@ fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]const
         }
     }
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     for (lines.items, 0..) |item, i| {
         if (i > 0) try result.append('\n');
         if (item.count > 1) {
@@ -277,12 +277,12 @@ fn filterStructureOnly(allocator: std.mem.Allocator, input: []const u8) ![]const
 }
 
 fn extractJsonStructure(allocator: std.mem.Allocator, value: std.json.Value) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     try extractJsonStructureInner(&result, value, 0);
     return result.toOwnedSlice();
 }
 
-fn extractJsonStructureInner(result: *std.ArrayList(u8), value: std.json.Value, depth: usize) !void {
+fn extractJsonStructureInner(result: *std.array_list.Managed(u8), value: std.json.Value, depth: usize) !void {
     const indent = "  ";
 
     switch (value) {
@@ -361,7 +361,7 @@ fn filterCode(allocator: std.mem.Allocator, input: []const u8, level: FilterLeve
 }
 
 fn stripComments(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var i: usize = 0;
 
     while (i < input.len) {
@@ -383,7 +383,7 @@ fn stripComments(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
 }
 
 fn stripCommentsAndEmptyLines(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var i: usize = 0;
     var last_was_newline = false;
 
@@ -419,7 +419,7 @@ fn stripCommentsAndEmptyLines(allocator: std.mem.Allocator, input: []const u8) !
 
 fn stripFunctionBodies(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
     // Simplified - just show function signatures
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var i: usize = 0;
     var in_block: usize = 0;
     var last_was_newline = false;
@@ -469,7 +469,7 @@ fn stripFunctionBodies(allocator: std.mem.Allocator, input: []const u8) ![]const
 // ============ Strategy 7: Failure Focus ============
 
 fn filterFailureFocus(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var found_failure = false;
     var in_failure_detail = false;
 
@@ -512,8 +512,8 @@ fn filterFailureFocus(allocator: std.mem.Allocator, input: []const u8) ![]const 
 // ============ Strategy 8: Tree Compression ============
 
 fn filterTreeCompression(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    var lines = std.ArrayList([]const u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
+    var lines = std.array_list.Managed([]const u8).init(allocator);
     defer lines.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -552,7 +552,7 @@ fn filterTreeCompression(allocator: std.mem.Allocator, input: []const u8) ![]con
 // ============ Strategy 9: Progress Stripping ============
 
 fn filterProgressStrip(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var i: usize = 0;
 
     while (i < input.len) {
@@ -603,11 +603,7 @@ fn filterJsonDual(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
         defer parsed.deinit();
 
         // Format as compact JSON
-        var result = std.ArrayList(u8).init(allocator);
-        try std.json.stringify(parsed.value, .{
-            .whitespace = .indent_tab,
-        }, result.writer());
-        return result.toOwnedSlice();
+        return std.json.Stringify.valueAlloc(allocator, parsed.value, .{ .whitespace = .indent_tab });
     } else |_| {
         // Not JSON, return as-is
         return allocator.dupe(u8, input);
@@ -617,11 +613,11 @@ fn filterJsonDual(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
 // ============ Strategy 11: State Machine ============
 
 fn filterStateMachine(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var state: enum { idle, running, passed, failed, summary } = .idle;
     var passed_count: usize = 0;
     var failed_count: usize = 0;
-    var failed_tests = std.ArrayList([]const u8).init(allocator);
+    var failed_tests = std.array_list.Managed([]const u8).init(allocator);
     defer failed_tests.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -663,8 +659,8 @@ fn filterStateMachine(allocator: std.mem.Allocator, input: []const u8) ![]const 
 // ============ Strategy 12: NDJSON Streaming ============
 
 fn filterNdjsonStream(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
-    var events = std.ArrayList(struct { action: []const u8, package: []const u8, test_name: []const u8 }).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
+    var events = std.array_list.Managed(struct { action: []const u8, package: []const u8, test_name: []const u8 }).init(allocator);
     defer events.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -698,7 +694,7 @@ fn filterNdjsonStream(allocator: std.mem.Allocator, input: []const u8) ![]const 
     // Aggregate and summarize
     var pass_count: usize = 0;
     var fail_count: usize = 0;
-    var fail_list = std.ArrayList([]const u8).init(allocator);
+    var fail_list = std.array_list.Managed([]const u8).init(allocator);
     defer fail_list.deinit();
 
     for (events.items) |event| {
@@ -729,7 +725,7 @@ fn filterNdjsonStream(allocator: std.mem.Allocator, input: []const u8) ![]const 
 /// Ultra-compact filtering using ASCII icons for maximum compression
 /// Uses single characters to represent common patterns: ✓ ✗ ⚠ → ↓ ↑ 💾 📁 etc.
 fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     var line_iter = std.mem.splitScalar(u8, input, '\n');
     var has_content = false;
 

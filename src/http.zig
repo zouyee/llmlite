@@ -35,6 +35,11 @@ pub const ApiError = struct {
     }
 };
 
+pub const HttpResponse = struct {
+    body: []u8,
+    status_code: u32,
+};
+
 pub const HttpClient = struct {
     allocator: std.mem.Allocator,
     base_url: []const u8,
@@ -42,6 +47,10 @@ pub const HttpClient = struct {
     organization: ?[]const u8,
     timeout_ms: u32,
     auth_type: AuthType,
+    /// Lazily-allocated persistent auth header (freed in deinit)
+    auth_header: ?[]u8 = null,
+    /// Reusable HTTP client for connection pooling
+    client: Http.Client,
 
     pub fn init(allocator: std.mem.Allocator, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32) HttpClient {
         return .{
@@ -51,6 +60,8 @@ pub const HttpClient = struct {
             .organization = organization,
             .timeout_ms = timeout_ms,
             .auth_type = .bearer,
+            .auth_header = null,
+            .client = Http.Client{ .allocator = allocator },
         };
     }
 
@@ -62,11 +73,23 @@ pub const HttpClient = struct {
             .organization = organization,
             .timeout_ms = timeout_ms,
             .auth_type = auth_type,
+            .auth_header = null,
+            .client = Http.Client{ .allocator = allocator },
         };
     }
 
     pub fn deinit(self: *HttpClient) void {
-        _ = self;
+        if (self.auth_header) |h| {
+            self.allocator.free(h);
+        }
+        self.client.deinit();
+    }
+
+    /// Ensure auth_header is allocated (lazy initialization)
+    fn ensureAuthHeader(self: *HttpClient) !void {
+        if (self.auth_type == .bearer and self.auth_header == null) {
+            self.auth_header = try std.fmt.allocPrint(self.allocator, "Bearer {s}", .{self.api_key});
+        }
     }
 
     pub fn post(self: *HttpClient, path: []const u8, body: []const u8) ![]u8 {
@@ -78,7 +101,7 @@ pub const HttpClient = struct {
     }
 
     pub fn postBinary(self: *HttpClient, path: []const u8, body: []const u8) ![]u8 {
-        return self.sendRequest("POST", path, body, "application/json");
+        return self.sendRequest("POST", path, body, "application/octet-stream");
     }
 
     pub fn get(self: *HttpClient, path: []const u8) ![]u8 {
@@ -89,37 +112,40 @@ pub const HttpClient = struct {
         return self.sendRequest("DELETE", path, "", "application/json");
     }
 
+    pub fn getResponse(self: *HttpClient, path: []const u8) !HttpResponse {
+        return self.sendRequestWithStatus("GET", path, "", "application/json");
+    }
+
     fn sendRequest(self: *HttpClient, method: []const u8, path: []const u8, body: []const u8, content_type: []const u8) ![]u8 {
-        var url: []u8 = undefined;
+        const response = try self.sendRequestWithStatus(method, path, body, content_type);
+        return response.body;
+    }
+
+    fn sendRequestWithStatus(self: *HttpClient, method: []const u8, path: []const u8, body: []const u8, content_type: []const u8) !HttpResponse {
+        try self.ensureAuthHeader();
+
+        const url = switch (self.auth_type) {
+            .bearer => try std.mem.concat(self.allocator, u8, &.{ self.base_url, path }),
+            .api_key => try std.fmt.allocPrint(self.allocator, "{s}{s}?key={s}", .{ self.base_url, path, self.api_key }),
+        };
+        defer self.allocator.free(url);
+
+        const uri = Uri.parse(url) catch return error.InvalidUrl;
+
         var headers: [2]Http.Header = undefined;
         var header_count: usize = 0;
 
         switch (self.auth_type) {
             .bearer => {
-                url = try std.mem.concat(self.allocator, u8, &.{ self.base_url, path });
-                errdefer self.allocator.free(url);
-
-                const auth_value = try std.fmt.allocPrint(self.allocator, "Bearer {s}", .{self.api_key});
-                errdefer self.allocator.free(auth_value);
-
-                headers[0] = .{ .name = "Authorization", .value = auth_value };
+                headers[0] = .{ .name = "Authorization", .value = self.auth_header.? };
                 headers[1] = .{ .name = "Content-Type", .value = content_type };
                 header_count = 2;
             },
             .api_key => {
-                url = try std.fmt.allocPrint(self.allocator, "{s}{s}?key={s}", .{ self.base_url, path, self.api_key });
-                errdefer self.allocator.free(url);
-
                 headers[0] = .{ .name = "Content-Type", .value = content_type };
                 header_count = 1;
             },
         }
-
-        const uri = Uri.parse(url) catch return error.InvalidUrl;
-        defer self.allocator.free(url);
-
-        var http_client = Http.Client{ .allocator = self.allocator };
-        defer http_client.deinit();
 
         const http_method: Http.Method = if (std.mem.eql(u8, method, "GET"))
             .GET
@@ -137,7 +163,7 @@ pub const HttpClient = struct {
         var response_writer = std.io.Writer.Allocating.init(self.allocator);
         defer response_writer.deinit();
 
-        const fetch_result = http_client.fetch(.{
+        const fetch_result = self.client.fetch(.{
             .location = .{ .uri = uri },
             .method = http_method,
             .payload = if (body.len > 0) body else null,
@@ -158,6 +184,9 @@ pub const HttpClient = struct {
         if (status_code >= 500) return error.ApiError;
         if (status_code < 200 or status_code >= 300) return error.InvalidResponse;
 
-        return try self.allocator.dupe(u8, response_writer.written());
+        return HttpResponse{
+            .body = try self.allocator.dupe(u8, response_writer.written()),
+            .status_code = status_code,
+        };
     }
 };
