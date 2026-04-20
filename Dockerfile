@@ -1,7 +1,7 @@
 # Stage 1: Build static binary targeting musl
 FROM alpine:3.19 AS builder
 
-RUN apk add --no-cache curl xz
+RUN apk add --no-cache curl xz ca-certificates
 
 RUN curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | \
     tar -xJ -C /usr/local && \
@@ -10,6 +10,7 @@ RUN curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz |
 WORKDIR /app
 
 COPY build.zig ./
+COPY build.zig.zon ./
 COPY src/ ./src/
 
 RUN zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
