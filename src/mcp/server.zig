@@ -13,9 +13,12 @@ pub const Server = struct {
     server_name: []const u8,
     server_version: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, name: []const u8, version: []const u8) Server {
+    io: std.Io,
+
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, name: []const u8, version: []const u8) Server {
         return .{
             .allocator = allocator,
+            .io = io,
             .server_name = name,
             .server_version = version,
         };
@@ -92,15 +95,19 @@ pub const Server = struct {
 
     fn handleToolsList(self: *Server, request: types.JsonRpcRequest) ![]u8 {
         const tool_list = tools.listTools();
-        var tools_json = std.ArrayListUnmanaged(u8){};
-        const writer = tools_json.writer(self.allocator);
-        try writer.writeAll("[");
+        var tools_json = std.array_list.Managed(u8).init(self.allocator);
+        defer tools_json.deinit();
+        
+        // Build JSON string manually for Zig 0.16.0 compatibility
+        try tools_json.appendSlice("[");
         for (tool_list.tools, 0..) |tool, i| {
-            if (i > 0) try writer.writeAll(",");
-            try std.fmt.format(writer, "{{\"name\":\"{s}\",\"description\":\"{s}\",\"inputSchema\":{{}}}}", .{ tool.name, tool.description });
+            if (i > 0) try tools_json.appendSlice(",");
+            const tool_json = try std.fmt.allocPrint(self.allocator, "{{\"name\":\"{s}\",\"description\":\"{s}\",\"inputSchema\":{{}}}}", .{ tool.name, tool.description });
+            defer self.allocator.free(tool_json);
+            try tools_json.appendSlice(tool_json);
         }
-        try writer.writeAll("]");
-        const result = try std.fmt.allocPrint(self.allocator, "{{\"tools\":{s}}}", .{try tools_json.toOwnedSlice(self.allocator)});
+        try tools_json.appendSlice("]");
+        const result = try std.fmt.allocPrint(self.allocator, "{{\"tools\":{s}}}", .{tools_json.items});
         return self.successResponse(request.id, result);
     }
 
@@ -111,12 +118,12 @@ pub const Server = struct {
         const tool_name = extractToolName(params) orelse {
             return self.errorResponse(request.id, types.ErrorCodes.InvalidParams, "Missing tool name");
         };
-        const tool_result = tools.callTool(self.allocator, tool_name, request.params) catch {
+        const tool_result = tools.callTool(self.allocator, self.io, tool_name, request.params) catch {
             return self.errorResponse(request.id, types.ErrorCodes.InternalError, "Tool execution failed");
         };
 
         // Build content manually with string concatenation
-        var content_parts = std.ArrayListUnmanaged([]const u8){};
+        var content_parts = std.ArrayListUnmanaged([]const u8).empty;
         defer content_parts.deinit(self.allocator);
 
         for (tool_result.content) |block| {
@@ -127,7 +134,7 @@ pub const Server = struct {
         }
 
         // Join content parts with commas
-        var content_json = std.ArrayListUnmanaged(u8){};
+        var content_json: std.ArrayListUnmanaged(u8) = .empty;
         for (content_parts.items, 0..) |part, i| {
             if (i > 0) try content_json.appendSlice(self.allocator, ",");
             try content_json.appendSlice(self.allocator, part);
@@ -148,7 +155,7 @@ pub const Server = struct {
 
     /// Escape a string for JSON embedding
     fn escapeJsonString(self: *Server, str: []const u8) ![]u8 {
-        var result = std.ArrayListUnmanaged(u8){};
+        var result: std.ArrayListUnmanaged(u8) = .empty;
         errdefer result.deinit(self.allocator);
 
         try result.appendSlice(self.allocator, "\"");
