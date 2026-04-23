@@ -26,12 +26,13 @@ jobs:
           version: ${{ matrix.zig_version }}
 
       - name: Create cache directories
-        run: mkdir -p .zig-cache zig-pkg
+        run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Cache Zig build
         uses: actions/cache@v4
         with:
           path: |
+            ~/.cache/zig
             .zig-cache
             zig-pkg
           key: ${{ runner.os }}-zig-${{ matrix.zig_version }}-${{ hashFiles('**/build.zig.zon') }}
@@ -39,10 +40,14 @@ jobs:
             ${{ runner.os }}-zig-${{ matrix.zig_version }}-
 
       - name: Build
-        run: zig build
+        run: |
+          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
+          zig build
 
       - name: Run tests
-        run: zig build test
+        run: |
+          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
+          zig build test
 
   lint:
     name: Code Quality
@@ -58,10 +63,12 @@ jobs:
           version: '0.16.0'
 
       - name: Create cache directories
-        run: mkdir -p .zig-cache zig-pkg
+        run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Run build release-safe
-        run: zig build --release=safe
+        run: |
+          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
+          zig build --release=safe
 
   security:
     name: Security Check
@@ -77,10 +84,12 @@ jobs:
           version: '0.16.0'
 
       - name: Create cache directories
-        run: mkdir -p .zig-cache zig-pkg
+        run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Run build
-        run: zig build
+        run: |
+          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
+          zig build
 
   docker:
     name: Docker Build
@@ -122,10 +131,12 @@ jobs:
         run: make help
 
       - name: Create cache directories
-        run: mkdir -p .zig-cache zig-pkg
+        run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Build with make
-        run: make build
+        run: |
+          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
+          make build
 
       - name: Run tests with make
         run: make test
