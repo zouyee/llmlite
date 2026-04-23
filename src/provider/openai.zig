@@ -17,7 +17,7 @@ pub const ProviderConfig = types.ProviderConfig;
 
 pub fn transformRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateChatCompletionParams) ![]u8 {
     // Build messages array first
-    var messages_json = std.ArrayListUnmanaged(u8){};
+    var messages_json: std.ArrayListUnmanaged(u8) = .empty;
     defer messages_json.deinit(allocator);
 
     try messages_json.appendSlice(allocator, "[");
@@ -28,7 +28,7 @@ pub fn transformRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateCha
     try messages_json.appendSlice(allocator, "]");
 
     // Build the full JSON with all optional parameters
-    var json_parts = std.ArrayListUnmanaged(u8){};
+    var json_parts: std.ArrayListUnmanaged(u8) = .empty;
     defer json_parts.deinit(allocator);
 
     try json_parts.appendSlice(allocator, "{\"model\":\"");
@@ -67,7 +67,7 @@ pub fn transformRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateCha
 }
 
 fn serializeMessageToJson(allocator: std.mem.Allocator, msg: chat_pkg.Message) ![]u8 {
-    var parts = std.ArrayListUnmanaged(u8){};
+    var parts: std.ArrayListUnmanaged(u8) = .empty;
     defer parts.deinit(allocator);
 
     // Role field (required)
@@ -162,11 +162,11 @@ pub fn parseResponse(allocator: std.mem.Allocator, response: []const u8) !chat_p
         .total_tokens = std.fmt.parseInt(u32, total_tokens_str, 10) catch 0,
     };
 
-    const choices_start = std.mem.indexOf(u8, response, "\"choices\":") orelse return error.ParseError;
+    const choices_start = std.mem.find(u8, response, "\"choices\":") orelse return error.ParseError;
     const after_choices = response[choices_start..];
-    const first_content = std.mem.indexOf(u8, after_choices, "\"content\":\"") orelse return error.ParseError;
+    const first_content = std.mem.find(u8, after_choices, "\"content\":\"") orelse return error.ParseError;
     const content_start = first_content + 11;
-    const content_end = std.mem.indexOf(u8, after_choices[content_start..], "\"") orelse return error.ParseError;
+    const content_end = std.mem.find(u8, after_choices[content_start..], "\"") orelse return error.ParseError;
     const content_str = after_choices[content_start .. content_start + content_end];
 
     var choices = try allocator.alloc(chat_pkg.ChatCompletionChoice, 1);
@@ -202,7 +202,7 @@ fn parseJsonField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
     buf[field_name.len + 1] = '"';
     buf[field_name.len + 2] = ':';
 
-    const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
     const value_start = start_idx + search_pattern_len;
 
     var i = value_start;

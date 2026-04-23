@@ -6,6 +6,7 @@
 //! complete, such as batch processing or fine-tuning jobs.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 const json = std.json;
 
 // ============================================================================
@@ -331,8 +332,8 @@ pub const WebhookVerifier = struct {
     }
 
     /// Verify timestamp to prevent replay attacks
-    pub fn isTimestampValid(timestamp: i64, max_age_seconds: i64) bool {
-        const now = std.time.timestamp();
+    pub fn isTimestampValid(io: std.Io, timestamp: i64, max_age_seconds: i64) bool {
+        const now = time_compat.timestamp(io);
         return @abs(now - timestamp) < max_age_seconds;
     }
 };

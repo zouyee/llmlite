@@ -22,6 +22,7 @@ pub const Middleware = types.Middleware;
 
 pub const Provider = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     provider_type: ProviderType,
     config: ProviderConfig,
     api_key: []const u8,
@@ -29,14 +30,15 @@ pub const Provider = struct {
     /// Create provider instance (auto-detects provider via model string)
     ///
     /// Usage example:
-    ///   var provider = try Provider.create(allocator, api_key, "google/gemini-1.5-flash");
+    ///   var provider = try Provider.create(allocator, io, api_key, "google/gemini-1.5-flash");
     ///   const model = provider.languageModel(http_client, "gemini-1.5-flash");
-    pub fn create(allocator: std.mem.Allocator, api_key: []const u8, model_str: []const u8) !Provider {
+    pub fn create(allocator: std.mem.Allocator, io: std.Io, api_key: []const u8, model_str: []const u8) !Provider {
         const model = try Model.parse(model_str);
         const config = registry.getProviderConfig(model.provider);
 
         return Provider{
             .allocator = allocator,
+            .io = io,
             .provider_type = model.provider,
             .config = config,
             .api_key = try allocator.dupe(u8, api_key),
@@ -44,7 +46,7 @@ pub const Provider = struct {
     }
 
     /// Create provider with custom configuration
-    pub fn createCustom(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8, auth_type: http.AuthType, provider_type: ProviderType) !Provider {
+    pub fn createCustom(allocator: std.mem.Allocator, io: std.Io, api_key: []const u8, base_url: []const u8, auth_type: http.AuthType, provider_type: ProviderType) !Provider {
         const config = ProviderConfig{
             .base_url = base_url,
             .auth_type = auth_type,
@@ -52,6 +54,7 @@ pub const Provider = struct {
 
         return Provider{
             .allocator = allocator,
+            .io = io,
             .provider_type = provider_type,
             .config = config,
             .api_key = try allocator.dupe(u8, api_key),
@@ -66,6 +69,7 @@ pub const Provider = struct {
     pub fn createHttpClient(self: *Provider) http.HttpClient {
         return http.HttpClient.initWithAuthType(
             self.allocator,
+            self.io,
             self.config.base_url,
             self.api_key,
             null,
@@ -105,7 +109,7 @@ pub const Client = struct {
     http_client: http.HttpClient,
 
     /// Create client (auto-detects provider via model string)
-    pub fn create(allocator: std.mem.Allocator, api_key: []const u8, model_str: []const u8) !Client {
+    pub fn create(allocator: std.mem.Allocator, io: std.Io, api_key: []const u8, model_str: []const u8) !Client {
         const model = try Model.parse(model_str);
         const config = registry.getProviderConfig(model.provider);
 
@@ -115,6 +119,7 @@ pub const Client = struct {
             .model = try allocator.dupe(u8, model.name),
             .http_client = http.HttpClient.initWithAuthType(
                 allocator,
+                io,
                 config.base_url,
                 api_key,
                 null,
@@ -125,13 +130,14 @@ pub const Client = struct {
     }
 
     /// Create client for custom provider
-    pub fn createCustom(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8, auth_type: http.AuthType, provider_type: ProviderType, model_name: []const u8) !Client {
+    pub fn createCustom(allocator: std.mem.Allocator, io: std.Io, api_key: []const u8, base_url: []const u8, auth_type: http.AuthType, provider_type: ProviderType, model_name: []const u8) !Client {
         return Client{
             .allocator = allocator,
             .provider_type = provider_type,
             .model = try allocator.dupe(u8, model_name),
             .http_client = http.HttpClient.initWithAuthType(
                 allocator,
+                io,
                 base_url,
                 api_key,
                 null,
@@ -142,13 +148,13 @@ pub const Client = struct {
     }
 
     /// Default initialization (OpenAI) - backward compatible
-    pub fn init(allocator: std.mem.Allocator, api_key: []const u8) Client {
-        return create(allocator, api_key, "openai/gpt-4o") catch unreachable;
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, api_key: []const u8) Client {
+        return create(allocator, io, api_key, "openai/gpt-4o") catch unreachable;
     }
 
     /// Backward compatible: initialize with custom base URL
-    pub fn initWithBaseUrl(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) Client {
-        return createCustom(allocator, api_key, base_url, .bearer, .openai, "gpt-4o") catch unreachable;
+    pub fn initWithBaseUrl(allocator: std.mem.Allocator, io: std.Io, api_key: []const u8, base_url: []const u8) Client {
+        return createCustom(allocator, io, api_key, base_url, .bearer, .openai, "gpt-4o") catch unreachable;
     }
 
     pub fn deinit(self: *Client) void {

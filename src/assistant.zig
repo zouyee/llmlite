@@ -404,9 +404,9 @@ pub const Service = struct {
         const content_str = self.parseJsonField(response, "content") orelse return error.ParseError;
 
         // Parse content array to get text
-        const text_start = std.mem.indexOf(u8, content_str, "\"text\":\"") orelse return error.ParseError;
+        const text_start = std.mem.find(u8, content_str, "\"text\":\"") orelse return error.ParseError;
         const text_value_start = text_start + 9;
-        const text_end = std.mem.indexOf(u8, content_str[text_value_start..], "\"") orelse return error.ParseError;
+        const text_end = std.mem.find(u8, content_str[text_value_start..], "\"") orelse return error.ParseError;
         const text = content_str[text_value_start .. text_value_start + text_end];
 
         return Message{
@@ -467,7 +467,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;

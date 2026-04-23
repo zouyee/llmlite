@@ -1,4 +1,6 @@
 const std = @import("std");
+
+pub var g_io: std.Io = undefined;
 const fs = std.fs;
 
 pub const MigrationResult = struct {
@@ -60,10 +62,10 @@ pub const Migrator = struct {
             const dest_path = try std.fmt.allocPrint(self.allocator, "{s}/providers_{s}.json", .{ dest_dir, tool });
             defer self.allocator.free(dest_path);
 
-            const file = fs.openFileAbsolute(src_path, .{}) catch continue;
-            defer file.close();
+            const file = fs.openFileAbsolute(src_path, .{})); } catch continue;
+            defer file.close(g_io);
 
-            const content = file.readToEndAlloc(self.allocator, 1_000_000) catch continue;
+            const content = blk: { var __buf: [8192]u8 = undefined; var __r = file.reader(g_io, &__buf); break :blk __r.interface.allocRemaining(self.allocator, .limited(1_000_000)); } catch continue;
             defer self.allocator.free(content);
 
             const dest_file = fs.createFileAbsolute(dest_path, .{}) catch {
@@ -87,10 +89,10 @@ pub const Migrator = struct {
         const dest_path = try std.fmt.allocPrint(self.allocator, "{s}/mcp_servers.json", .{dest_dir});
         defer self.allocator.free(dest_path);
 
-        const file = fs.openFileAbsolute(src_path, .{}) catch return;
-        defer file.close();
+        const file = fs.openFileAbsolute(src_path, .{})); } catch return;
+        defer file.close(g_io);
 
-        const content = file.readToEndAlloc(self.allocator, 1_000_000) catch return;
+        const content = blk: { var __buf: [8192]u8 = undefined; var __r = file.reader(g_io, &__buf); break :blk __r.interface.allocRemaining(self.allocator, .limited(1_000_000)); } catch return;
         defer self.allocator.free(content);
 
         const dest_file = fs.createFileAbsolute(dest_path, .{}) catch {
@@ -115,10 +117,10 @@ pub const Migrator = struct {
             const dest_path = try std.fmt.allocPrint(self.allocator, "{s}/prompts_{s}.json", .{ dest_dir, tool });
             defer self.allocator.free(dest_path);
 
-            const file = fs.openFileAbsolute(src_path, .{}) catch continue;
-            defer file.close();
+            const file = fs.openFileAbsolute(src_path, .{})); } catch continue;
+            defer file.close(g_io);
 
-            const content = file.readToEndAlloc(self.allocator, 1_000_000) catch continue;
+            const content = blk: { var __buf: [8192]u8 = undefined; var __r = file.reader(g_io, &__buf); break :blk __r.interface.allocRemaining(self.allocator, .limited(1_000_000)); } catch continue;
             defer self.allocator.free(content);
 
             const dest_file = fs.createFileAbsolute(dest_path, .{}) catch {
@@ -142,10 +144,10 @@ pub const Migrator = struct {
         const dest_path = try std.fmt.allocPrint(self.allocator, "{s}/skills.json", .{dest_dir});
         defer self.allocator.free(dest_path);
 
-        const file = fs.openFileAbsolute(src_path, .{}) catch return;
-        defer file.close();
+        const file = fs.openFileAbsolute(src_path, .{})); } catch return;
+        defer file.close(g_io);
 
-        const content = file.readToEndAlloc(self.allocator, 1_000_000) catch return;
+        const content = blk: { var __buf: [8192]u8 = undefined; var __r = file.reader(g_io, &__buf); break :blk __r.interface.allocRemaining(self.allocator, .limited(1_000_000)); } catch return;
         defer self.allocator.free(content);
 
         const dest_file = fs.createFileAbsolute(dest_path, .{}) catch {

@@ -174,15 +174,15 @@ pub const Service = struct {
 
         if (params.voice_setting.speed) |v| {
             try buf.appendSlice(self.allocator, ",\"speed\":");
-            try buf.writer(self.allocator).print("{d}", .{v});
+            try buf.print(self.allocator, "{d}", .{v});
         }
         if (params.voice_setting.vol) |v| {
             try buf.appendSlice(self.allocator, ",\"vol\":");
-            try buf.writer(self.allocator).print("{d}", .{v});
+            try buf.print(self.allocator, "{d}", .{v});
         }
         if (params.voice_setting.pitch) |v| {
             try buf.appendSlice(self.allocator, ",\"pitch\":");
-            try buf.writer(self.allocator).print("{d}", .{v});
+            try buf.print(self.allocator, "{d}", .{v});
         }
         if (params.voice_setting.emotion) |emotion| {
             try buf.appendSlice(self.allocator, ",\"emotion\":\"");
@@ -198,13 +198,13 @@ pub const Service = struct {
 
             if (audio.sample_rate) |sr| {
                 try buf.appendSlice(self.allocator, "\"sample_rate\":");
-                try buf.writer(self.allocator).print("{}", .{sr});
+                try buf.print(self.allocator, "{}", .{sr});
                 first = false;
             }
             if (audio.bitrate) |br| {
                 if (!first) try buf.append(self.allocator, ',');
                 try buf.appendSlice(self.allocator, "\"bitrate\":");
-                try buf.writer(self.allocator).print("{}", .{br});
+                try buf.print(self.allocator, "{}", .{br});
                 first = false;
             }
             if (!first) try buf.append(self.allocator, ',');
@@ -214,7 +214,7 @@ pub const Service = struct {
 
             if (audio.channel) |ch| {
                 try buf.appendSlice(self.allocator, ",\"channel\":");
-                try buf.writer(self.allocator).print("{}", .{ch});
+                try buf.print(self.allocator, "{}", .{ch});
             }
             try buf.append(self.allocator, '}');
         }
@@ -292,14 +292,14 @@ fn parseJsonField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
     buf[field_name.len + 2] = ' ';
 
     const pattern = buf[0..search_pattern_len];
-    const start_idx = std.mem.indexOf(u8, json_str, pattern) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, pattern) orelse return null;
     const value_start = start_idx + search_pattern_len;
 
     if (value_start >= json_str.len) return null;
     if (json_str[value_start] != '"') return null;
 
     const value_start_inner = value_start + 1;
-    const end_idx = std.mem.indexOfPos(u8, json_str, value_start_inner, "\"") orelse return null;
+    const end_idx = std.mem.findPos(u8, json_str, value_start_inner, "\"") orelse return null;
 
     return json_str[value_start_inner..end_idx];
 }
@@ -318,7 +318,7 @@ fn extractJsonObject(json_str: []const u8, field_name: []const u8) ?[]const u8 {
 
     const pattern = buf[0 .. field_name.len + 3];
 
-    const start_idx = std.mem.indexOf(u8, json_str, pattern) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, pattern) orelse return null;
     const colon_pos = start_idx + pattern.len;
 
     // Skip whitespace and find the opening brace

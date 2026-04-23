@@ -238,7 +238,7 @@ fn parseSSEData(data: []const u8) ?[]const u8 {
 /// Extract text delta from JSON format
 fn extractTextFromJson(data: []const u8) ?[]const u8 {
     // Look for "content":"text" pattern
-    const content_start = std.mem.indexOf(u8, data, "\"content\":\"") orelse return null;
+    const content_start = std.mem.find(u8, data, "\"content\":\"") orelse return null;
     const value_start = content_start + 11;
     var value_end = value_start;
     while (value_end < data.len and data[value_end] != '"') {
@@ -395,7 +395,7 @@ pub const ResponseOutputItemPartial = struct {
 
 fn extractFieldFromJson(data: []const u8, field: []const u8) ?[]const u8 {
     const pattern = std.fmt.comptimePrint("{s}\":\"", .{field});
-    const start = std.mem.indexOf(u8, data, pattern) orelse return null;
+    const start = std.mem.find(u8, data, pattern) orelse return null;
     const value_start = start + pattern.len;
     var value_end = value_start;
     while (value_end < data.len and data[value_end] != '"') {
@@ -406,7 +406,7 @@ fn extractFieldFromJson(data: []const u8, field: []const u8) ?[]const u8 {
 
 fn extractTextDeltaFromEvent(data: []const u8) ?[]const u8 {
     // Try "delta":"text" pattern
-    const delta_start = std.mem.indexOf(u8, data, "\"delta\":\"") orelse return null;
+    const delta_start = std.mem.find(u8, data, "\"delta\":\"") orelse return null;
     const value_start = delta_start + 9;
     var value_end = value_start;
     while (value_end < data.len and data[value_end] != '"') {

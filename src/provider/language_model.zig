@@ -163,14 +163,11 @@ fn getEndpoint(allocator: std.mem.Allocator, provider: ProviderType, model: []co
 
 /// Use provider-specific parser, fall back to OpenAI compatible format on failure
 fn parseResponseWithFallback(allocator: std.mem.Allocator, provider: ProviderType, response: []const u8) !chat_pkg.ChatCompletion {
-    // Try provider-specific parser
-    if (parseResponse(allocator, provider, response)) |result| {
-        return result;
-    } else |err| {
-        // If parsing fails, try OpenAI compatible format as fallback
+    // Try provider-specific parser, fall back to OpenAI compatible format on failure
+    return parseResponse(allocator, provider, response) catch |err| blk: {
         std.log.debug("Provider {} response parse failed: {}, falling back to OpenAI format", .{ provider, err });
-        return openai.parseResponse(allocator, response);
-    }
+        break :blk try openai.parseResponse(allocator, response);
+    };
 }
 
 /// Main response parsing function

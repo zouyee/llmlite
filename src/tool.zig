@@ -277,7 +277,7 @@ pub fn parseToolCalls(allocator: std.mem.Allocator, content: []const u8) ![]Tool
     // Find all tool_call objects in the content
     var search_idx: usize = 0;
     while (true) {
-        const call_start = std.mem.indexOf(u8, content[search_idx..], "\"tool_calls\":[") orelse break;
+        const call_start = std.mem.find(u8, content[search_idx..], "\"tool_calls\":[") orelse break;
         var after_calls = content[search_idx + call_start + 13 ..];
 
         // Parse each tool call
@@ -290,21 +290,21 @@ pub fn parseToolCalls(allocator: std.mem.Allocator, content: []const u8) ![]Tool
             if (after_calls.len == 0 or after_calls[0] == ']') break;
 
             // Find the tool call object (look for "id" field)
-            const id_start = std.mem.indexOf(u8, after_calls, "\"id\":\"") orelse break;
+            const id_start = std.mem.find(u8, after_calls, "\"id\":\"") orelse break;
             const id_value_start = after_calls[id_start + 6 ..];
-            const id_end = std.mem.indexOf(u8, id_value_start, "\"") orelse break;
+            const id_end = std.mem.find(u8, id_value_start, "\"") orelse break;
             const id = id_value_start[0..id_end];
 
             // Find function name
-            const name_start = std.mem.indexOf(u8, after_calls[id_start..], "\"function\":{\"name\":\"") orelse break;
+            const name_start = std.mem.find(u8, after_calls[id_start..], "\"function\":{\"name\":\"") orelse break;
             const name_value_start = after_calls[id_start + name_start + 17 ..];
-            const name_end = std.mem.indexOf(u8, name_value_start, "\"") orelse break;
+            const name_end = std.mem.find(u8, name_value_start, "\"") orelse break;
             const name = name_value_start[0..name_end];
 
             // Find arguments
-            const args_start = std.mem.indexOf(u8, after_calls[name_start..], "\"arguments\":\"") orelse break;
+            const args_start = std.mem.find(u8, after_calls[name_start..], "\"arguments\":\"") orelse break;
             const args_value_start = after_calls[name_start + args_start + 14 ..];
-            const args_end = std.mem.indexOf(u8, args_value_start, "\"") orelse break;
+            const args_end = std.mem.find(u8, args_value_start, "\"") orelse break;
             const args = args_value_start[0..args_end];
 
             try calls.append(allocator, ToolCall{

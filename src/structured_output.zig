@@ -283,9 +283,9 @@ pub fn objectSchema(properties: []const []const u8, required: []const []const u8
 /// Create a schema for a typed struct at compile time
 pub fn schemaFromTyped(comptime T: type) Schema {
     return switch (@typeInfo(T)) {
-        .Struct => |info| schemaFromStructInfo(info),
-        .Enum => Schema{ .type = "string", .enum_values = &getEnumNames(T) },
-        .Union => |info| schemaFromUnionInfo(info),
+        .@"struct" => |info| schemaFromStructInfo(info),
+        .@"enum" => Schema{ .type = "string", .enum_values = &getEnumNames(T) },
+        .@"union" => |info| schemaFromUnionInfo(info),
         else => Schema{ .type = "string" },
     };
 }
@@ -295,9 +295,10 @@ fn schemaFromStructInfo(comptime info: std.builtin.Type.Struct) Schema {
     var required_fields: []const []const u8 = &.{};
 
     for (info.fields) |field| {
-        const field_schema = schemaFromFieldType(field.type, field.isoptional);
+        const is_optional = field.default_value_ptr != null;
+        const field_schema = schemaFromFieldType(field.type, is_optional);
         props.put(field.name, field_schema) catch unreachable;
-        if (!field.isoptional) {
+        if (!is_optional) {
             // Would need to grow this properly in real impl
         }
     }
@@ -312,16 +313,16 @@ fn schemaFromStructInfo(comptime info: std.builtin.Type.Struct) Schema {
 fn schemaFromFieldType(comptime T: type, comptime is_optional: bool) Schema {
     _ = is_optional;
     return switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => Schema{ .type = "integer" },
-        .Float, .ComptimeFloat => Schema{ .type = "number" },
-        .Bool => Schema{ .type = "boolean" },
-        .Pointer => |ptr| if (ptr.child == u8) Schema{ .type = "string" } else schemaFromTyped(ptr.child),
-        .Array => |arr| blk: {
+        .int, .comptime_int => Schema{ .type = "integer" },
+        .float, .comptime_float => Schema{ .type = "number" },
+        .bool => Schema{ .type = "boolean" },
+        .pointer => |ptr| if (ptr.child == u8) Schema{ .type = "string" } else schemaFromTyped(ptr.child),
+        .array => |arr| blk: {
             const schema_ptr = std.heap.page_allocator.create(Schema) catch unreachable;
             schema_ptr.* = schemaFromFieldType(arr.child, false);
             break :blk Schema{ .type = "array", .items = schema_ptr };
         },
-        .Struct => |info| schemaFromStructInfo(info),
+        .@"struct" => |info| schemaFromStructInfo(info),
         else => Schema{ .type = "string" },
     };
 }
@@ -339,7 +340,7 @@ fn schemaFromUnionInfo(comptime info: std.builtin.Type.Union) Schema {
 }
 
 fn getEnumNames(comptime T: type) [][]const u8 {
-    const info = @typeInfo(T).Enum;
+    const info = @typeInfo(T).@"enum";
     var names: [info.fields.len][]const u8 = undefined;
     for (info.fields, 0..) |field, i| {
         names[i] = field.name;

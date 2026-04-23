@@ -201,7 +201,7 @@ pub const Service = struct {
 
         var search_idx: usize = 0;
         while (search_idx < data_str.len) {
-            const obj_start = std.mem.indexOf(u8, data_str[search_idx..], "{") orelse break;
+            const obj_start = std.mem.find(u8, data_str[search_idx..], "{") orelse break;
             const obj_end = findMatchingBrace(data_str[search_idx + obj_start ..]) orelse break;
             const batch_json = data_str[search_idx + obj_start .. search_idx + obj_start + obj_end + 1];
 
@@ -237,7 +237,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;

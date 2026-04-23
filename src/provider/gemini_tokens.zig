@@ -43,7 +43,7 @@ pub const Service = struct {
     // ============================================================================
 
     fn serializeParams(self: *Service, params: CountTokensParams) ![]u8 {
-        var parts = std.ArrayListUnmanaged(u8){};
+        var parts: std.ArrayListUnmanaged(u8) = .empty;
         defer parts.deinit(self.allocator);
 
         // Contents
@@ -72,7 +72,7 @@ pub const Service = struct {
     }
 
     fn serializeContent(self: *Service, content: Content) ![]u8 {
-        var parts = std.ArrayListUnmanaged(u8){};
+        var parts: std.ArrayListUnmanaged(u8) = .empty;
         defer parts.deinit(self.allocator);
 
         try parts.appendSlice(self.allocator, "{\"role\":\"");
@@ -116,9 +116,18 @@ pub const Service = struct {
 
     fn parseField(self: *Service, json_str: []const u8, field_name: []const u8) ?[]const u8 {
         _ = self;
-        const search_pattern = "\"" ++ field_name ++ "\":";
-        const start_idx = std.mem.indexOf(u8, json_str, search_pattern) orelse return null;
-        const value_start = start_idx + search_pattern.len;
+        const search_pattern_len = field_name.len + 3;
+        var search_pattern_buf: [128]u8 = undefined;
+        if (search_pattern_len >= search_pattern_buf.len) return null;
+
+        var buf = search_pattern_buf[0..search_pattern_len];
+        buf[0] = '"';
+        @memcpy(buf[1..][0..field_name.len], field_name);
+        buf[field_name.len + 1] = '"';
+        buf[field_name.len + 2] = ':';
+
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
+        const value_start = start_idx + search_pattern_len;
 
         var i = value_start;
         while (i < json_str.len and (json_str[i] == ' ' or json_str[i] == '\n' or json_str[i] == '\t')) {

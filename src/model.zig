@@ -51,7 +51,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;
@@ -82,7 +82,7 @@ pub const Service = struct {
 
         var model_count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"id\":")) |idx| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"id\":")) |idx| {
             _ = idx;
             model_count += 1;
             search_pos += 1;

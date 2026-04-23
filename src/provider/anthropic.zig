@@ -19,7 +19,7 @@ pub fn transformRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateCha
     // with system prompt in "system" field
 
     var system_prompt: ?[]const u8 = null;
-    var messages_json = std.ArrayListUnmanaged(u8){};
+    var messages_json: std.ArrayListUnmanaged(u8) = .empty;
     defer messages_json.deinit(allocator);
 
     try messages_json.appendSlice(allocator, "[");
@@ -93,9 +93,9 @@ pub fn parseResponse(allocator: std.mem.Allocator, response: []const u8) !chat_p
     const content_str = parseJsonField(response, "content") orelse return error.ParseError;
 
     // Parse the content array to get the text
-    const text_start = std.mem.indexOf(u8, content_str, "\"text\":\"") orelse return error.ParseError;
+    const text_start = std.mem.find(u8, content_str, "\"text\":\"") orelse return error.ParseError;
     const text_value_start = text_start + 8;
-    const text_end = std.mem.indexOf(u8, content_str[text_value_start..], "\"") orelse return error.ParseError;
+    const text_end = std.mem.find(u8, content_str[text_value_start..], "\"") orelse return error.ParseError;
     const text = content_str[text_value_start .. text_value_start + text_end];
 
     const usage_str = parseJsonField(response, "usage") orelse return error.ParseError;
@@ -141,7 +141,7 @@ fn parseJsonField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
     buf[field_name.len + 1] = '"';
     buf[field_name.len + 2] = ':';
 
-    const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
     const value_start = start_idx + search_pattern_len;
 
     var i = value_start;

@@ -283,7 +283,7 @@ fn parseJsonField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
     buf[field_name.len + 1] = '"';
     buf[field_name.len + 2] = ':';
 
-    const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
     const value_start = start_idx + search_pattern_len;
 
     var i = value_start;

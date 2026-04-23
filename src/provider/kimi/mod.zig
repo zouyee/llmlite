@@ -54,7 +54,7 @@ pub const KimiClient = struct {
 
     fn serializeEstimateParams(_: *KimiClient, params: EstimateTokenParams) ![]u8 {
         // Build messages array first
-        var messages_json = std.ArrayListUnmanaged(u8){};
+        var messages_json: std.ArrayListUnmanaged(u8) = .empty;
         errdefer messages_json.deinit(std.heap.c_allocator);
 
         try messages_json.appendSlice(std.heap.c_allocator, "[");
@@ -83,14 +83,14 @@ pub const KimiClient = struct {
 
     fn parseEstimateResponse(_: *KimiClient, response: []const u8) !EstimateTokenResponse {
         // Check for error
-        if (std.mem.indexOf(u8, response, "\"error\":")) |_| {
+        if (std.mem.find(u8, response, "\"error\":")) |_| {
             return error.ApiError;
         }
 
-        const data_start = std.mem.indexOf(u8, response, "\"data\":{") orelse return error.ParseError;
+        const data_start = std.mem.find(u8, response, "\"data\":{") orelse return error.ParseError;
         const data_str = response[data_start + 7 .. response.len - 1];
 
-        const total_start = std.mem.indexOf(u8, data_str, "\"total_tokens\":") orelse return error.ParseError;
+        const total_start = std.mem.find(u8, data_str, "\"total_tokens\":") orelse return error.ParseError;
         const total_str = data_str[total_start + 14 ..];
         const total = std.fmt.parseInt(u32, total_str[0..findNumEnd(total_str)], 10) catch return error.ParseError;
 
@@ -114,22 +114,22 @@ pub const KimiClient = struct {
 
     fn parseBalanceResponse(_: *KimiClient, response: []const u8) !BalanceResponse {
         // Check for error
-        if (std.mem.indexOf(u8, response, "\"error\":")) |_| {
+        if (std.mem.find(u8, response, "\"error\":")) |_| {
             return error.ApiError;
         }
 
-        const data_start = std.mem.indexOf(u8, response, "\"data\":{") orelse return error.ParseError;
+        const data_start = std.mem.find(u8, response, "\"data\":{") orelse return error.ParseError;
         const data_str = response[data_start + 7 .. response.len - 1];
 
-        const available_start = std.mem.indexOf(u8, data_str, "\"available_balance\":") orelse return error.ParseError;
+        const available_start = std.mem.find(u8, data_str, "\"available_balance\":") orelse return error.ParseError;
         const available_str = data_str[available_start + 19 ..];
         const available = std.fmt.parseFloat(f64, available_str[0..findFloatEnd(available_str)]) catch return error.ParseError;
 
-        const voucher_start = std.mem.indexOf(u8, data_str, "\"voucher_balance\":") orelse return error.ParseError;
+        const voucher_start = std.mem.find(u8, data_str, "\"voucher_balance\":") orelse return error.ParseError;
         const voucher_str = data_str[voucher_start + 17 ..];
         const voucher = std.fmt.parseFloat(f64, voucher_str[0..findFloatEnd(voucher_str)]) catch return error.ParseError;
 
-        const cash_start = std.mem.indexOf(u8, data_str, "\"cash_balance\":") orelse return error.ParseError;
+        const cash_start = std.mem.find(u8, data_str, "\"cash_balance\":") orelse return error.ParseError;
         const cash_str = data_str[cash_start + 15 ..];
         const cash = std.fmt.parseFloat(f64, cash_str[0..findFloatEnd(cash_str)]) catch return error.ParseError;
 
@@ -210,20 +210,20 @@ pub const KimiError = struct {
 
 /// Parse Kimi error response
 pub fn parseKimiError(response: []const u8) !KimiError {
-    const err_start = std.mem.indexOf(u8, response, "\"error\":{") orelse return error.ParseError;
+    const err_start = std.mem.find(u8, response, "\"error\":{") orelse return error.ParseError;
     const obj_start_idx = err_start + 8;
     const obj_str = response[obj_start_idx..];
 
     const msg_key = "\"message\":\"";
-    const msg_start = std.mem.indexOf(u8, obj_str, msg_key) orelse return error.ParseError;
+    const msg_start = std.mem.find(u8, obj_str, msg_key) orelse return error.ParseError;
     const msg_value_start = msg_start + msg_key.len;
-    const msg_end = std.mem.indexOfPos(u8, obj_str, msg_value_start, "\"") orelse return error.ParseError;
+    const msg_end = std.mem.findPos(u8, obj_str, msg_value_start, "\"") orelse return error.ParseError;
     const message = obj_str[msg_value_start..msg_end];
 
     const type_key = "\"type\":\"";
-    const type_start = std.mem.indexOf(u8, obj_str, type_key) orelse return error.ParseError;
+    const type_start = std.mem.find(u8, obj_str, type_key) orelse return error.ParseError;
     const type_value_start = type_start + type_key.len;
-    const type_end = std.mem.indexOfPos(u8, obj_str, type_value_start, "\"") orelse return error.ParseError;
+    const type_end = std.mem.findPos(u8, obj_str, type_value_start, "\"") orelse return error.ParseError;
     const error_type = obj_str[type_value_start..type_end];
 
     return KimiError{

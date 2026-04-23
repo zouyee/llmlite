@@ -308,7 +308,7 @@ fn serializeInputItem(allocator: std.mem.Allocator, item: InputItem) ![]u8 {
 }
 
 fn extractEventType(event_json: []const u8) ?[]const u8 {
-    const type_start = std.mem.indexOf(u8, event_json, "\"type\":\"") orelse return null;
+    const type_start = std.mem.find(u8, event_json, "\"type\":\"") orelse return null;
     const value_start = type_start + 8;
     var value_end = value_start;
     while (value_end < event_json.len and event_json[value_end] != '"') {

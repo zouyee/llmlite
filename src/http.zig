@@ -12,20 +12,20 @@ pub const ApiError = struct {
     error_type: []const u8,
 
     pub fn fromJson(allocator: std.mem.Allocator, json_str: []const u8) !ApiError {
-        const err_start = std.mem.indexOf(u8, json_str, "\"error\":{") orelse return error.ParseError;
+        const err_start = std.mem.find(u8, json_str, "\"error\":{") orelse return error.ParseError;
         const obj_start_idx = err_start + 8;
         const obj_str = json_str[obj_start_idx..];
 
         const msg_key = "\"message\":\"";
-        const msg_start = std.mem.indexOf(u8, obj_str, msg_key) orelse return error.ParseError;
+        const msg_start = std.mem.find(u8, obj_str, msg_key) orelse return error.ParseError;
         const msg_value_start = msg_start + msg_key.len;
-        const msg_end = std.mem.indexOfPos(u8, obj_str, msg_value_start, "\"") orelse return error.ParseError;
+        const msg_end = std.mem.findPos(u8, obj_str, msg_value_start, "\"") orelse return error.ParseError;
         const message = try allocator.dupe(u8, obj_str[msg_value_start..msg_end]);
 
         const type_key = "\"type\":\"";
-        const type_start = std.mem.indexOf(u8, obj_str, type_key) orelse return error.ParseError;
+        const type_start = std.mem.find(u8, obj_str, type_key) orelse return error.ParseError;
         const type_value_start = type_start + type_key.len;
-        const type_end = std.mem.indexOfPos(u8, obj_str, type_value_start, "\"") orelse return error.ParseError;
+        const type_end = std.mem.findPos(u8, obj_str, type_value_start, "\"") orelse return error.ParseError;
         const error_type = try allocator.dupe(u8, obj_str[type_value_start..type_end]);
 
         return ApiError{
@@ -42,6 +42,7 @@ pub const HttpResponse = struct {
 
 pub const HttpClient = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     base_url: []const u8,
     api_key: []const u8,
     organization: ?[]const u8,
@@ -52,29 +53,31 @@ pub const HttpClient = struct {
     /// Reusable HTTP client for connection pooling
     client: Http.Client,
 
-    pub fn init(allocator: std.mem.Allocator, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32) HttpClient {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32) HttpClient {
         return .{
             .allocator = allocator,
+            .io = io,
             .base_url = base_url,
             .api_key = api_key,
             .organization = organization,
             .timeout_ms = timeout_ms,
             .auth_type = .bearer,
             .auth_header = null,
-            .client = Http.Client{ .allocator = allocator },
+            .client = Http.Client{ .allocator = allocator, .io = io },
         };
     }
 
-    pub fn initWithAuthType(allocator: std.mem.Allocator, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32, auth_type: AuthType) HttpClient {
+    pub fn initWithAuthType(allocator: std.mem.Allocator, io: std.Io, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32, auth_type: AuthType) HttpClient {
         return .{
             .allocator = allocator,
+            .io = io,
             .base_url = base_url,
             .api_key = api_key,
             .organization = organization,
             .timeout_ms = timeout_ms,
             .auth_type = auth_type,
             .auth_header = null,
-            .client = Http.Client{ .allocator = allocator },
+            .client = Http.Client{ .allocator = allocator, .io = io },
         };
     }
 
@@ -160,7 +163,7 @@ pub const HttpClient = struct {
         else
             return error.InvalidUrl;
 
-        var response_writer = std.io.Writer.Allocating.init(self.allocator);
+        var response_writer = std.Io.Writer.Allocating.init(self.allocator);
         defer response_writer.deinit();
 
         const fetch_result = self.client.fetch(.{

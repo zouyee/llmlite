@@ -214,12 +214,12 @@ pub const Service = struct {
         // Count images in data array
         var image_count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"url\":")) |_| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"url\":")) |_| {
             image_count += 1;
             search_pos += 1;
         }
         search_pos = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"b64_json\":")) |_| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"b64_json\":")) |_| {
             image_count += 1;
             search_pos += 1;
         }
@@ -234,7 +234,7 @@ pub const Service = struct {
 
         while (parsed < image_count) {
             // Find next image object
-            const obj_start = std.mem.indexOfPos(u8, data_str, search_pos, "{") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, search_pos, "{") orelse break;
             var depth: u32 = 1;
             var i = obj_start + 1;
             while (i < data_str.len and depth > 0) {
@@ -277,7 +277,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = ':';
         buf[field_name.len + 2] = ' ';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf[0..search_pattern_len]) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf[0..search_pattern_len]) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;

@@ -14,6 +14,8 @@ const chat_pkg = @import("chat");
 pub const ProviderType = types.ProviderType;
 pub const ProviderConfig = types.ProviderConfig;
 
+var gemini_id_counter: std.atomic.Value(u64) = .init(0);
+
 // ============================================================================
 // Endpoint Helpers - Google Gemini API endpoints
 // ============================================================================
@@ -49,7 +51,7 @@ pub fn transformRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateCha
 
 fn transformGeminiRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateChatCompletionParams) ![]u8 {
     // Build contents array (Google Gemini format)
-    var contents_json = std.ArrayListUnmanaged(u8){};
+    var contents_json: std.ArrayListUnmanaged(u8) = .empty;
     defer contents_json.deinit(allocator);
 
     try contents_json.appendSlice(allocator, "[");
@@ -78,7 +80,7 @@ fn transformGeminiRequest(allocator: std.mem.Allocator, params: chat_pkg.CreateC
     }
 
     // Build the full JSON - Google Gemini native format
-    var result = std.ArrayListUnmanaged(u8){};
+    var result: std.ArrayListUnmanaged(u8) = .empty;
     defer result.deinit(allocator);
 
     try result.appendSlice(allocator, "{\"contents\":");
@@ -122,28 +124,28 @@ fn serializeContentToJson(allocator: std.mem.Allocator, msg: chat_pkg.Message) !
 }
 
 fn buildGenerationConfig(allocator: std.mem.Allocator, params: chat_pkg.CreateChatCompletionParams) ![]u8 {
-    var config = std.ArrayListUnmanaged(u8){};
+    var config: std.ArrayListUnmanaged(u8) = .empty;
     try config.appendSlice(allocator, "{");
     var has_field = false;
 
     if (params.temperature) |v| {
         if (has_field) try config.appendSlice(allocator, ",");
         try config.appendSlice(allocator, "\"temperature\":");
-        try config.writer(allocator).print("{}", .{v});
+        try config.print(allocator, "{}", .{v});
         has_field = true;
     }
 
     if (params.max_tokens) |v| {
         if (has_field) try config.appendSlice(allocator, ",");
         try config.appendSlice(allocator, "\"maxOutputTokens\":");
-        try config.writer(allocator).print("{d}", .{v});
+        try config.print(allocator, "{d}", .{v});
         has_field = true;
     }
 
     if (params.top_p) |v| {
         if (has_field) try config.appendSlice(allocator, ",");
         try config.appendSlice(allocator, "\"topP\":");
-        try config.writer(allocator).print("{}", .{v});
+        try config.print(allocator, "{}", .{v});
         has_field = true;
     }
 
@@ -156,13 +158,8 @@ fn buildGenerationConfig(allocator: std.mem.Allocator, params: chat_pkg.CreateCh
 // ============================================================================
 
 pub fn parseResponse(allocator: std.mem.Allocator, response: []const u8) !chat_pkg.ChatCompletion {
-    // Try Google Gemini native format first
-    if (parseGeminiResponse(allocator, response)) |result| {
-        return result;
-    }
-
-    // Fallback to OpenAI-compatible format
-    return parseOpenAIResponse(allocator, response);
+    // Try Google Gemini native format first, fallback to OpenAI-compatible format
+    return parseGeminiResponse(allocator, response) catch try parseOpenAIResponse(allocator, response);
 }
 
 fn parseGeminiResponse(allocator: std.mem.Allocator, response: []const u8) !chat_pkg.ChatCompletion {
@@ -170,21 +167,21 @@ fn parseGeminiResponse(allocator: std.mem.Allocator, response: []const u8) !chat
     // {"candidates": [{"content": {"parts": [{"text": "..."}]}}]}
 
     // Parse candidates array
-    const candidates_start = std.mem.indexOf(u8, response, "\"candidates\":") orelse return error.ParseError;
+    const candidates_start = std.mem.find(u8, response, "\"candidates\":") orelse return error.ParseError;
     const after_candidates = response[candidates_start..];
 
     // Find the first "content" object within candidates
-    const content_start = std.mem.indexOf(u8, after_candidates, "\"content\":") orelse return error.ParseError;
+    const content_start = std.mem.find(u8, after_candidates, "\"content\":") orelse return error.ParseError;
     const after_content = after_candidates[content_start..];
 
     // Find "parts" array
-    const parts_start = std.mem.indexOf(u8, after_content, "\"parts\":") orelse return error.ParseError;
+    const parts_start = std.mem.find(u8, after_content, "\"parts\":") orelse return error.ParseError;
     const after_parts = after_content[parts_start..];
 
     // Find the first "text" field
-    const text_field_start = std.mem.indexOf(u8, after_parts, "\"text\":\"") orelse return error.ParseError;
+    const text_field_start = std.mem.find(u8, after_parts, "\"text\":\"") orelse return error.ParseError;
     const text_value_start = text_field_start + 9; // length of "\"text\":\""
-    const text_value_end = std.mem.indexOf(u8, after_parts[text_value_start..], "\"") orelse return error.ParseError;
+    const text_value_end = std.mem.find(u8, after_parts[text_value_start..], "\"") orelse return error.ParseError;
     const text = after_parts[text_value_start .. text_value_start + text_value_end];
 
     // Parse usage if present
@@ -194,7 +191,7 @@ fn parseGeminiResponse(allocator: std.mem.Allocator, response: []const u8) !chat
         .total_tokens = 0,
     };
 
-    if (std.mem.indexOf(u8, response, "\"usage\":")) |usage_idx| {
+    if (std.mem.find(u8, response, "\"usage\":")) |usage_idx| {
         const after_usage = response[usage_idx..];
         const prompt_tokens = parseGeminiField(after_usage, "promptTokens") orelse "0";
         const completion_tokens = parseGeminiField(after_usage, "completionTokens") orelse "0";
@@ -219,21 +216,30 @@ fn parseGeminiResponse(allocator: std.mem.Allocator, response: []const u8) !chat
     };
 
     // Generate a mock ID since Google doesn't provide one in this format
-    const id = try std.fmt.allocPrint(allocator, "gemini-{}", .{std.time.nanoTimestamp()});
+    const id = try std.fmt.allocPrint(allocator, "gemini-{d}", .{gemini_id_counter.fetchAdd(1, .monotonic)});
 
     return chat_pkg.ChatCompletion{
         .id = id,
         .choices = choices,
-        .created = @intCast(std.time.timestamp()),
+        .created = 0,
         .model = try allocator.dupe(u8, "gemini"),
         .usage = usage,
     };
 }
 
 fn parseGeminiField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
-    const search_pattern = "\"" ++ field_name ++ "\":";
-    const start_idx = std.mem.indexOf(u8, json_str, search_pattern) orelse return null;
-    const value_start = start_idx + search_pattern.len;
+    const search_pattern_len = field_name.len + 3;
+    var search_pattern_buf: [128]u8 = undefined;
+    if (search_pattern_len >= search_pattern_buf.len) return null;
+
+    var buf = search_pattern_buf[0..search_pattern_len];
+    buf[0] = '"';
+    @memcpy(buf[1..][0..field_name.len], field_name);
+    buf[field_name.len + 1] = '"';
+    buf[field_name.len + 2] = ':';
+
+    const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
+    const value_start = start_idx + search_pattern_len;
 
     var i = value_start;
     while (i < json_str.len and (json_str[i] == ' ' or json_str[i] == '\n' or json_str[i] == '\t')) {
@@ -277,11 +283,11 @@ fn parseOpenAIResponse(allocator: std.mem.Allocator, response: []const u8) !chat
         .total_tokens = std.fmt.parseInt(u32, total_tokens_str, 10) catch 0,
     };
 
-    const choices_start = std.mem.indexOf(u8, response, "\"choices\":") orelse return error.ParseError;
+    const choices_start = std.mem.find(u8, response, "\"choices\":") orelse return error.ParseError;
     const after_choices = response[choices_start..];
-    const first_content = std.mem.indexOf(u8, after_choices, "\"content\":\"") orelse return error.ParseError;
+    const first_content = std.mem.find(u8, after_choices, "\"content\":\"") orelse return error.ParseError;
     const content_start = first_content + 11;
-    const content_end = std.mem.indexOf(u8, after_choices[content_start..], "\"") orelse return error.ParseError;
+    const content_end = std.mem.find(u8, after_choices[content_start..], "\"") orelse return error.ParseError;
     const content_str = after_choices[content_start .. content_start + content_end];
 
     var choices = try allocator.alloc(chat_pkg.ChatCompletionChoice, 1);
@@ -317,7 +323,7 @@ fn parseJsonField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
     buf[field_name.len + 1] = '"';
     buf[field_name.len + 2] = ':';
 
-    const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
     const value_start = start_idx + search_pattern_len;
 
     var i = value_start;
@@ -389,8 +395,8 @@ pub const GeminiStreamHandler = struct {
     pub fn init(allocator: std.mem.Allocator) GeminiStreamHandler {
         return .{
             .allocator = allocator,
-            .accumulated_text = std.ArrayListUnmanaged(u8){},
-            .chunks = std.ArrayListUnmanaged(GeminiStreamChunk){},
+            .accumulated_text = .empty,
+            .chunks = .empty,
             .done = false,
         };
     }
@@ -422,7 +428,8 @@ pub const GeminiStreamHandler = struct {
                 }
 
                 // Parse the JSON chunk
-                if (parseGeminiStreamChunk(self.allocator, json_data)) |chunk| {
+                const maybe_chunk = parseGeminiStreamChunk(self.allocator, json_data) catch continue;
+                if (maybe_chunk) |chunk| {
                     if (chunk.text.len > 0) {
                         try self.accumulated_text.appendSlice(self.allocator, chunk.text);
                     }
@@ -454,7 +461,7 @@ pub const GeminiStreamHandler = struct {
 /// Parse a single Gemini streaming chunk
 fn parseGeminiStreamChunk(allocator: std.mem.Allocator, json_data: []const u8) !?GeminiStreamChunk {
     // Check for "done" in the response
-    const done = std.mem.indexOf(u8, json_data, "\"done\":true") != null;
+    const done = std.mem.find(u8, json_data, "\"done\":true") != null;
 
     // Extract text from candidates[0].content.parts[0].text
     const text = extractGeminiTextDelta(allocator, json_data);
@@ -473,19 +480,19 @@ fn parseGeminiStreamChunk(allocator: std.mem.Allocator, json_data: []const u8) !
 /// Extract text delta from Gemini streaming JSON
 fn extractGeminiTextDelta(allocator: std.mem.Allocator, json_data: []const u8) ?[]u8 {
     // Find "candidates"
-    const candidates_start = std.mem.indexOf(u8, json_data, "\"candidates\":") orelse return null;
+    const candidates_start = std.mem.find(u8, json_data, "\"candidates\":") orelse return null;
     const after_candidates = json_data[candidates_start + 13 ..];
 
     // Find "content"
-    const content_start = std.mem.indexOf(u8, after_candidates, "\"content\":") orelse return null;
+    const content_start = std.mem.find(u8, after_candidates, "\"content\":") orelse return null;
     const after_content = after_candidates[content_start + 11 ..];
 
     // Find "parts"
-    const parts_start = std.mem.indexOf(u8, after_content, "\"parts\":") orelse return null;
+    const parts_start = std.mem.find(u8, after_content, "\"parts\":") orelse return null;
     const after_parts = after_content[parts_start + 9 ..];
 
     // Find "text"
-    const text_start = std.mem.indexOf(u8, after_parts, "\"text\":\"") orelse return null;
+    const text_start = std.mem.find(u8, after_parts, "\"text\":\"") orelse return null;
     const value_start = text_start + 9;
     var value_end = value_start;
     while (value_end < after_parts.len and after_parts[value_end] != '"') {
@@ -617,13 +624,13 @@ fn buildChatRequestBody(allocator: std.mem.Allocator, chat: *GeminiChat, new_con
         if (cfg.temperature) |t| {
             if (!first) try body.appendSlice(allocator, ",");
             try body.appendSlice(allocator, "\"temperature\":");
-            try body.writer().print("{}", .{t});
+            try body.print(allocator, "{}", .{t});
             first = false;
         }
         if (cfg.max_output_tokens) |m| {
             if (!first) try body.appendSlice(allocator, ",");
             try body.appendSlice(allocator, "\"maxOutputTokens\":");
-            try body.writer().print("{d}", .{m});
+            try body.print(allocator, "{d}", .{m});
             first = false;
         }
         try body.appendSlice(allocator, "}");

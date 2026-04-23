@@ -59,7 +59,7 @@ pub const Service = struct {
             var first = true;
             if (p.page_size) |size| {
                 try path.appendSlice(if (first) "?" else "&");
-                try path.writer().print("pageSize={d}", .{size});
+                try path.print("pageSize={d}", .{size});
                 first = false;
             }
             if (p.page_token) |token| {
@@ -106,7 +106,7 @@ pub const Service = struct {
     // ============================================================================
 
     fn serializeCreateParams(self: *Service, params: CreateCachedContentParams) ![]u8 {
-        var parts = std.ArrayListUnmanaged(u8){};
+        var parts: std.ArrayListUnmanaged(u8) = .empty;
         defer parts.deinit(self.allocator);
 
         try parts.appendSlice(self.allocator, "{\"model\":\"");
@@ -138,7 +138,7 @@ pub const Service = struct {
         // Expires after
         if (params.expires_after_seconds) |seconds| {
             try parts.appendSlice(self.allocator, "\"expiresAfter\":");
-            try parts.writer(self.allocator).print("{d}", .{seconds});
+            try parts.print(self.allocator, "{d}", .{seconds});
             try parts.appendSlice(self.allocator, ",");
         }
 
@@ -159,7 +159,7 @@ pub const Service = struct {
     }
 
     fn serializeContent(self: *Service, content: Content) ![]u8 {
-        var parts = std.ArrayListUnmanaged(u8){};
+        var parts: std.ArrayListUnmanaged(u8) = .empty;
         defer parts.deinit(self.allocator);
 
         try parts.appendSlice(self.allocator, "{\"role\":\"");
@@ -185,7 +185,7 @@ pub const Service = struct {
     }
 
     fn serializeUpdateParams(self: *Service, params: UpdateCachedContentParams) ![]u8 {
-        var parts = std.ArrayListUnmanaged(u8){};
+        var parts: std.ArrayListUnmanaged(u8) = .empty;
         defer parts.deinit(self.allocator);
 
         if (params.ttl) |ttl| {
@@ -194,7 +194,7 @@ pub const Service = struct {
             try parts.appendSlice(self.allocator, "\"}");
         } else if (params.expires_after_seconds) |seconds| {
             try parts.appendSlice(self.allocator, "{\"expiresAfter\":");
-            try parts.writer(self.allocator).print("{d}", .{seconds});
+            try parts.print(self.allocator, "{d}", .{seconds});
             try parts.appendSlice(self.allocator, "}");
         } else {
             try parts.appendSlice(self.allocator, "{}");
@@ -252,7 +252,7 @@ pub const Service = struct {
         const data_str = self.parseField(response, "cachedContents") orelse return error.ParseError;
         const next_page_token = self.parseField(response, "nextPageToken");
 
-        var items = std.ArrayListUnmanaged(CachedContent){};
+        var items: std.ArrayListUnmanaged(CachedContent) = .empty;
         errdefer {
             for (items.items) |item| self.freeCachedContent(item);
             items.deinit(self.allocator);
@@ -261,7 +261,7 @@ pub const Service = struct {
         // Parse array of cached contents
         var search_idx: usize = 0;
         while (search_idx < data_str.len) {
-            const obj_start = std.mem.indexOf(u8, data_str[search_idx..], "{") orelse break;
+            const obj_start = std.mem.find(u8, data_str[search_idx..], "{") orelse break;
             const obj_end = findMatchingBrace(data_str[search_idx + obj_start ..]) orelse break;
             const obj_json = data_str[search_idx + obj_start .. search_idx + obj_start + obj_end + 1];
 
@@ -289,9 +289,18 @@ pub const Service = struct {
 
     fn parseField(self: *Service, json_str: []const u8, field_name: []const u8) ?[]const u8 {
         _ = self;
-        const search_pattern = "\"" ++ field_name ++ "\":";
-        const start_idx = std.mem.indexOf(u8, json_str, search_pattern) orelse return null;
-        const value_start = start_idx + search_pattern.len;
+        const search_pattern_len = field_name.len + 3;
+        var search_pattern_buf: [128]u8 = undefined;
+        if (search_pattern_len >= search_pattern_buf.len) return null;
+
+        var buf = search_pattern_buf[0..search_pattern_len];
+        buf[0] = '"';
+        @memcpy(buf[1..][0..field_name.len], field_name);
+        buf[field_name.len + 1] = '"';
+        buf[field_name.len + 2] = ':';
+
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
+        const value_start = start_idx + search_pattern_len;
 
         var i = value_start;
         while (i < json_str.len and (json_str[i] == ' ' or json_str[i] == '\n' or json_str[i] == '\t')) {

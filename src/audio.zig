@@ -222,7 +222,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = ':';
         buf[field_name.len + 2] = ' ';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf[0..search_pattern_len]) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf[0..search_pattern_len]) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;

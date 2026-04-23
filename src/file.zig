@@ -37,10 +37,10 @@ pub const Service = struct {
     /// Reads the file content and uploads it to the API.
     pub fn uploadFromPath(self: *Service, local_path: []const u8, purpose: FilePurpose) !FileObject {
         // Read file content from local path
-        const file = try std.fs.cwd().openFile(local_path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.cwd().openFile(self.http_client.io, local_path, .{});
+        defer file.close(self.http_client.io);
 
-        const file_content = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
+        const file_content = try blk: { var __buf: [8192]u8 = undefined; var __r = file.reader(self.http_client.io, &__buf); break :blk __r.interface.allocRemaining(self.allocator, .limited(std.math.maxInt(usize))); };
         errdefer self.allocator.free(file_content);
 
         // Extract filename from path
@@ -152,7 +152,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;
@@ -201,7 +201,7 @@ pub const Service = struct {
 
         var file_count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"id\":")) |_| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"id\":")) |_| {
             file_count += 1;
             search_pos += 1;
         }

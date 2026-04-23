@@ -415,26 +415,26 @@ pub const Service = struct {
         // Simple parsing - find each object
         var idx: usize = 0;
         while (idx < data_str.len) {
-            const obj_start = std.mem.indexOfPos(u8, data_str, idx, "\"id\":\"") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, idx, "\"id\":\"") orelse break;
             const id_value_start = obj_start + 6;
-            const id_end = std.mem.indexOfPos(u8, data_str, id_value_start, "\"") orelse break;
+            const id_end = std.mem.findPos(u8, data_str, id_value_start, "\"") orelse break;
 
-            const name_start = std.mem.indexOfPos(u8, data_str, id_end, "\"name\":\"") orelse {
+            const name_start = std.mem.findPos(u8, data_str, id_end, "\"name\":\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
             const name_value_start = name_start + 8;
-            const name_end = std.mem.indexOfPos(u8, data_str, name_value_start, "\"") orelse {
+            const name_end = std.mem.findPos(u8, data_str, name_value_start, "\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
 
-            const status_start = std.mem.indexOfPos(u8, data_str, name_end, "\"status\":\"") orelse {
+            const status_start = std.mem.findPos(u8, data_str, name_end, "\"status\":\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
             const status_value_start = status_start + 10;
-            const status_end = std.mem.indexOfPos(u8, data_str, status_value_start, "\"") orelse {
+            const status_end = std.mem.findPos(u8, data_str, status_value_start, "\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
@@ -498,36 +498,36 @@ pub const Service = struct {
         // Simple parsing - find each object
         var idx: usize = 0;
         while (idx < data_str.len) {
-            const obj_start = std.mem.indexOfPos(u8, data_str, idx, "\"id\":\"") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, idx, "\"id\":\"") orelse break;
             const id_value_start = obj_start + 6;
-            const id_end = std.mem.indexOfPos(u8, data_str, id_value_start, "\"") orelse break;
+            const id_end = std.mem.findPos(u8, data_str, id_value_start, "\"") orelse break;
 
-            const vs_id_start = std.mem.indexOfPos(u8, data_str, id_end, "\"vector_store_id\":\"") orelse {
+            const vs_id_start = std.mem.findPos(u8, data_str, id_end, "\"vector_store_id\":\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
             const vs_id_value_start = vs_id_start + 18;
-            const vs_id_end = std.mem.indexOfPos(u8, data_str, vs_id_value_start, "\"") orelse {
+            const vs_id_end = std.mem.findPos(u8, data_str, vs_id_value_start, "\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
 
-            const status_start = std.mem.indexOfPos(u8, data_str, vs_id_end, "\"status\":\"") orelse {
+            const status_start = std.mem.findPos(u8, data_str, vs_id_end, "\"status\":\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
             const status_value_start = status_start + 10;
-            const status_end = std.mem.indexOfPos(u8, data_str, status_value_start, "\"") orelse {
+            const status_end = std.mem.findPos(u8, data_str, status_value_start, "\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
 
-            const filename_start = std.mem.indexOfPos(u8, data_str, status_end, "\"filename\":\"") orelse {
+            const filename_start = std.mem.findPos(u8, data_str, status_end, "\"filename\":\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
             const filename_value_start = filename_start + 12;
-            const filename_end = std.mem.indexOfPos(u8, data_str, filename_value_start, "\"") orelse {
+            const filename_end = std.mem.findPos(u8, data_str, filename_value_start, "\"") orelse {
                 idx = id_end + 1;
                 continue;
             };
@@ -565,11 +565,11 @@ pub const Service = struct {
         // Simple parsing - find text content
         var idx: usize = 0;
         while (idx < data_str.len) {
-            const text_start = std.mem.indexOfPos(u8, data_str, idx, "\"text\":\"") orelse break;
+            const text_start = std.mem.findPos(u8, data_str, idx, "\"text\":\"") orelse break;
             const text_value_start = text_start + 8;
-            const text_end = std.mem.indexOfPos(u8, data_str, text_value_start, "\"") orelse break;
+            const text_end = std.mem.findPos(u8, data_str, text_value_start, "\"") orelse break;
 
-            const score_start = std.mem.indexOfPos(u8, data_str, text_end, "\"score\":") orelse {
+            const score_start = std.mem.findPos(u8, data_str, text_end, "\"score\":") orelse {
                 idx = text_end + 1;
                 continue;
             };
@@ -611,7 +611,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;

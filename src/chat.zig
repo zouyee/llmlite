@@ -168,7 +168,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;
@@ -229,11 +229,11 @@ pub const Service = struct {
             .total_tokens = std.fmt.parseInt(u32, total_tokens_str, 10) catch 0,
         };
 
-        const choices_start = std.mem.indexOf(u8, response, "\"choices\":") orelse return error.ParseError;
+        const choices_start = std.mem.find(u8, response, "\"choices\":") orelse return error.ParseError;
         const after_choices = response[choices_start..];
-        const first_content = std.mem.indexOf(u8, after_choices, "\"content\":\"") orelse return error.ParseError;
+        const first_content = std.mem.find(u8, after_choices, "\"content\":\"") orelse return error.ParseError;
         const content_start = first_content + 11;
-        const content_end = std.mem.indexOf(u8, after_choices[content_start..], "\"") orelse return error.ParseError;
+        const content_end = std.mem.find(u8, after_choices[content_start..], "\"") orelse return error.ParseError;
         const content_str = after_choices[content_start .. content_start + content_end];
 
         var choices = try self.allocator.alloc(ChatCompletionChoice, 1);

@@ -216,7 +216,7 @@ pub const Service = struct {
         // Count jobs
         var count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"id\":")) |_| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"id\":")) |_| {
             count += 1;
             search_pos += 1;
         }
@@ -227,7 +227,7 @@ pub const Service = struct {
         var parsed: usize = 0;
         search_pos = 0;
         while (parsed < count) {
-            const obj_start = std.mem.indexOfPos(u8, data_str, search_pos, "{") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, search_pos, "{") orelse break;
             var depth: u32 = 1;
             var i = obj_start + 1;
             while (i < data_str.len and depth > 0) {
@@ -256,7 +256,7 @@ pub const Service = struct {
         // Count events
         var count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"id\":")) |_| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"id\":")) |_| {
             count += 1;
             search_pos += 1;
         }
@@ -267,7 +267,7 @@ pub const Service = struct {
         var parsed: usize = 0;
         search_pos = 0;
         while (parsed < count) {
-            const obj_start = std.mem.indexOfPos(u8, data_str, search_pos, "{") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, search_pos, "{") orelse break;
             var depth: u32 = 1;
             var i = obj_start + 1;
             while (i < data_str.len and depth > 0) {
@@ -296,7 +296,7 @@ pub const Service = struct {
         // Count checkpoints
         var count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"id\":")) |_| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"id\":")) |_| {
             count += 1;
             search_pos += 1;
         }
@@ -307,7 +307,7 @@ pub const Service = struct {
         var parsed: usize = 0;
         search_pos = 0;
         while (parsed < count) {
-            const obj_start = std.mem.indexOfPos(u8, data_str, search_pos, "{") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, search_pos, "{") orelse break;
             var depth: u32 = 1;
             var i = obj_start + 1;
             while (i < data_str.len and depth > 0) {
@@ -423,7 +423,7 @@ pub const Service = struct {
         // Parse array of strings like ["a", "b", "c"]
         var count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, json_str, search_pos, "\"")) |_| {
+        while (std.mem.findPos(u8, json_str, search_pos, "\"")) |_| {
             count += 1;
             search_pos += 1;
         }
@@ -435,8 +435,8 @@ pub const Service = struct {
         var idx: usize = 0;
         search_pos = 0;
         while (idx < count) {
-            const start = std.mem.indexOfPos(u8, json_str, search_pos, "\"") orelse break;
-            const end = std.mem.indexOfPos(u8, json_str, start + 1, "\"") orelse break;
+            const start = std.mem.findPos(u8, json_str, search_pos, "\"") orelse break;
+            const end = std.mem.findPos(u8, json_str, start + 1, "\"") orelse break;
             arr[idx] = try self.allocator.dupe(u8, json_str[start + 1 .. end]);
             idx += 1;
             search_pos = end + 1;
@@ -455,7 +455,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = ':';
         buf[field_name.len + 2] = ' ';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf[0..search_pattern_len]) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf[0..search_pattern_len]) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;

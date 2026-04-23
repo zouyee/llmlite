@@ -159,7 +159,7 @@ pub const Service = struct {
             try buf.append(self.allocator, '"');
             if (style.style_weight) |sw| {
                 try buf.appendSlice(self.allocator, ",\"style_weight\":");
-                try buf.writer(self.allocator).print("{d}", .{sw});
+                try buf.print(self.allocator, "{d}", .{sw});
             }
             try buf.append(self.allocator, '}');
         }
@@ -174,11 +174,11 @@ pub const Service = struct {
         // width and height
         if (params.width) |w| {
             try buf.appendSlice(self.allocator, ",\"width\":");
-            try buf.writer(self.allocator).print("{}", .{w});
+            try buf.print(self.allocator, "{}", .{w});
         }
         if (params.height) |h| {
             try buf.appendSlice(self.allocator, ",\"height\":");
-            try buf.writer(self.allocator).print("{}", .{h});
+            try buf.print(self.allocator, "{}", .{h});
         }
 
         // response_format
@@ -189,13 +189,13 @@ pub const Service = struct {
         // seed
         if (params.seed) |s| {
             try buf.appendSlice(self.allocator, ",\"seed\":");
-            try buf.writer(self.allocator).print("{}", .{s});
+            try buf.print(self.allocator, "{}", .{s});
         }
 
         // n
         if (params.n) |n| {
             try buf.appendSlice(self.allocator, ",\"n\":");
-            try buf.writer(self.allocator).print("{}", .{n});
+            try buf.print(self.allocator, "{}", .{n});
         }
 
         // prompt_optimizer
@@ -284,14 +284,14 @@ fn parseJsonField(json_str: []const u8, field_name: []const u8) ?[]const u8 {
     buf[field_name.len + 2] = ' ';
 
     const pattern = buf[0..search_pattern_len];
-    const start_idx = std.mem.indexOf(u8, json_str, pattern) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, pattern) orelse return null;
     const value_start = start_idx + search_pattern_len;
 
     if (value_start >= json_str.len) return null;
     if (json_str[value_start] != '"') return null;
 
     const value_start_inner = value_start + 1;
-    const end_idx = std.mem.indexOfPos(u8, json_str, value_start_inner, "\"") orelse return null;
+    const end_idx = std.mem.findPos(u8, json_str, value_start_inner, "\"") orelse return null;
 
     return json_str[value_start_inner..end_idx];
 }
@@ -311,7 +311,7 @@ fn extractJsonObject(json_str: []const u8, field_name: []const u8) ?[]const u8 {
 
     const pattern = buf[0 .. field_name.len + 3];
 
-    const start_idx = std.mem.indexOf(u8, json_str, pattern) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, pattern) orelse return null;
     const colon_pos = start_idx + pattern.len;
 
     // Skip whitespace and find the opening brace
@@ -355,7 +355,7 @@ fn parseJsonArray(allocator: std.mem.Allocator, json_str: []const u8, field_name
     buf[field_name.len + 2] = ' ';
 
     const pattern = buf[0..pattern_len];
-    const start_idx = std.mem.indexOf(u8, json_str, pattern) orelse return null;
+    const start_idx = std.mem.find(u8, json_str, pattern) orelse return null;
     const array_start = start_idx + pattern_len;
 
     if (array_start >= json_str.len) return null;

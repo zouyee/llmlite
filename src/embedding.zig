@@ -36,7 +36,7 @@ pub const Service = struct {
     }
 
     fn serializeEmbeddingParams(self: *Service, params: CreateEmbeddingParams) ![]u8 {
-        var buf = std.ArrayListUnmanaged(u8){};
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
         defer buf.deinit(self.allocator);
 
         try buf.append(self.allocator, '{');
@@ -80,7 +80,7 @@ pub const Service = struct {
         buf[field_name.len + 1] = '"';
         buf[field_name.len + 2] = ':';
 
-        const start_idx = std.mem.indexOf(u8, json_str, buf) orelse return null;
+        const start_idx = std.mem.find(u8, json_str, buf) orelse return null;
         const value_start = start_idx + search_pattern_len;
 
         var i = value_start;
@@ -140,7 +140,7 @@ pub const Service = struct {
 
         var embedding_count: usize = 0;
         var search_pos: usize = 0;
-        while (std.mem.indexOfPos(u8, data_str, search_pos, "\"embedding\":")) |idx| {
+        while (std.mem.findPos(u8, data_str, search_pos, "\"embedding\":")) |idx| {
             _ = idx;
             embedding_count += 1;
             search_pos += 1;
@@ -154,7 +154,7 @@ pub const Service = struct {
         var parsed_count: usize = 0;
         search_pos = 0;
         while (parsed_count < embedding_count) : (parsed_count += 1) {
-            const obj_start = std.mem.indexOfPos(u8, data_str, search_pos, "{\"embedding\":") orelse break;
+            const obj_start = std.mem.findPos(u8, data_str, search_pos, "{\"embedding\":") orelse break;
             const obj_end = obj_start + 1;
             var depth: u32 = 1;
             var i = obj_end;
@@ -177,7 +177,7 @@ pub const Service = struct {
                 continue;
             };
 
-            var floats = std.ArrayListUnmanaged(f64){};
+            var floats: std.ArrayListUnmanaged(f64) = .empty;
             errdefer floats.deinit(self.allocator);
 
             var float_start: usize = 0;
@@ -318,11 +318,11 @@ pub fn parseGeminiEmbeddingResponse(allocator: std.mem.Allocator, response: []co
     // Gemini response format:
     // {"embedding": {"values": [...]}}
 
-    const values_start = std.mem.indexOf(u8, response, "\"values\":") orelse return error.ParseError;
+    const values_start = std.mem.find(u8, response, "\"values\":") orelse return error.ParseError;
     const after_values = response[values_start + 9 ..];
 
     // Find the array bounds
-    const array_start = std.mem.indexOf(u8, after_values, "[") orelse return error.ParseError;
+    const array_start = std.mem.find(u8, after_values, "[") orelse return error.ParseError;
     var depth: u32 = 1;
     var i = array_start + 1;
     while (i < after_values.len and depth > 0) {

@@ -57,7 +57,7 @@ pub const Model = struct {
     name: []const u8,
 
     pub fn parse(model_str: []const u8) !Model {
-        if (std.mem.indexOf(u8, model_str, "/")) |idx| {
+        if (std.mem.find(u8, model_str, "/")) |idx| {
             const provider_str = model_str[0..idx];
             const model_name = model_str[idx + 1 ..];
             const provider = ProviderType.fromString(provider_str) orelse {
