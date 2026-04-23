@@ -38,7 +38,7 @@ pub const ContentFilter = struct {
 
     fn containsBlockedWord(content: []const u8, blocked: [][]const u8) ?[]const u8 {
         for (blocked) |word| {
-            if (std.mem.indexOf(u8, content, word) != null) {
+            if (std.mem.find(u8, content, word) != null) {
                 return word;
             }
         }
@@ -109,7 +109,7 @@ pub const PiiDetector = struct {
     fn detectPii(content: []const u8, detector: *const PiiDetector) ?struct { type: []const u8, value: []const u8 } {
         if (detector.detect_email) {
             // Simple email pattern
-            if (std.mem.indexOf(u8, content, "@") != null) {
+            if (std.mem.find(u8, content, "@") != null) {
                 // Try to extract email
                 var start: usize = 0;
                 var end: usize = content.len;

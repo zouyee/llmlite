@@ -9,6 +9,33 @@
 //! MCP servers can be used by AI agents like Claude Code, Codex, and OpenClaw.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const preset = @import("proxy_preset");
 
 pub const CliTool = preset.CliTool;
@@ -31,7 +58,7 @@ pub const McpServer = struct {
     /// Arguments to pass
     args: [][]const u8,
     /// Environment variables
-    env: std.StringArrayHashMap([]const u8),
+    env: StringArrayHashMap([]const u8),
     /// Config schema (JSON schema for server config)
     config_schema: ?[]const u8 = null,
     /// Current state
@@ -64,13 +91,13 @@ pub const McpServerSource = union(enum) {
 /// MCP server manager
 pub const McpServerManager = struct {
     allocator: std.mem.Allocator,
-    servers: std.StringArrayHashMap(McpServer),
+    servers: StringArrayHashMap(McpServer),
     install_dir: []const u8,
 
     pub fn init(allocator: std.mem.Allocator) McpServerManager {
         return .{
             .allocator = allocator,
-            .servers = std.StringArrayHashMap(McpServer).init(allocator),
+            .servers = StringArrayHashMap(McpServer).init(allocator),
             .install_dir = undefined, // Will be set from home directory
         };
     }
@@ -136,7 +163,7 @@ pub const McpServerManager = struct {
             server_copy.args = args_copy;
         }
 
-        server_copy.env = std.StringArrayHashMap([]const u8).init(self.allocator);
+        server_copy.env = StringArrayHashMap([]const u8).init(self.allocator);
         {
             var it = server.env.iterator();
             while (it.next()) |entry| {
@@ -236,9 +263,9 @@ pub const McpServerManager = struct {
             return error.ServerNotRunning;
         }
 
-        // Note: In Zig 0.15, process killing requires the ChildProcess object.
+        // Note: In Zig 0.15+, process killing requires the ChildProcess object.
         // For now, we just mark it as stopped. The process may still be running.
-        std.log.warn("stopServer: process termination not fully implemented in Zig 0.15", .{});
+        std.log.warn("stopServer: process termination not fully implemented in Zig 0.15+", .{});
 
         // Update server state
         var server_mut = self.servers.get(name).?;
@@ -371,14 +398,14 @@ pub const McpServerManager = struct {
         );
         defer self.allocator.free(package_path);
 
-        const pkg_file = std.fs.openFileAbsolute(package_path, .{}) catch {
+        const pkg_file = std.Io.Dir.openFileAbsolute(self.io, package_path, .{}) catch {
             // No package.json, look for other entry points
             return error.NoPackageJson;
         };
-        defer pkg_file.close();
+        defer pkg_file.close(self.io);
 
         // Read and parse package.json
-        const content = try pkg_file.readToEndAlloc(self.allocator, 65536);
+        const content = try blk: { var __buf: [8192]u8 = undefined; var __reader = pkg_file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(65536)); };
         defer self.allocator.free(content);
 
         const parsed = std.json.parseFromSlice(
@@ -401,7 +428,7 @@ pub const McpServerManager = struct {
             .name = try self.allocator.dupe(u8, name),
             .command = "node",
             .args = &.{try std.fmt.allocPrint(self.allocator, "{s}/dist/index.js", .{install_path})},
-            .env = std.StringArrayHashMap([]const u8).init(self.allocator),
+            .env = StringArrayHashMap([]const u8).init(self.allocator),
         };
 
         try self.addServer(server);

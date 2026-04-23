@@ -16,6 +16,7 @@
 
 const std = @import("std");
 const provider_types = @import("types");
+const time_compat = @import("time_compat");
 
 pub const CircuitState = enum {
     closed,
@@ -41,9 +42,9 @@ pub const AllowResult = struct {
 pub const CircuitBreaker = struct {
     allocator: std.mem.Allocator,
     config: CircuitBreakerConfig,
-    circuits: std.StringArrayHashMap(CircuitStateData),
-    half_open_permits: std.StringArrayHashMap(u32),
-    lock: std.Thread.Mutex,
+    circuits: std.array_hash_map.String(CircuitStateData),
+    half_open_permits: std.array_hash_map.String(u32),
+    lock: std.Io.Mutex,
 
     pub const CircuitStateData = struct {
         state: CircuitState = .closed,
@@ -60,21 +61,21 @@ pub const CircuitBreaker = struct {
         return .{
             .allocator = allocator,
             .config = config,
-            .circuits = std.StringArrayHashMap(CircuitStateData).init(allocator),
-            .half_open_permits = std.StringArrayHashMap(u32).init(allocator),
-            .lock = std.Thread.Mutex{},
+            .circuits = std.array_hash_map.String(CircuitStateData){},
+            .half_open_permits = std.array_hash_map.String(u32){},
+            .lock = std.Io.Mutex.init,
         };
     }
 
     pub fn deinit(self: *CircuitBreaker) void {
-        self.half_open_permits.deinit();
-        self.circuits.deinit();
+        self.half_open_permits.deinit(self.allocator);
+        self.circuits.deinit(self.allocator);
     }
 
     /// Check if circuit allows requests
-    pub fn isOpen(self: *CircuitBreaker, provider: provider_types.ProviderType) bool {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn isOpen(self: *CircuitBreaker, io: std.Io, provider: provider_types.ProviderType) bool {
+        self.lock.lock(io) catch return false;
+        defer self.lock.unlock(io);
 
         const provider_name = provider.toString();
         const data = self.circuits.get(provider_name) orelse return false;
@@ -83,11 +84,11 @@ pub const CircuitBreaker = struct {
             .closed => return false, // Allow requests
             .open => {
                 // Check if recovery timeout has elapsed
-                const now = std.time.timestamp();
+                const now = time_compat.timestamp(io);
                 const time_since_failure = (now - data.last_failure_time) * 1000;
                 if (time_since_failure >= self.config.recovery_timeout_ms) {
                     // Transition to half-open
-                    self.transitionState(provider_name, .half_open);
+                    self.transitionState(io, provider_name, .half_open);
                     return false; // Allow one request to test
                 }
                 return true; // Block requests
@@ -97,12 +98,12 @@ pub const CircuitBreaker = struct {
     }
 
     /// Record a successful request
-    pub fn recordSuccess(self: *CircuitBreaker, provider: provider_types.ProviderType) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn recordSuccess(self: *CircuitBreaker, io: std.Io, provider: provider_types.ProviderType) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
         const provider_name = provider.toString();
-        var data = self.circuits.getOrPut(provider_name) catch return;
+        var data = self.circuits.getOrPut(self.allocator, provider_name) catch return;
         if (!data.found_existing) {
             data.value_ptr.* = .{};
         }
@@ -119,7 +120,7 @@ pub const CircuitBreaker = struct {
                 data.value_ptr.consecutive_successes += 1;
                 // If enough successes in half-open, close the circuit
                 if (data.value_ptr.consecutive_successes >= self.config.half_open_success_threshold) {
-                    self.transitionState(provider_name, .closed);
+                    self.transitionState(io, provider_name, .closed);
                 }
             },
             .open => {
@@ -130,12 +131,12 @@ pub const CircuitBreaker = struct {
     }
 
     /// Record a failed request
-    pub fn recordFailure(self: *CircuitBreaker, provider: provider_types.ProviderType) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn recordFailure(self: *CircuitBreaker, io: std.Io, provider: provider_types.ProviderType) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
         const provider_name = provider.toString();
-        var data = self.circuits.getOrPut(provider_name) catch return;
+        var data = self.circuits.getOrPut(self.allocator, provider_name) catch return;
         if (!data.found_existing) {
             data.value_ptr.* = .{};
         }
@@ -143,17 +144,17 @@ pub const CircuitBreaker = struct {
         data.value_ptr.total_requests += 1;
         data.value_ptr.total_failures += 1;
         data.value_ptr.consecutive_failures += 1;
-        data.value_ptr.last_failure_time = std.time.timestamp();
+        data.value_ptr.last_failure_time = time_compat.timestamp(io);
 
         switch (data.value_ptr.state) {
             .closed => {
                 if (data.value_ptr.consecutive_failures >= self.config.failure_threshold) {
-                    self.transitionState(provider_name, .open);
+                    self.transitionState(io, provider_name, .open);
                 }
             },
             .half_open => {
                 // Any failure in half-open opens the circuit again
-                self.transitionState(provider_name, .open);
+                self.transitionState(io, provider_name, .open);
             },
             .open => {
                 // Already open, just update failure count
@@ -162,9 +163,9 @@ pub const CircuitBreaker = struct {
     }
 
     /// Get current state of a circuit
-    pub fn getState(self: *CircuitBreaker, provider: provider_types.ProviderType) CircuitState {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn getState(self: *CircuitBreaker, io: std.Io, provider: provider_types.ProviderType) CircuitState {
+        self.lock.lock(io) catch return .closed;
+        defer self.lock.unlock(io);
 
         const provider_name = provider.toString();
         const data = self.circuits.get(provider_name) orelse return .closed;
@@ -172,31 +173,31 @@ pub const CircuitBreaker = struct {
     }
 
     /// Get circuit statistics
-    pub fn getStats(self: *CircuitBreaker, provider: provider_types.ProviderType) ?CircuitStateData {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn getStats(self: *CircuitBreaker, io: std.Io, provider: provider_types.ProviderType) ?CircuitStateData {
+        self.lock.lock(io) catch return null;
+        defer self.lock.unlock(io);
 
         const provider_name = provider.toString();
         return self.circuits.get(provider_name);
     }
 
     /// Force transition to a specific state (for testing/admin)
-    pub fn forceState(self: *CircuitBreaker, provider: provider_types.ProviderType, state: CircuitState) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn forceState(self: *CircuitBreaker, io: std.Io, provider: provider_types.ProviderType, state: CircuitState) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
         const provider_name = provider.toString();
-        const data = self.circuits.getOrPut(provider_name) catch return;
+        const data = self.circuits.getOrPut(self.allocator, provider_name) catch return;
         if (!data.found_existing) {
             data.value_ptr.* = .{};
         }
-        self.transitionState(provider_name, state);
+        self.transitionState(io, provider_name, state);
     }
 
-    fn transitionState(self: *CircuitBreaker, provider_name: []const u8, new_state: CircuitState) void {
+    fn transitionState(self: *CircuitBreaker, io: std.Io, provider_name: []const u8, new_state: CircuitState) void {
         if (self.circuits.getPtr(provider_name)) |data| {
             data.state = new_state;
-            data.last_state_change = std.time.timestamp();
+            data.last_state_change = time_compat.timestamp(io);
 
             // Reset counters on state transition
             switch (new_state) {
@@ -224,17 +225,17 @@ pub const CircuitBreaker = struct {
                 result.append(entry.key_ptr.*) catch {};
             }
         }
-        return result.toOwnedSlice();
+        return result.toOwnedSlice() catch &.{};
     }
 
     /// Reset all circuits to closed state
-    pub fn resetAll(self: *CircuitBreaker) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn resetAll(self: *CircuitBreaker, io: std.Io) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
         var it = self.circuits.iterator();
         while (it.next()) |entry| {
-            self.transitionState(entry.key_ptr.*, .closed);
+            self.transitionState(io, entry.key_ptr.*, .closed);
         }
     }
 
@@ -243,20 +244,20 @@ pub const CircuitBreaker = struct {
     /// Routing decision: check if a key is available for requests.
     /// Does NOT change any state or counters.
     /// Returns true if Closed or HalfOpen, false if Open (unless timeout elapsed → transition to HalfOpen and return true).
-    pub fn isAvailable(self: *CircuitBreaker, key: []const u8) bool {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn isAvailable(self: *CircuitBreaker, io: std.Io, key: []const u8) bool {
+        self.lock.lock(io) catch return true;
+        defer self.lock.unlock(io);
 
         const data = self.circuits.get(key) orelse return true;
 
         switch (data.state) {
             .closed => return true,
             .open => {
-                const now = std.time.timestamp();
+                const now = time_compat.timestamp(io);
                 const time_since_failure = (now - data.last_failure_time) * 1000;
                 if (time_since_failure >= self.config.recovery_timeout_ms) {
                     // Transition to half-open
-                    self.transitionState(key, .half_open);
+                    self.transitionState(io, key, .half_open);
                     return true;
                 }
                 return false;
@@ -267,23 +268,23 @@ pub const CircuitBreaker = struct {
 
     /// Actual request permit: returns whether the request is allowed and whether a HalfOpen permit was used.
     /// In HalfOpen state, limits concurrent requests to half_open_max_permits.
-    pub fn allowRequest(self: *CircuitBreaker, key: []const u8) AllowResult {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn allowRequest(self: *CircuitBreaker, io: std.Io, key: []const u8) AllowResult {
+        self.lock.lock(io) catch return .{ .allowed = true, .used_half_open_permit = false };
+        defer self.lock.unlock(io);
 
         const data = self.circuits.get(key) orelse return .{ .allowed = true, .used_half_open_permit = false };
 
         switch (data.state) {
             .closed => return .{ .allowed = true, .used_half_open_permit = false },
             .open => {
-                const now = std.time.timestamp();
+                const now = time_compat.timestamp(io);
                 const time_since_failure = (now - data.last_failure_time) * 1000;
                 if (time_since_failure >= self.config.recovery_timeout_ms) {
-                    self.transitionState(key, .half_open);
+                    self.transitionState(io, key, .half_open);
                     // Try to acquire a half-open permit
                     const current_permits = self.half_open_permits.get(key) orelse 0;
                     if (current_permits < self.config.half_open_max_permits) {
-                        self.half_open_permits.put(key, current_permits + 1) catch {};
+                        self.half_open_permits.put(self.allocator, key, current_permits + 1) catch {};
                         return .{ .allowed = true, .used_half_open_permit = true };
                     }
                     return .{ .allowed = false, .used_half_open_permit = false };
@@ -293,7 +294,7 @@ pub const CircuitBreaker = struct {
             .half_open => {
                 const current_permits = self.half_open_permits.get(key) orelse 0;
                 if (current_permits < self.config.half_open_max_permits) {
-                    self.half_open_permits.put(key, current_permits + 1) catch {};
+                    self.half_open_permits.put(self.allocator, key, current_permits + 1) catch {};
                     return .{ .allowed = true, .used_half_open_permit = true };
                 }
                 return .{ .allowed = false, .used_half_open_permit = false };
@@ -303,44 +304,44 @@ pub const CircuitBreaker = struct {
 
     /// Release a HalfOpen permit without recording success or failure.
     /// Used by rectifier scenarios.
-    pub fn releasePermitNeutral(self: *CircuitBreaker, key: []const u8) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn releasePermitNeutral(self: *CircuitBreaker, io: std.Io, key: []const u8) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
         if (self.half_open_permits.get(key)) |current| {
             if (current > 0) {
-                self.half_open_permits.put(key, current - 1) catch {};
+                self.half_open_permits.put(self.allocator, key, current - 1) catch {};
             }
         }
     }
 
     /// Update config without resetting state or counters.
-    pub fn updateConfig(self: *CircuitBreaker, config: CircuitBreakerConfig) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn updateConfig(self: *CircuitBreaker, io: std.Io, config: CircuitBreakerConfig) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
         self.config = config;
     }
 
     /// Record success using "app_type:provider_id" composite key.
-    pub fn recordSuccessForKey(self: *CircuitBreaker, app_type: []const u8, provider_id: []const u8) void {
+    pub fn recordSuccessForKey(self: *CircuitBreaker, io: std.Io, app_type: []const u8, provider_id: []const u8) void {
         const key = self.buildCompositeKey(app_type, provider_id) orelse return;
         defer self.allocator.free(key);
-        self.recordSuccessByKey(key);
+        self.recordSuccessByKey(io, key);
     }
 
     /// Record failure using "app_type:provider_id" composite key.
-    pub fn recordFailureForKey(self: *CircuitBreaker, app_type: []const u8, provider_id: []const u8) void {
+    pub fn recordFailureForKey(self: *CircuitBreaker, io: std.Io, app_type: []const u8, provider_id: []const u8) void {
         const key = self.buildCompositeKey(app_type, provider_id) orelse return;
         defer self.allocator.free(key);
-        self.recordFailureByKey(key);
+        self.recordFailureByKey(io, key);
     }
 
     /// Check availability using "app_type:provider_id" composite key.
-    pub fn isAvailableForKey(self: *CircuitBreaker, app_type: []const u8, provider_id: []const u8) bool {
+    pub fn isAvailableForKey(self: *CircuitBreaker, io: std.Io, app_type: []const u8, provider_id: []const u8) bool {
         const key = self.buildCompositeKey(app_type, provider_id) orelse return true;
         defer self.allocator.free(key);
-        return self.isAvailable(key);
+        return self.isAvailable(io, key);
     }
 
     // ===== Internal helpers for string-key methods =====
@@ -350,12 +351,15 @@ pub const CircuitBreaker = struct {
         return key;
     }
 
-    fn recordSuccessByKey(self: *CircuitBreaker, key: []const u8) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    fn recordSuccessByKey(self: *CircuitBreaker, io: std.Io, key: []const u8) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
-        var data = self.circuits.getOrPut(key) catch return;
+        var data = self.circuits.getOrPut(self.allocator, key) catch return;
         if (!data.found_existing) {
+            // Dupe the key so the hash map owns it
+            const owned_key = self.allocator.dupe(u8, key) catch return;
+            data.key_ptr.* = owned_key;
             data.value_ptr.* = .{};
         }
 
@@ -369,7 +373,7 @@ pub const CircuitBreaker = struct {
             .half_open => {
                 data.value_ptr.consecutive_successes += 1;
                 if (data.value_ptr.consecutive_successes >= self.config.half_open_success_threshold) {
-                    self.transitionState(key, .closed);
+                    self.transitionState(io, key, .closed);
                     // Clear half-open permits on close
                     _ = self.half_open_permits.fetchSwapRemove(key);
                 }
@@ -380,28 +384,31 @@ pub const CircuitBreaker = struct {
         }
     }
 
-    fn recordFailureByKey(self: *CircuitBreaker, key: []const u8) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    fn recordFailureByKey(self: *CircuitBreaker, io: std.Io, key: []const u8) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
-        var data = self.circuits.getOrPut(key) catch return;
+        var data = self.circuits.getOrPut(self.allocator, key) catch return;
         if (!data.found_existing) {
+            // Dupe the key so the hash map owns it
+            const owned_key = self.allocator.dupe(u8, key) catch return;
+            data.key_ptr.* = owned_key;
             data.value_ptr.* = .{};
         }
 
         data.value_ptr.total_requests += 1;
         data.value_ptr.total_failures += 1;
         data.value_ptr.consecutive_failures += 1;
-        data.value_ptr.last_failure_time = std.time.timestamp();
+        data.value_ptr.last_failure_time = time_compat.timestamp(io);
 
         switch (data.value_ptr.state) {
             .closed => {
                 if (data.value_ptr.consecutive_failures >= self.config.failure_threshold) {
-                    self.transitionState(key, .open);
+                    self.transitionState(io, key, .open);
                 }
             },
             .half_open => {
-                self.transitionState(key, .open);
+                self.transitionState(io, key, .open);
                 // Clear half-open permits on re-open
                 _ = self.half_open_permits.fetchSwapRemove(key);
             },
@@ -411,6 +418,7 @@ pub const CircuitBreaker = struct {
 };
 
 test "circuit breaker - initial state" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -419,10 +427,11 @@ test "circuit breaker - initial state" {
     defer cb.deinit();
 
     // Circuit should be closed (allow requests)
-    try std.testing.expect(!cb.isOpen(.openai));
+    try std.testing.expect(!cb.isOpen(io, .openai));
 }
 
 test "circuit breaker - opens after threshold" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -431,17 +440,18 @@ test "circuit breaker - opens after threshold" {
     defer cb.deinit();
 
     // Record 3 failures
-    cb.recordFailure(.openai);
-    try std.testing.expect(!cb.isOpen(.openai)); // Still closed until threshold reached
+    cb.recordFailure(io, .openai);
+    try std.testing.expect(!cb.isOpen(io, .openai)); // Still closed until threshold reached
 
-    cb.recordFailure(.openai);
-    try std.testing.expect(!cb.isOpen(.openai));
+    cb.recordFailure(io, .openai);
+    try std.testing.expect(!cb.isOpen(io, .openai));
 
-    cb.recordFailure(.openai);
-    try std.testing.expect(cb.isOpen(.openai)); // Now open
+    cb.recordFailure(io, .openai);
+    try std.testing.expect(cb.isOpen(io, .openai)); // Now open
 }
 
 test "circuit breaker - success resets failure count" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -450,21 +460,22 @@ test "circuit breaker - success resets failure count" {
     defer cb.deinit();
 
     // Record 2 failures
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
 
     // Success resets
-    cb.recordSuccess(.openai);
+    cb.recordSuccess(io, .openai);
 
     // Now record 3 more failures - should still open
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
 
-    try std.testing.expect(cb.isOpen(.openai));
+    try std.testing.expect(cb.isOpen(io, .openai));
 }
 
 test "circuit breaker - getState" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 2,
@@ -472,14 +483,15 @@ test "circuit breaker - getState" {
     });
     defer cb.deinit();
 
-    try std.testing.expect(cb.getState(.openai) == .closed);
+    try std.testing.expect(cb.getState(io, .openai) == .closed);
 
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
-    try std.testing.expect(cb.getState(.openai) == .open);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
+    try std.testing.expect(cb.getState(io, .openai) == .open);
 }
 
 test "circuit breaker - forceState" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -488,12 +500,13 @@ test "circuit breaker - forceState" {
     defer cb.deinit();
 
     // Force to half-open
-    cb.forceState(.openai, .half_open);
-    try std.testing.expect(cb.getState(.openai) == .half_open);
-    try std.testing.expect(!cb.isOpen(.openai)); // Half-open allows requests
+    cb.forceState(io, .openai, .half_open);
+    try std.testing.expect(cb.getState(io, .openai) == .half_open);
+    try std.testing.expect(!cb.isOpen(io, .openai)); // Half-open allows requests
 }
 
 test "circuit breaker - half open to closed" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -503,24 +516,25 @@ test "circuit breaker - half open to closed" {
     defer cb.deinit();
 
     // Open the circuit
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
-    try std.testing.expect(cb.getState(.openai) == .open);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
+    try std.testing.expect(cb.getState(io, .openai) == .open);
 
     // Force to half-open to simulate recovery timeout
-    cb.forceState(.openai, .half_open);
-    try std.testing.expect(cb.getState(.openai) == .half_open);
+    cb.forceState(io, .openai, .half_open);
+    try std.testing.expect(cb.getState(io, .openai) == .half_open);
 
     // Record successes in half-open
-    cb.recordSuccess(.openai);
-    try std.testing.expect(cb.getState(.openai) == .half_open);
+    cb.recordSuccess(io, .openai);
+    try std.testing.expect(cb.getState(io, .openai) == .half_open);
 
-    cb.recordSuccess(.openai);
-    try std.testing.expect(cb.getState(.openai) == .closed);
+    cb.recordSuccess(io, .openai);
+    try std.testing.expect(cb.getState(io, .openai) == .closed);
 }
 
 test "circuit breaker - half open failure reopens" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -529,19 +543,20 @@ test "circuit breaker - half open failure reopens" {
     defer cb.deinit();
 
     // Open the circuit
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
-    cb.recordFailure(.openai);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .openai);
 
     // Force to half-open
-    cb.forceState(.openai, .half_open);
+    cb.forceState(io, .openai, .half_open);
 
     // Failure in half-open reopens
-    cb.recordFailure(.openai);
-    try std.testing.expect(cb.getState(.openai) == .open);
+    cb.recordFailure(io, .openai);
+    try std.testing.expect(cb.getState(io, .openai) == .open);
 }
 
 test "circuit breaker - stats tracking" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 3,
@@ -549,11 +564,11 @@ test "circuit breaker - stats tracking" {
     });
     defer cb.deinit();
 
-    cb.recordSuccess(.openai);
-    cb.recordSuccess(.openai);
-    cb.recordFailure(.openai);
+    cb.recordSuccess(io, .openai);
+    cb.recordSuccess(io, .openai);
+    cb.recordFailure(io, .openai);
 
-    const stats = cb.getStats(.openai);
+    const stats = cb.getStats(io, .openai);
     try std.testing.expect(stats != null);
     try std.testing.expect(stats.?.total_requests == 3);
     try std.testing.expect(stats.?.total_successes == 2);
@@ -561,6 +576,7 @@ test "circuit breaker - stats tracking" {
 }
 
 test "circuit breaker - getCircuitsByState" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 1,
@@ -569,16 +585,17 @@ test "circuit breaker - getCircuitsByState" {
     defer cb.deinit();
 
     // Open multiple circuits
-    cb.recordFailure(.openai); // Opens
-    cb.recordFailure(.anthropic); // Opens
+    cb.recordFailure(io, .openai); // Opens
+    cb.recordFailure(io, .anthropic); // Opens
 
-    cb.forceState(.google, .half_open);
+    cb.forceState(io, .google, .half_open);
 
     const open_circuits = cb.getCircuitsByState(.open);
     try std.testing.expect(open_circuits.len == 2);
 }
 
 test "circuit breaker - resetAll" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 1,
@@ -587,21 +604,22 @@ test "circuit breaker - resetAll" {
     defer cb.deinit();
 
     // Open circuits
-    cb.recordFailure(.openai);
-    cb.recordFailure(.anthropic);
-    cb.recordFailure(.google);
+    cb.recordFailure(io, .openai);
+    cb.recordFailure(io, .anthropic);
+    cb.recordFailure(io, .google);
 
     // Reset all
-    cb.resetAll();
+    cb.resetAll(io);
 
-    try std.testing.expect(cb.getState(.openai) == .closed);
-    try std.testing.expect(cb.getState(.anthropic) == .closed);
-    try std.testing.expect(cb.getState(.google) == .closed);
+    try std.testing.expect(cb.getState(io, .openai) == .closed);
+    try std.testing.expect(cb.getState(io, .anthropic) == .closed);
+    try std.testing.expect(cb.getState(io, .google) == .closed);
 }
 
 // ===== New tests for enhanced circuit breaker =====
 
 test "circuit breaker - isAvailable does not change state" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 2,
@@ -612,11 +630,11 @@ test "circuit breaker - isAvailable does not change state" {
     const key = "test_key";
 
     // For a closed circuit, isAvailable should return true
-    const result1 = cb.isAvailable(key);
+    const result1 = cb.isAvailable(io, key);
     try std.testing.expect(result1 == true);
 
     // Call again - same result, no state change
-    const result2 = cb.isAvailable(key);
+    const result2 = cb.isAvailable(io, key);
     try std.testing.expect(result2 == true);
 
     // No circuit data should have been created (isAvailable doesn't create entries)
@@ -624,8 +642,8 @@ test "circuit breaker - isAvailable does not change state" {
     try std.testing.expect(stats == null);
 
     // Now create a circuit with some state via recordFailureByKey
-    cb.recordFailureByKey(key);
-    cb.recordFailureByKey(key);
+    cb.recordFailureByKey(io, key);
+    cb.recordFailureByKey(io, key);
 
     // Should be open now
     {
@@ -635,11 +653,11 @@ test "circuit breaker - isAvailable does not change state" {
         const before_failures = data.total_failures;
 
         // isAvailable should return false (open, timeout not elapsed)
-        const avail1 = cb.isAvailable(key);
+        const avail1 = cb.isAvailable(io, key);
         try std.testing.expect(avail1 == false);
 
         // Call again - same result
-        const avail2 = cb.isAvailable(key);
+        const avail2 = cb.isAvailable(io, key);
         try std.testing.expect(avail2 == false);
 
         // Counters should not have changed
@@ -650,6 +668,7 @@ test "circuit breaker - isAvailable does not change state" {
 }
 
 test "circuit breaker - allowRequest limits HalfOpen to 1 concurrent permit" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 2,
@@ -661,30 +680,31 @@ test "circuit breaker - allowRequest limits HalfOpen to 1 concurrent permit" {
     const key = "test_key";
 
     // Create a circuit and force to half-open
-    cb.lock.lock();
-    cb.circuits.put(key, .{ .state = .half_open }) catch {};
-    cb.lock.unlock();
+    try cb.lock.lock(io);
+    cb.circuits.put(allocator, key, .{ .state = .half_open }) catch {};
+    cb.lock.unlock(io);
 
     // First allowRequest should succeed with half_open permit
-    const result1 = cb.allowRequest(key);
+    const result1 = cb.allowRequest(io, key);
     try std.testing.expect(result1.allowed == true);
     try std.testing.expect(result1.used_half_open_permit == true);
 
     // Second allowRequest should be denied (max 1 permit)
-    const result2 = cb.allowRequest(key);
+    const result2 = cb.allowRequest(io, key);
     try std.testing.expect(result2.allowed == false);
     try std.testing.expect(result2.used_half_open_permit == false);
 
     // Release the permit
-    cb.releasePermitNeutral(key);
+    cb.releasePermitNeutral(io, key);
 
     // Now should be allowed again
-    const result3 = cb.allowRequest(key);
+    const result3 = cb.allowRequest(io, key);
     try std.testing.expect(result3.allowed == true);
     try std.testing.expect(result3.used_half_open_permit == true);
 }
 
 test "circuit breaker - releasePermitNeutral releases permit without affecting counters" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 2,
@@ -696,17 +716,17 @@ test "circuit breaker - releasePermitNeutral releases permit without affecting c
     const key = "test_key";
 
     // Create a circuit in half-open with some stats
-    cb.lock.lock();
-    cb.circuits.put(key, .{
+    try cb.lock.lock(io);
+    cb.circuits.put(allocator, key, .{
         .state = .half_open,
         .total_requests = 5,
         .total_successes = 3,
         .total_failures = 2,
     }) catch {};
-    cb.lock.unlock();
+    cb.lock.unlock(io);
 
     // Acquire a permit
-    const result = cb.allowRequest(key);
+    const result = cb.allowRequest(io, key);
     try std.testing.expect(result.allowed == true);
 
     // Record counters before release
@@ -716,7 +736,7 @@ test "circuit breaker - releasePermitNeutral releases permit without affecting c
     const before_failures = before.total_failures;
 
     // Release permit neutrally
-    cb.releasePermitNeutral(key);
+    cb.releasePermitNeutral(io, key);
 
     // Counters should be unchanged
     const after = cb.circuits.get(key).?;
@@ -725,11 +745,12 @@ test "circuit breaker - releasePermitNeutral releases permit without affecting c
     try std.testing.expect(after.total_failures == before_failures);
 
     // Permit should be released (can acquire again)
-    const result2 = cb.allowRequest(key);
+    const result2 = cb.allowRequest(io, key);
     try std.testing.expect(result2.allowed == true);
 }
 
 test "circuit breaker - updateConfig preserves state" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 2,
@@ -740,8 +761,8 @@ test "circuit breaker - updateConfig preserves state" {
     const key = "test_key";
 
     // Build up some state
-    cb.recordFailureByKey(key);
-    cb.recordFailureByKey(key);
+    cb.recordFailureByKey(io, key);
+    cb.recordFailureByKey(io, key);
 
     // Should be open
     {
@@ -752,7 +773,7 @@ test "circuit breaker - updateConfig preserves state" {
     }
 
     // Update config
-    cb.updateConfig(.{
+    cb.updateConfig(io, .{
         .failure_threshold = 10,
         .recovery_timeout_ms = 120000,
         .error_rate_threshold = 0.8,
@@ -775,6 +796,7 @@ test "circuit breaker - updateConfig preserves state" {
 }
 
 test "circuit breaker - ForKey methods work with composite keys independently" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 2,
@@ -783,17 +805,17 @@ test "circuit breaker - ForKey methods work with composite keys independently" {
     defer cb.deinit();
 
     // Record failures for one composite key
-    cb.recordFailureForKey("claude", "provider_a");
-    cb.recordFailureForKey("claude", "provider_a");
+    cb.recordFailureForKey(io, "claude", "provider_a");
+    cb.recordFailureForKey(io, "claude", "provider_a");
 
     // Record success for a different composite key
-    cb.recordSuccessForKey("codex", "provider_b");
+    cb.recordSuccessForKey(io, "codex", "provider_b");
 
     // "claude:provider_a" should be open (2 failures >= threshold 2)
-    try std.testing.expect(cb.isAvailableForKey("claude", "provider_a") == false);
+    try std.testing.expect(cb.isAvailableForKey(io, "claude", "provider_a") == false);
 
     // "codex:provider_b" should be available (only successes)
-    try std.testing.expect(cb.isAvailableForKey("codex", "provider_b") == true);
+    try std.testing.expect(cb.isAvailableForKey(io, "codex", "provider_b") == true);
 
     // Verify stats for "claude:provider_a"
     const key_a = "claude:provider_a";
@@ -811,6 +833,7 @@ test "circuit breaker - ForKey methods work with composite keys independently" {
 }
 
 test "circuit breaker - allowRequest on closed circuit" {
+    const io = std.testing.io;
     const allocator = std.heap.page_allocator;
     var cb = CircuitBreaker.init(allocator, .{
         .failure_threshold = 4,
@@ -819,7 +842,7 @@ test "circuit breaker - allowRequest on closed circuit" {
     defer cb.deinit();
 
     // Closed circuit should always allow
-    const result = cb.allowRequest("any_key");
+    const result = cb.allowRequest(io, "any_key");
     try std.testing.expect(result.allowed == true);
     try std.testing.expect(result.used_half_open_permit == false);
 }
@@ -831,4 +854,91 @@ test "circuit breaker - config defaults" {
     try std.testing.expect(config.error_rate_threshold == 0.6);
     try std.testing.expect(config.min_requests == 10);
     try std.testing.expect(config.half_open_max_permits == 1);
+}
+
+// ============================================================================
+// Property-Based Tests
+// ============================================================================
+
+// **Feature: zig-016-upgrade, Property 4: 熔断器状态转换正确性**
+// Verify that:
+//   (a) consecutive failures reaching threshold transitions closed→open
+//   (b) consecutive successes reaching threshold in half_open transitions→closed
+//   (c) any failure in half_open immediately transitions→open
+// This property must hold after migrating to the new io time API.
+//
+// **Validates: Requirements 3.1, 3.9**
+test "Property 4: circuit breaker state transitions correctness" {
+    const io = std.testing.io;
+    const allocator = std.heap.page_allocator;
+
+    // Test across a range of threshold configurations
+    const failure_thresholds = [_]u32{ 1, 2, 3, 5, 8, 10 };
+    const success_thresholds = [_]u32{ 1, 2, 3, 4, 5 };
+
+    for (failure_thresholds) |ft| {
+        for (success_thresholds) |st| {
+            var cb = CircuitBreaker.init(allocator, .{
+                .failure_threshold = ft,
+                .recovery_timeout_ms = 60000,
+                .half_open_success_threshold = st,
+            });
+            defer cb.deinit();
+
+            const key = "prop_test_key";
+
+            // (a) closed→open: consecutive failures reaching threshold
+            // Start in closed state (default)
+            var i: u32 = 0;
+            while (i < ft) : (i += 1) {
+                if (i < ft - 1) {
+                    cb.recordFailureByKey(io, key);
+                    const data = cb.circuits.get(key).?;
+                    try std.testing.expect(data.state == .closed);
+                } else {
+                    // The ft-th failure should trigger transition to open
+                    cb.recordFailureByKey(io, key);
+                    const data = cb.circuits.get(key).?;
+                    try std.testing.expect(data.state == .open);
+                }
+            }
+
+            // (c) half_open→open: any failure in half_open immediately reopens
+            try cb.lock.lock(io);
+            if (cb.circuits.getPtr(key)) |data| {
+                data.state = .half_open;
+                data.consecutive_failures = 0;
+                data.consecutive_successes = 0;
+            }
+            cb.lock.unlock(io);
+
+            cb.recordFailureByKey(io, key);
+            {
+                const data = cb.circuits.get(key).?;
+                try std.testing.expect(data.state == .open);
+            }
+
+            // (b) half_open→closed: consecutive successes reaching threshold
+            try cb.lock.lock(io);
+            if (cb.circuits.getPtr(key)) |data| {
+                data.state = .half_open;
+                data.consecutive_failures = 0;
+                data.consecutive_successes = 0;
+            }
+            cb.lock.unlock(io);
+
+            var j: u32 = 0;
+            while (j < st) : (j += 1) {
+                if (j < st - 1) {
+                    cb.recordSuccessByKey(io, key);
+                    const data = cb.circuits.get(key).?;
+                    try std.testing.expect(data.state == .half_open);
+                } else {
+                    cb.recordSuccessByKey(io, key);
+                    const data = cb.circuits.get(key).?;
+                    try std.testing.expect(data.state == .closed);
+                }
+            }
+        }
+    }
 }

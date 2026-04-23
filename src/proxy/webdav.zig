@@ -6,6 +6,33 @@
 //! Supported servers: Nextcloud, ownCloud, Synology, QNAP, etc.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const http = @import("http");
 
 /// WebDAV error types
@@ -144,15 +171,15 @@ fn isLeapYear(year: i64) bool {
 pub const WebDavSyncState = struct {
     allocator: std.mem.Allocator,
     base_path: []const u8,
-    version_db: std.StringArrayHashMap(VersionDbEntry),
-    daily_rollups: std.StringArrayHashMap(DailyRollup),
+    version_db: StringArrayHashMap(VersionDbEntry),
+    daily_rollups: StringArrayHashMap(DailyRollup),
 
-    pub fn init(allocator: std.mem.Allocator, base_path: []const u8) !WebDavSyncState {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, base_path: []const u8) !WebDavSyncState {
         return .{
             .allocator = allocator,
             .base_path = try allocator.dupe(u8, base_path),
-            .version_db = std.StringArrayHashMap(VersionDbEntry).init(allocator),
-            .daily_rollups = std.StringArrayHashMap(DailyRollup).init(allocator),
+            .version_db = StringArrayHashMap(VersionDbEntry).init(allocator),
+            .daily_rollups = StringArrayHashMap(DailyRollup).init(allocator),
         };
     }
 
@@ -164,7 +191,7 @@ pub const WebDavSyncState = struct {
 
     /// Get current date string
     fn getDateStr(self: *WebDavSyncState) []u8 {
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         return timestampToDateString(now, self.allocator) catch return "";
     }
 
@@ -202,7 +229,7 @@ pub const WebDavSyncState = struct {
         if (is_conflict) {
             // Conflict: save as {date}_{path}_{version}.conflict
             return std.fmt.allocPrint(self.allocator, "{s}/{s}/{s}_{d}.conflict", .{
-                self.base_path, date_str, stem, std.time.timestamp(),
+                self.base_path, date_str, stem, time_compat.timestamp(self.io),
             });
         } else {
             // Normal: save as {date}/{path}
@@ -238,10 +265,12 @@ pub const WebDavConfig = struct {
 /// WebDAV client
 pub const WebDavClient = struct {
     allocator: std.mem.Allocator,
+pub const WebDavClient = struct {
+    io: std.Io,
     config: WebDavConfig,
     http_client: http.HttpClient,
 
-    pub fn init(allocator: std.mem.Allocator, config: WebDavConfig) WebDavClient {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: WebDavConfig) WebDavClient {
         return .{
             .allocator = allocator,
             .config = config,
@@ -331,7 +360,7 @@ pub const WebDavClient = struct {
         defer response.deinit();
 
         // Read response body
-        const response_body = try response.body.readAllAlloc(self.allocator, 10_000_000);
+        const response_body = try response.body.allocRemaining(self.allocator, .limited(10_000_000));
         return response_body;
     }
 
@@ -346,7 +375,7 @@ pub const WebDavClient = struct {
             // Find href tags
             if (std.mem.startsWith(u8, xml[i..], "<d:href>")) {
                 i += 9; // skip "<d:href>"
-                const end = std.mem.indexOf(u8, xml[i..], "</d:href>") orelse {
+                const end = std.mem.find(u8, xml[i..], "</d:href>") orelse {
                     i += 1;
                     continue;
                 };
@@ -356,8 +385,8 @@ pub const WebDavClient = struct {
                 // Check if next tag is collection (directory)
                 var is_dir = false;
                 const remaining = xml[i..];
-                if (std.mem.indexOf(u8, remaining, "<d:collection") != null or
-                    std.mem.indexOf(u8, remaining, "<d:resourcetype><d:collection") != null)
+                if (std.mem.find(u8, remaining, "<d:collection") != null or
+                    std.mem.find(u8, remaining, "<d:resourcetype><d:collection") != null)
                 {
                     is_dir = true;
                 }
@@ -387,7 +416,7 @@ pub const WebDavClient = struct {
     ) ![]u8 {
         _ = mtime; // mtime stored in version db, not on remote
         // Create daily path: {base_path}/{YYYY-MM-DD}/{filename}
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         const date_str = try timestampToDateString(now, self.allocator);
         defer self.allocator.free(date_str);
 
@@ -429,7 +458,7 @@ pub const WebDavClient = struct {
 
         if (is_conflict) {
             // Conflict: upload local as .conflict, then upload new
-            const now = std.time.timestamp();
+            const now = time_compat.timestamp(self.io);
             const basename = std.fs.path.basename(local_path);
             const ext = std.fs.path.extension(basename);
             const stem = basename[0 .. basename.len - ext.len];
@@ -702,7 +731,7 @@ pub const WebDavSyncEngine = struct {
     local_base_path: []const u8,
     remote_base_path: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, client: WebDavClient, local_base_path: []const u8, remote_base_path: []const u8) WebDavSyncEngine {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, client: WebDavClient, local_base_path: []const u8, remote_base_path: []const u8) WebDavSyncEngine {
         return .{
             .allocator = allocator,
             .client = client,
@@ -732,22 +761,22 @@ pub const WebDavSyncEngine = struct {
         defer self.allocator.free(remote_path);
 
         // Read local file
-        const file = std.fs.openFileAbsolute(local_path, .{}) catch {
+        const file = std.Io.Dir.openFileAbsolute(self.io, local_path, .{}) catch {
             return SyncStatus{
                 .success = false,
                 .bytes_transferred = 0,
                 .error_message = "Local file not found",
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(self.io),
             };
         };
-        defer file.close();
+        defer file.close(self.io);
 
-        const content = file.readToEndAlloc(self.allocator, 10_000_000) catch {
+        const content = blk: { var __buf: [8192]u8 = undefined; var __reader = file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(10_000_000)); } catch {
             return SyncStatus{
                 .success = false,
                 .bytes_transferred = 0,
                 .error_message = "Failed to read local file",
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(self.io),
             };
         };
         defer self.allocator.free(content);
@@ -758,7 +787,7 @@ pub const WebDavSyncEngine = struct {
                 .success = false,
                 .bytes_transferred = 0,
                 .error_message = @errorName(e),
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(self.io),
             };
         };
 
@@ -766,7 +795,7 @@ pub const WebDavSyncEngine = struct {
             .success = true,
             .bytes_transferred = @intCast(content.len),
             .error_message = null,
-            .timestamp = std.time.timestamp(),
+            .timestamp = time_compat.timestamp(self.io),
         };
     }
 
@@ -792,28 +821,28 @@ pub const WebDavSyncEngine = struct {
                 .success = false,
                 .bytes_transferred = 0,
                 .error_message = @errorName(e),
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(self.io),
             };
         };
         defer self.allocator.free(content);
 
         // Write to local file
-        const file = std.fs.createFileAbsolute(local_path, .{}) catch {
+        const file = std.Io.Dir.createFileAbsolute(self.io, local_path, .{}) catch {
             return SyncStatus{
                 .success = false,
                 .bytes_transferred = 0,
                 .error_message = "Failed to create local file",
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(self.io),
             };
         };
-        defer file.close();
+        defer file.close(self.io);
 
-        file.writeAll(content) catch {
+        file.writeStreamingAll(self.io, content) catch {
             return SyncStatus{
                 .success = false,
                 .bytes_transferred = 0,
                 .error_message = "Failed to write local file",
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(self.io),
             };
         };
 
@@ -821,7 +850,7 @@ pub const WebDavSyncEngine = struct {
             .success = true,
             .bytes_transferred = @intCast(content.len),
             .error_message = null,
-            .timestamp = std.time.timestamp(),
+            .timestamp = time_compat.timestamp(self.io),
         };
     }
 
@@ -838,10 +867,10 @@ pub const WebDavSyncEngine = struct {
         defer self.allocator.free(local_dir);
 
         // List local directory
-        const dir = std.fs.openDirAbsolute(local_dir, .{ .iterate = true }) catch {
+        const dir = std.Io.Dir.openDirAbsolute(self.io, local_dir, .{ .iterate = true }) catch {
             return results.toOwnedSlice();
         };
-        defer dir.close();
+        defer dir.close(self.io);
 
         var it = dir.iterate();
         while (try it.next()) |entry| {
@@ -862,7 +891,7 @@ pub const WebDavSyncEngine = struct {
                             .success = false,
                             .bytes_transferred = 0,
                             .error_message = @errorName(e),
-                            .timestamp = std.time.timestamp(),
+                            .timestamp = time_compat.timestamp(self.io),
                         }) catch {};
                         continue;
                     };

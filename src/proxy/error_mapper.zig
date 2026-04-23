@@ -144,7 +144,7 @@ pub fn formatErrorResponse(
     try result.appendSlice(allocator, "\",\"message\":\"");
     try appendJsonEscaped(&result, allocator, message);
     try result.appendSlice(allocator, "\",\"status\":");
-    try std.fmt.format(result.writer(allocator), "{d}", .{status});
+    try result.print(allocator, "{d}", .{status});
 
     if (upstream_msg) |um| {
         try result.appendSlice(allocator, ",\"upstream_message\":\"");

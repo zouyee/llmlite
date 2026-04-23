@@ -9,6 +9,7 @@
 //!   const latency = ctx.latencyMs();
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 
 /// Per-request context carrying app type, format, provider info, and timing.
 pub const RequestContext = struct {
@@ -23,17 +24,17 @@ pub const RequestContext = struct {
     tag: []const u8 = "unknown",
 
     /// Create a new RequestContext with the given app type and detected format.
-    pub fn init(app_type: AppType, format: ApiFormat) RequestContext {
+    pub fn init(io: std.Io, app_type: AppType, format: ApiFormat) RequestContext {
         return .{
             .app_type = app_type,
             .detected_format = format,
-            .start_time = std.time.timestamp(),
+            .start_time = time_compat.timestamp(io),
         };
     }
 
     /// Calculate elapsed time in milliseconds since request start.
-    pub fn latencyMs(self: *const RequestContext) u64 {
-        const now = std.time.timestamp();
+    pub fn latencyMs(self: *const RequestContext, io: std.Io) u64 {
+        const now = time_compat.timestamp(io);
         const diff = now - self.start_time;
         return if (diff > 0) @intCast(diff * 1000) else 0;
     }
@@ -66,7 +67,8 @@ pub const ApiFormat = enum {
 // ============================================================================
 
 test "request_context - init sets app_type and format" {
-    const ctx = RequestContext.init(.claude, .anthropic);
+    const io = std.testing.io;
+    const ctx = RequestContext.init(io, .claude, .anthropic);
     try std.testing.expectEqual(AppType.claude, ctx.app_type);
     try std.testing.expectEqual(ApiFormat.anthropic, ctx.detected_format);
     try std.testing.expect(ctx.start_time > 0);
@@ -79,39 +81,44 @@ test "request_context - init sets app_type and format" {
 }
 
 test "request_context - init with different app types" {
+    const io = std.testing.io;
     const types = [_]AppType{ .claude, .codex, .gemini, .kiro, .cursor, .kimi, .minimax, .unknown };
     for (types) |app_type| {
-        const ctx = RequestContext.init(app_type, .openai_chat);
+        const ctx = RequestContext.init(io, app_type, .openai_chat);
         try std.testing.expectEqual(app_type, ctx.app_type);
         try std.testing.expectEqual(ApiFormat.openai_chat, ctx.detected_format);
     }
 }
 
 test "request_context - init with different formats" {
+    const io = std.testing.io;
     const formats = [_]ApiFormat{ .anthropic, .openai_chat, .openai_responses };
     for (formats) |format| {
-        const ctx = RequestContext.init(.codex, format);
+        const ctx = RequestContext.init(io, .codex, format);
         try std.testing.expectEqual(format, ctx.detected_format);
     }
 }
 
 test "request_context - latencyMs returns zero or positive" {
-    const ctx = RequestContext.init(.claude, .anthropic);
-    const latency = ctx.latencyMs();
+    const io = std.testing.io;
+    const ctx = RequestContext.init(io, .claude, .anthropic);
+    const latency = ctx.latencyMs(io);
     // Since we just created it, latency should be 0 (sub-second)
     try std.testing.expect(latency == 0 or latency > 0);
 }
 
 test "request_context - latencyMs with past start_time" {
-    var ctx = RequestContext.init(.claude, .anthropic);
+    const io = std.testing.io;
+    var ctx = RequestContext.init(io, .claude, .anthropic);
     // Simulate a request that started 2 seconds ago
-    ctx.start_time = std.time.timestamp() - 2;
-    const latency = ctx.latencyMs();
+    ctx.start_time = time_compat.timestamp(io) - 2;
+    const latency = ctx.latencyMs(io);
     try std.testing.expect(latency >= 1000); // at least 1 second
 }
 
 test "request_context - optional fields can be set" {
-    var ctx = RequestContext.init(.gemini, .openai_responses);
+    const io = std.testing.io;
+    var ctx = RequestContext.init(io, .gemini, .openai_responses);
     ctx.session_id = "sess-123";
     ctx.provider_id = "provider-abc";
     ctx.provider_name = "anthropic";

@@ -15,6 +15,33 @@
 //! - ACID-like semantics via atomic file operations
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const preset = @import("preset");
 const mcp_manager = @import("mcp_manager");
 const sync_engine = @import("sync_engine");
@@ -50,8 +77,10 @@ pub const DbConfig = struct {
 /// Main database struct
 pub const Database = struct {
     allocator: std.mem.Allocator,
+pub const Database = struct {
+    io: std.Io,
     config: DbConfig,
-    mutex: std.Thread.Mutex,
+    mutex: std.Io.Mutex,
 
     // Paths
     providers_path: []const u8,
@@ -61,12 +90,12 @@ pub const Database = struct {
     config_file_path: []const u8,
 
     // In-memory caches (loaded on init)
-    providers: std.StringArrayHashMap(ProviderRecord),
-    mcp_servers: std.StringArrayHashMap(McpServerRecord),
-    sync_items: std.StringArrayHashMap(SyncItemRecord),
+    providers: StringArrayHashMap(ProviderRecord),
+    mcp_servers: StringArrayHashMap(McpServerRecord),
+    sync_items: StringArrayHashMap(SyncItemRecord),
     global_config: GlobalConfig,
 
-    pub fn init(allocator: std.mem.Allocator, config: DbConfig) !Database {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: DbConfig) !Database {
         const base_path = try allocator.dupe(u8, config.base_path);
         errdefer allocator.free(base_path);
 
@@ -88,16 +117,17 @@ pub const Database = struct {
 
         var db = Database{
             .allocator = allocator,
+            .io = io,
             .config = config,
-            .mutex = std.Thread.Mutex{},
+            .mutex = std.Io.Mutex.init,
             .providers_path = providers_path,
             .mcp_servers_path = mcp_servers_path,
             .sync_items_path = sync_items_path,
             .sessions_dir = sessions_dir,
             .config_file_path = config_file_path,
-            .providers = std.StringArrayHashMap(ProviderRecord).init(allocator),
-            .mcp_servers = std.StringArrayHashMap(McpServerRecord).init(allocator),
-            .sync_items = std.StringArrayHashMap(SyncItemRecord).init(allocator),
+            .providers = StringArrayHashMap(ProviderRecord).init(allocator),
+            .mcp_servers = StringArrayHashMap(McpServerRecord).init(allocator),
+            .sync_items = StringArrayHashMap(SyncItemRecord).init(allocator),
             .global_config = .{},
         };
 
@@ -114,8 +144,8 @@ pub const Database = struct {
     }
 
     pub fn deinit(self: *Database) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        while (!self.mutex.tryLock()) {}
+        defer self.mutex.state.store(.unlocked, .release);
 
         self.allocator.free(self.config.base_path);
         self.allocator.free(self.providers_path);
@@ -152,8 +182,7 @@ pub const Database = struct {
     }
 
     fn ensureDir(self: *Database, path: []const u8) !void {
-        _ = self;
-        try std.fs.cwd().makePath(path);
+        try std.Io.Dir.cwd().createDirPath(self.io, path);
     }
 
     /// Load all data from disk
@@ -514,15 +543,15 @@ pub const Database = struct {
         );
         defer self.allocator.free(file_path);
 
-        std.fs.deleteFileAbsolute(file_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(self.io, file_path) catch {};
     }
 
     pub fn listSessions(self: *Database) ![]const []const u8 {
         var result = std.array_list.Managed([]const u8).init(self.allocator);
         errdefer result.deinit();
 
-        const dir = try std.fs.cwd().openDir(self.sessions_dir, .{ .iterate = true });
-        defer dir.close();
+        const dir = try std.Io.Dir.cwd().openDir(self.io, self.sessions_dir, .{ .iterate = true });
+        defer dir.close(self.io);
 
         var it = dir.iterate();
         while (try it.next()) |entry| {
@@ -540,16 +569,16 @@ pub const Database = struct {
     // ============ File Operations ============
 
     fn readFile(self: *Database, path: []const u8) ![]u8 {
-        const file = std.fs.cwd().openFile(path, .{}) catch {
+        const file = std.Io.Dir.cwd().openFile(self.io, path, .{}) catch {
             return DbError.FileNotFound;
         };
-        defer file.close();
+        defer file.close(self.io);
 
-        const stat = try file.stat();
+        const stat = try file.stat(self.io);
         const content = try self.allocator.alloc(u8, @intCast(stat.size));
         errdefer self.allocator.free(content);
 
-        const bytes_read = try file.readAll(content);
+        const bytes_read = try file.readPositionalAll(self.io, content, 0);
         if (bytes_read != stat.size) {
             return DbError.IoError;
         }
@@ -567,23 +596,23 @@ pub const Database = struct {
         const temp_path = try std.fmt.allocPrint(
             self.allocator,
             "{s}.tmp.{d}",
-            .{ path, std.time.timestamp() },
+            .{ path, time_compat.timestamp(self.io) },
         );
         defer self.allocator.free(temp_path);
 
         try self.writeFile(temp_path, content);
 
         // Atomic rename (fs.rename is atomic on POSIX)
-        try std.fs.cwd().rename(temp_path, path);
+        try std.Io.Dir.renameAbsolute(temp_path, path, self.io);
     }
 
-    fn writeFile(_: *Database, path: []const u8, content: []const u8) !void {
-        const file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
-        try file.writeAll(content);
+    fn writeFile(self: *Database, path: []const u8, content: []const u8) !void {
+        const file = try std.Io.Dir.cwd().createFile(self.io, path, .{});
+        defer file.close(self.io);
+        try file.writeStreamingAll(self.io, content);
 
         if (true) { // TODO: check config.sync_on_write
-            try file.sync();
+            try file.sync(self.io);
         }
     }
 };
@@ -648,12 +677,13 @@ pub const GlobalConfig = struct {
 
 test "database init and deinit" {
     const allocator = std.heap.page_allocator;
+    const io = std.testing.io;
     const test_dir = "/tmp/llmlite-db-test";
 
     // Clean up any existing test directory
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 
-    var db = try Database.init(allocator, .{
+    var db = try Database.init(allocator, io, .{
         .base_path = test_dir,
         .atomic_writes = true,
     });
@@ -665,22 +695,23 @@ test "database init and deinit" {
     try std.testing.expectEqual(@as(usize, 0), db.sync_items.count());
 
     // Clean up
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 }
 
 test "database providers CRUD" {
     const allocator = std.heap.page_allocator;
+    const io = std.testing.io;
     const test_dir = "/tmp/llmlite-db-providers-test";
 
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 
-    var db = try Database.init(allocator, .{
+    var db = try Database.init(allocator, io, .{
         .base_path = test_dir,
     });
     defer db.deinit();
 
     // Create a provider
-    const now = std.time.timestamp();
+    const now = time_compat.timestamp(io);
     try db.createProvider(.{
         .id = "openai-default",
         .name = "OpenAI",
@@ -720,16 +751,17 @@ test "database providers CRUD" {
     try std.testing.expectEqual(@as(usize, 0), db.providers.count());
 
     // Clean up
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 }
 
 test "database mcp servers CRUD" {
     const allocator = std.heap.page_allocator;
+    const io = std.testing.io;
     const test_dir = "/tmp/llmlite-db-mcp-test";
 
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 
-    var db = try Database.init(allocator, .{
+    var db = try Database.init(allocator, io, .{
         .base_path = test_dir,
     });
     defer db.deinit();
@@ -739,7 +771,7 @@ test "database mcp servers CRUD" {
         .name = "filesystem",
         .command = "npx",
         .args = &.{ "-y", "@modelcontextprotocol/server-filesystem" },
-        .env = std.StringArrayHashMap([]const u8).init(allocator),
+        .env = StringArrayHashMap([]const u8).init(allocator),
         .enabled = true,
         .auto_start = true,
     });
@@ -755,16 +787,17 @@ test "database mcp servers CRUD" {
     try std.testing.expectEqual(@as(usize, 0), db.mcp_servers.count());
 
     // Clean up
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 }
 
 test "database global config" {
     const allocator = std.heap.page_allocator;
+    const io = std.testing.io;
     const test_dir = "/tmp/llmlite-db-config-test";
 
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 
-    var db = try Database.init(allocator, .{
+    var db = try Database.init(allocator, io, .{
         .base_path = test_dir,
     });
     defer db.deinit();
@@ -783,7 +816,7 @@ test "database global config" {
     });
 
     // Reload and verify
-    var db2 = try Database.init(allocator, .{
+    var db2 = try Database.init(allocator, io, .{
         .base_path = test_dir,
     });
     defer db2.deinit();
@@ -794,5 +827,5 @@ test "database global config" {
     try std.testing.expectEqualStrings("openai-default", reloaded.default_provider.?);
 
     // Clean up
-    std.fs.deleteDirRecursive(test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(io, test_dir) catch {};
 }

@@ -3,6 +3,33 @@
 //! Handles /api/providers/* API endpoints for provider CRUD operations
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const types = @import("../types");
 
 pub const AuthType = enum {
@@ -47,13 +74,13 @@ pub const Provider = struct {
 
 pub const ProviderStore = struct {
     allocator: std.mem.Allocator,
-    providers: std.StringArrayHashMap(Provider),
+    providers: StringArrayHashMap(Provider),
     current_id: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator) ProviderStore {
         return .{
             .allocator = allocator,
-            .providers = std.StringArrayHashMap(Provider).init(allocator),
+            .providers = StringArrayHashMap(Provider).init(allocator),
             .current_id = null,
         };
     }
@@ -172,11 +199,13 @@ pub const ProviderStore = struct {
 
 pub const ProviderHandler = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     store: *ProviderStore,
 
-    pub fn init(allocator: std.mem.Allocator, store: *ProviderStore) ProviderHandler {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, store: *ProviderStore) ProviderHandler {
         return .{
             .allocator = allocator,
+            .io = io,
             .store = store,
         };
     }
@@ -259,7 +288,7 @@ pub const ProviderHandler = struct {
     }
 
     fn handleCreateProvider(self: *ProviderHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const create_req = std.json.parseFromSlice(
@@ -277,7 +306,7 @@ pub const ProviderHandler = struct {
         };
         defer create_req.deinit();
 
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         const provider = Provider{
             .id = create_req.value.id,
             .name = create_req.value.name,
@@ -338,7 +367,7 @@ pub const ProviderHandler = struct {
 
     fn handleUpdateProvider(self: *ProviderHandler, request: *std.http.Server.Request) !void {
         const path = request.path();
-        const id_start = std.mem.indexOf(u8, path, "/").?;
+        const id_start = std.mem.find(u8, path, "/").?;
         const id = path[id_start + 1 ..];
 
         const existing = self.store.get(id) orelse {
@@ -350,7 +379,7 @@ pub const ProviderHandler = struct {
             return;
         };
 
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const update_req = std.json.parseFromSlice(
@@ -383,7 +412,7 @@ pub const ProviderHandler = struct {
             .enabled = update_req.value.enabled orelse existing.enabled,
             .sort_order = update_req.value.sort_order orelse existing.sort_order,
             .created_at = existing.created_at,
-            .updated_at = std.time.timestamp(),
+            .updated_at = time_compat.timestamp(self.io),
             .metadata = update_req.value.metadata orelse existing.metadata,
         };
 
@@ -430,7 +459,7 @@ pub const ProviderHandler = struct {
         const remainder = path[17..]; // Skip "/api/providers/"
 
         // Parse: /api/providers/{id}/action
-        const slash_idx = std.mem.indexOf(u8, remainder, "/") orelse {
+        const slash_idx = std.mem.find(u8, remainder, "/") orelse {
             try request.respond(.{
                 .status = .bad_request,
                 .content_type = .json,
@@ -490,13 +519,13 @@ pub const ProviderHandler = struct {
         };
 
         // Simple connectivity test - just check if base_url responds
-        const start_time = std.time.timestamp();
+        const start_time = time_compat.timestamp(self.io);
 
         // For now, return a mock success response
         // TODO: Actually test the connection by making a real HTTP request
         _ = provider;
 
-        const latency_ms = @as(u64, @intCast(std.time.timestamp() - start_time));
+        const latency_ms = @as(u64, @intCast(time_compat.timestamp(self.io) - start_time));
 
         const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .success = true,
@@ -513,7 +542,7 @@ pub const ProviderHandler = struct {
     }
 
     fn handleSortProviders(self: *ProviderHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const sort_req = std.json.parseFromSlice(
@@ -637,7 +666,7 @@ pub const ProviderHandler = struct {
         const path = request.path();
         // /api/providers/presets/:id/import
         const remainder = path[21..]; // Skip "/api/providers/presets/"
-        const slash_idx = std.mem.indexOf(u8, remainder, "/") orelse {
+        const slash_idx = std.mem.find(u8, remainder, "/") orelse {
             try request.respond(.{
                 .status = .bad_request,
                 .content_type = .json,
@@ -675,7 +704,7 @@ pub const ProviderHandler = struct {
         };
 
         // Create provider from preset
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         const provider = Provider{
             .id = preset.id,
             .name = preset.name,

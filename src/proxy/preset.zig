@@ -5,6 +5,32 @@
 //! and various OpenAI-compatible providers.
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const types = @import("types");
 
 pub const ProviderType = types.ProviderType;
@@ -857,46 +883,46 @@ pub fn getPresetCategory(preset: *const ProviderPreset) PresetCategory {
         return .official;
     }
     if (preset.organization) |org| {
-        if (std.mem.indexOf(u8, org, "AWS") != null or
-            std.mem.indexOf(u8, org, "Azure") != null or
-            std.mem.indexOf(u8, org, "Google Cloud") != null or
-            std.mem.indexOf(u8, org, "Tencent") != null or
-            std.mem.indexOf(u8, org, "Alibaba") != null)
+        if (std.mem.find(u8, org, "AWS") != null or
+            std.mem.find(u8, org, "Azure") != null or
+            std.mem.find(u8, org, "Google Cloud") != null or
+            std.mem.find(u8, org, "Tencent") != null or
+            std.mem.find(u8, org, "Alibaba") != null)
         {
             return .cloud_providers;
         }
-        if (std.mem.indexOf(u8, org, "MiniMax") != null or
-            std.mem.indexOf(u8, org, "Moonshot") != null or
-            std.mem.indexOf(u8, org, "Zhipu") != null or
-            std.mem.indexOf(u8, org, "ByteDance") != null or
-            std.mem.indexOf(u8, org, "01 AI") != null)
+        if (std.mem.find(u8, org, "MiniMax") != null or
+            std.mem.find(u8, org, "Moonshot") != null or
+            std.mem.find(u8, org, "Zhipu") != null or
+            std.mem.find(u8, org, "ByteDance") != null or
+            std.mem.find(u8, org, "01 AI") != null)
         {
             return .chinese;
         }
         // Community relay providers
-        if (std.mem.indexOf(u8, org, "SiliconFlow") != null or
-            std.mem.indexOf(u8, org, "Shengsuanyun") != null or
-            std.mem.indexOf(u8, org, "AIGoCode") != null or
-            std.mem.indexOf(u8, org, "AICodeMirror") != null or
-            std.mem.indexOf(u8, org, "Cubence") != null or
-            std.mem.indexOf(u8, org, "DMXAPI") != null or
-            std.mem.indexOf(u8, org, "Compshare") != null or
-            std.mem.indexOf(u8, org, "RightCode") != null or
-            std.mem.indexOf(u8, org, "AICoding") != null or
-            std.mem.indexOf(u8, org, "Crazyrouter") != null or
-            std.mem.indexOf(u8, org, "SSSAiCode") != null or
-            std.mem.indexOf(u8, org, "Micu") != null or
-            std.mem.indexOf(u8, org, "XCodeAPI") != null or
-            std.mem.indexOf(u8, org, "LionCC") != null or
-            std.mem.indexOf(u8, org, "DDS") != null or
-            std.mem.indexOf(u8, org, "TheRouter") != null or
-            std.mem.indexOf(u8, org, "PackyCode") != null)
+        if (std.mem.find(u8, org, "SiliconFlow") != null or
+            std.mem.find(u8, org, "Shengsuanyun") != null or
+            std.mem.find(u8, org, "AIGoCode") != null or
+            std.mem.find(u8, org, "AICodeMirror") != null or
+            std.mem.find(u8, org, "Cubence") != null or
+            std.mem.find(u8, org, "DMXAPI") != null or
+            std.mem.find(u8, org, "Compshare") != null or
+            std.mem.find(u8, org, "RightCode") != null or
+            std.mem.find(u8, org, "AICoding") != null or
+            std.mem.find(u8, org, "Crazyrouter") != null or
+            std.mem.find(u8, org, "SSSAiCode") != null or
+            std.mem.find(u8, org, "Micu") != null or
+            std.mem.find(u8, org, "XCodeAPI") != null or
+            std.mem.find(u8, org, "LionCC") != null or
+            std.mem.find(u8, org, "DDS") != null or
+            std.mem.find(u8, org, "TheRouter") != null or
+            std.mem.find(u8, org, "PackyCode") != null)
         {
             return .community;
         }
     }
-    if (std.mem.indexOf(u8, preset.id, "relay") != null or
-        std.mem.indexOf(u8, preset.id, "proxy") != null)
+    if (std.mem.find(u8, preset.id, "relay") != null or
+        std.mem.find(u8, preset.id, "proxy") != null)
     {
         return .relay;
     }
@@ -907,14 +933,14 @@ pub fn getPresetCategory(preset: *const ProviderPreset) PresetCategory {
 pub const PresetStore = struct {
     allocator: std.mem.Allocator,
     /// Built-in presets are read-only
-    custom_presets: std.StringArrayHashMap(ProviderPreset),
+    custom_presets: StringArrayHashMap(ProviderPreset),
     /// Active preset ID per CLI tool
     active_presets: std.enums.EnumArray(CliTool, ?[]const u8),
 
     pub fn init(allocator: std.mem.Allocator) PresetStore {
         return .{
             .allocator = allocator,
-            .custom_presets = std.StringArrayHashMap(ProviderPreset).init(allocator),
+            .custom_presets = StringArrayHashMap(ProviderPreset).init(allocator),
             .active_presets = std.enums.EnumArray(CliTool, ?[]const u8).init(.{
                 .claude_code = null,
                 .codex = null,

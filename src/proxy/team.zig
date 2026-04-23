@@ -3,6 +3,33 @@
 //! Multi-tenancy support with teams and projects
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 
 pub const Team = struct {
     id: []const u8,
@@ -29,16 +56,18 @@ pub const Project = struct {
 
 pub const TeamStore = struct {
     allocator: std.mem.Allocator,
-    teams: std.StringArrayHashMap(Team),
-    projects: std.StringArrayHashMap(Project),
-    team_members: std.StringArrayHashMap(std.array_list.Managed([]const u8)), // team_id -> [user_id]
+    io: std.Io,
+    teams: StringArrayHashMap(Team),
+    projects: StringArrayHashMap(Project),
+    team_members: StringArrayHashMap(std.array_list.Managed([]const u8)), // team_id -> [user_id]
 
-    pub fn init(allocator: std.mem.Allocator) TeamStore {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) TeamStore {
         return .{
             .allocator = allocator,
-            .teams = std.StringArrayHashMap(Team).init(allocator),
-            .projects = std.StringArrayHashMap(Project).init(allocator),
-            .team_members = std.StringArrayHashMap(std.array_list.Managed([]const u8)).init(allocator),
+            .io = io,
+            .teams = StringArrayHashMap(Team).init(allocator),
+            .projects = StringArrayHashMap(Project).init(allocator),
+            .team_members = StringArrayHashMap(std.array_list.Managed([]const u8)).init(allocator),
         };
     }
 
@@ -88,7 +117,7 @@ pub const TeamStore = struct {
         const team = Team{
             .id = team_id,
             .name = try self.allocator.dupe(u8, config.name),
-            .created_at = std.time.timestamp(),
+            .created_at = time_compat.timestamp(self.io),
             .budget_limit = config.budget_limit,
             .max_keys = config.max_keys,
             .max_requests_per_minute = config.max_requests_per_minute,
@@ -200,7 +229,7 @@ pub const TeamStore = struct {
             .id = project_id,
             .team_id = try self.allocator.dupe(u8, team_id),
             .name = try self.allocator.dupe(u8, config.name),
-            .created_at = std.time.timestamp(),
+            .created_at = time_compat.timestamp(self.io),
             .budget_limit = config.budget_limit,
             .allowed_models = if (config.allowed_models) |models| blk: {
                 const copy = try self.allocator.alloc([]const u8, models.len);

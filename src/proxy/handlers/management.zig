@@ -9,6 +9,32 @@
 //! - /backup/* - Backup management
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const preset = @import("../../proxy/preset");
 const cli_config = @import("../../proxy/cli_config");
 const mcp_manager = @import("../../proxy/mcp_manager");
@@ -181,7 +207,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleImportPreset(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const import_req = std.json.parseFromSlice(
@@ -216,7 +242,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleExportPreset(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const export_req = std.json.parseFromSlice(
@@ -276,7 +302,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleSwitchConfig(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const switch_req = std.json.parseFromSlice(
@@ -320,7 +346,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleGenerateConfig(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const gen_req = std.json.parseFromSlice(
@@ -389,7 +415,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleAddMcpServer(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const add_req = std.json.parseFromSlice(
@@ -411,7 +437,7 @@ pub const ManagementHandler = struct {
             .name = add_req.value.name,
             .command = add_req.value.command,
             .args = add_req.value.args,
-            .env = std.StringArrayHashMap([]const u8).init(self.allocator),
+            .env = StringArrayHashMap([]const u8).init(self.allocator),
             .auto_start = add_req.value.auto_start,
         };
 
@@ -454,7 +480,7 @@ pub const ManagementHandler = struct {
         const path = request.path();
         // Extract name and action: /mcp/servers/{name}/{action}
         const rest = path[17..]; // Skip "/mcp/servers/"
-        const slash_idx = std.mem.indexOf(u8, rest, "/") orelse {
+        const slash_idx = std.mem.find(u8, rest, "/") orelse {
             try request.respond(.{
                 .status = .bad_request,
                 .content_type = .json,
@@ -539,7 +565,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleAddSyncItem(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         // Simplified - just return not implemented for now
@@ -573,7 +599,7 @@ pub const ManagementHandler = struct {
     fn handleSyncItem(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         const path = request.path();
         const rest = path[16..]; // Skip "/sync/items/"
-        const slash_idx = std.mem.indexOf(u8, rest, "/") orelse {
+        const slash_idx = std.mem.find(u8, rest, "/") orelse {
             try request.respond(.{
                 .status = .bad_request,
                 .content_type = .json,
@@ -613,7 +639,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleSyncSkills(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const sync_req = std.json.parseFromSlice(
@@ -631,8 +657,17 @@ pub const ManagementHandler = struct {
         };
         defer sync_req.deinit();
 
+        const home_dir = std.c.getenv("HOME") orelse {
+            try request.respond(.{
+                .status = .internal_server_error,
+                .content_type = .json,
+                .body = "{\"error\":{\"message\":\"HOME not set\",\"type\":\"internal_error\"}}",
+            });
+            return;
+        };
+
         if (std.mem.eql(u8, @tagName(sync_req.value.direction), "export")) {
-            self.sync_engine.exportSkills(sync_req.value.tool, sync_req.value.target_dir) catch |e| {
+            self.sync_engine.exportSkills(sync_req.value.tool, sync_req.value.target_dir, std.mem.sliceTo(home_dir, 0)) catch |e| {
                 _ = e;
                 try request.respond(.{
                     .status = .internal_server_error,
@@ -642,7 +677,7 @@ pub const ManagementHandler = struct {
                 return;
             };
         } else {
-            self.sync_engine.importSkills(sync_req.value.tool, sync_req.value.source_dir) catch |e| {
+            self.sync_engine.importSkills(sync_req.value.tool, sync_req.value.source_dir, std.mem.sliceTo(home_dir, 0)) catch |e| {
                 _ = e;
                 try request.respond(.{
                     .status = .internal_server_error,
@@ -674,7 +709,7 @@ pub const ManagementHandler = struct {
 
     fn handleListSessions(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         const path = request.path();
-        const query_start = std.mem.indexOf(u8, path, "?") orelse path.len;
+        const query_start = std.mem.find(u8, path, "?") orelse path.len;
         const tool_part = path[10..query_start]; // Skip "/sessions"
         const tool_name = std.mem.trim(u8, tool_part, "/");
 
@@ -752,7 +787,7 @@ pub const ManagementHandler = struct {
     }
 
     fn handleSearchSessions(self: *ManagementHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const search_req = std.json.parseFromSlice(
@@ -788,7 +823,7 @@ pub const ManagementHandler = struct {
 
     fn handleDeepLinkParse(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         _ = self;
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const parsed = std.json.parseFromSlice(
@@ -838,7 +873,7 @@ pub const ManagementHandler = struct {
             if (std.mem.eql(u8, category, "all")) {
                 // List all backup categories
                 const categories = &[_][]const u8{ "providers", "mcp_servers", "sync_items", "config" };
-                var all_backups = std.StringArrayHashMap([]const []const u8).init(self.allocator);
+                var all_backups = StringArrayHashMap([]const []const u8).init(self.allocator);
                 defer {
                     var it = all_backups.iterator();
                     while (it.next()) |entry| {
@@ -901,7 +936,7 @@ pub const ManagementHandler = struct {
 
     fn handleCreateBackup(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         if (self.backup_manager) |bm| {
-            const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+            const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
             defer self.allocator.free(body);
 
             const parsed = std.json.parseFromSlice(
@@ -944,7 +979,7 @@ pub const ManagementHandler = struct {
 
     fn handleRestoreBackup(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         if (self.backup_manager) |bm| {
-            const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+            const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
             defer self.allocator.free(body);
 
             const parsed = std.json.parseFromSlice(
@@ -987,7 +1022,7 @@ pub const ManagementHandler = struct {
 
     fn handleBackupAll(self: *ManagementHandler, request: *std.http.Server.Request) !void {
         if (self.backup_manager) |bm| {
-            const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+            const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
             defer self.allocator.free(body);
 
             const parsed = std.json.parseFromSlice(
@@ -1031,13 +1066,13 @@ pub const ManagementHandler = struct {
     /// Extract query parameter from request URI
     fn extractQueryParam(request: *std.http.Server.Request, param: []const u8) ?[]const u8 {
         const path = request.path();
-        const question_idx = std.mem.indexOfScalar(u8, path, '?');
+        const question_idx = std.mem.findScalar(u8, path, '?');
         if (question_idx) |q| {
             const query = path[q + 1 ..];
             var iter = std.mem.splitScalar(u8, query, '&');
             while (iter.next()) |pair| {
                 if (std.mem.startsWith(u8, pair, param)) {
-                    const eq_idx = std.mem.indexOfScalar(u8, pair, '=');
+                    const eq_idx = std.mem.findScalar(u8, pair, '=');
                     if (eq_idx) |eq| {
                         return pair[eq + 1 ..];
                     }

@@ -12,15 +12,41 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
+
 pub const HeaderCasePreserver = struct {
     allocator: std.mem.Allocator,
     /// Maps lowercase header name → original casing
-    original_cases: std.StringArrayHashMap([]const u8),
+    original_cases: StringArrayHashMap([]const u8),
 
     pub fn init(allocator: std.mem.Allocator) HeaderCasePreserver {
         return .{
             .allocator = allocator,
-            .original_cases = std.StringArrayHashMap([]const u8).init(allocator),
+            .original_cases = StringArrayHashMap([]const u8).init(allocator),
         };
     }
 
@@ -38,7 +64,7 @@ pub const HeaderCasePreserver = struct {
     /// storing lowercase(name) → name mapping.
     pub fn captureFromRawBytes(self: *HeaderCasePreserver, raw_request: []const u8) !void {
         // Find end of request line
-        const header_start = std.mem.indexOf(u8, raw_request, "\r\n") orelse return;
+        const header_start = std.mem.find(u8, raw_request, "\r\n") orelse return;
         var pos = header_start + 2;
 
         while (pos < raw_request.len) {
@@ -47,10 +73,10 @@ pub const HeaderCasePreserver = struct {
                 break;
             }
 
-            const line_end = std.mem.indexOfPos(u8, raw_request, pos, "\r\n") orelse raw_request.len;
+            const line_end = std.mem.findPos(u8, raw_request, pos, "\r\n") orelse raw_request.len;
             const line = raw_request[pos..line_end];
 
-            if (std.mem.indexOfScalar(u8, line, ':')) |colon_idx| {
+            if (std.mem.findScalar(u8, line, ':')) |colon_idx| {
                 const original_name = line[0..colon_idx];
                 if (original_name.len > 0) {
                     const lower_key = try self.allocator.alloc(u8, original_name.len);

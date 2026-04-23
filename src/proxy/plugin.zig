@@ -6,6 +6,32 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
+
 // ============ Plugin Types ============
 
 pub const PluginType = enum {
@@ -85,12 +111,12 @@ pub const KvStore = struct {
 // ============ In-Memory KV Store (Default, Zero Dependency) ============
 
 pub const MemoryKvStore = struct {
-    data: std.StringArrayHashMap([]u8),
+    data: StringArrayHashMap([]u8),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) MemoryKvStore {
         return .{
-            .data = std.StringArrayHashMap([]u8).init(allocator),
+            .data = StringArrayHashMap([]u8).init(allocator),
             .allocator = allocator,
         };
     }
@@ -274,7 +300,7 @@ pub const CostTracker = struct {
 
 pub const PluginManager = struct {
     allocator: std.mem.Allocator,
-    plugins: std.StringArrayHashMap(PluginInstance),
+    plugins: StringArrayHashMap(PluginInstance),
     kv_store: ?KvStore,
     cache: ?Cache,
     cost_tracker: ?CostTracker,
@@ -289,7 +315,7 @@ pub const PluginManager = struct {
     pub fn init(allocator: std.mem.Allocator) PluginManager {
         return .{
             .allocator = allocator,
-            .plugins = std.StringArrayHashMap(PluginInstance).init(allocator),
+            .plugins = StringArrayHashMap(PluginInstance).init(allocator),
             .kv_store = null,
             .cache = null,
             .cost_tracker = null,

@@ -3,15 +3,18 @@
 //! Handles /key/* API endpoints for virtual key CRUD operations
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 const virtual_key = @import("../virtual_key");
 
 pub const KeyHandler = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     key_store: *virtual_key.VirtualKeyStore,
 
-    pub fn init(allocator: std.mem.Allocator, key_store: *virtual_key.VirtualKeyStore) KeyHandler {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, key_store: *virtual_key.VirtualKeyStore) KeyHandler {
         return .{
             .allocator = allocator,
+            .io = io,
             .key_store = key_store,
         };
     }
@@ -42,7 +45,7 @@ pub const KeyHandler = struct {
 
     /// POST /key/create - Create a new virtual key
     fn handleCreate(self: *KeyHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const create_req = std.json.parseFromSlice(
@@ -83,7 +86,7 @@ pub const KeyHandler = struct {
             .id = key,
             .key = key,
             .object = "virtual_key",
-            .created_at = std.time.timestamp(),
+            .created_at = time_compat.timestamp(self.io),
         }, .{});
         defer self.allocator.free(response);
 
@@ -186,7 +189,7 @@ pub const KeyHandler = struct {
 
     /// POST /key/revoke - Revoke a virtual key (soft delete)
     fn handleRevoke(self: *KeyHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const revoke_req = std.json.parseFromSlice(

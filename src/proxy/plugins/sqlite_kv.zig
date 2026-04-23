@@ -4,6 +4,7 @@
 //! Implements the plugin.KvStore interface for interchangeable storage backends
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 const plugin = @import("plugin");
 const sqlite = @import("sqlite");
 
@@ -11,7 +12,7 @@ pub const SqliteKvStore = struct {
     db: sqlite.Database,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, path: []const u8) !SqliteKvStore {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !SqliteKvStore {
         const db = try sqlite.Database.open(.{ .mode = .{ .File = path } });
         errdefer db.close();
 
@@ -110,7 +111,7 @@ test "sqlite kv store basic operations" {
     const test_path = "/tmp/llmlite_test_kv.db";
 
     // Clean up any existing test database
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(self.io, test_path) catch {};
 
     var store = try SqliteKvStore.init(allocator, test_path);
     defer store.deinit();
@@ -128,5 +129,5 @@ test "sqlite kv store basic operations" {
     try std.testing.expect(deleted_value == null);
 
     // Clean up
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(self.io, test_path) catch {};
 }

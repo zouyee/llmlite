@@ -6,24 +6,51 @@
 //! Format: One JSON object per line: {"key":"...","value":"..."}
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const plugin = @import("plugin");
 
 pub const FileKvStore = struct {
     allocator: std.mem.Allocator,
-    data: std.StringArrayHashMap([]u8),
+    data: StringArrayHashMap([]u8),
     file_path: []u8,
-    mutex: std.Thread.Mutex,
+    mutex: std.Io.Mutex,
 
-    pub fn init(allocator: std.mem.Allocator, dir_path: []const u8) !FileKvStore {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, dir_path: []const u8) !FileKvStore {
         // Ensure directory exists
-        try std.fs.makeDirAbsolute(dir_path);
+        try std.Io.Dir.createDirAbsolute(self.io, dir_path, .default_dir);
 
         const file_path = try std.fmt.allocPrint(allocator, "{s}/kvstore.jsonl", .{dir_path});
         errdefer allocator.free(file_path);
 
         var store = FileKvStore{
             .allocator = allocator,
-            .data = std.StringArrayHashMap([]u8).init(allocator),
+            .data = StringArrayHashMap([]u8).init(allocator),
             .file_path = file_path,
             .mutex = .{},
         };
@@ -64,16 +91,16 @@ pub const FileKvStore = struct {
     fn getWrapper(interface: *anyopaque, key: []const u8) ?[]const u8 {
         const self: *FileKvStore = @ptrCast(@alignCast(interface));
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
         return self.data.get(key);
     }
 
     fn setWrapper(interface: *anyopaque, key: []const u8, value: []const u8) !void {
         const self: *FileKvStore = @ptrCast(@alignCast(interface));
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
 
         const key_copy = try self.allocator.dupe(u8, key);
         errdefer self.allocator.free(key_copy);
@@ -95,8 +122,8 @@ pub const FileKvStore = struct {
     fn deleteWrapper(interface: *anyopaque, key: []const u8) bool {
         const self: *FileKvStore = @ptrCast(@alignCast(interface));
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
 
         // swapRemove returns bool indicating if found
         if (self.data.swapRemove(key)) {
@@ -109,8 +136,8 @@ pub const FileKvStore = struct {
     fn listWrapper(interface: *anyopaque, prefix: []const u8) [][]const u8 {
         const self: *FileKvStore = @ptrCast(@alignCast(interface));
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
 
         var result = std.array_list.Managed([]const u8).init(self.allocator);
         var it = self.data.iterator();
@@ -131,16 +158,16 @@ pub const FileKvStore = struct {
     }
 
     fn load(self: *FileKvStore) !void {
-        const file = std.fs.openFileAbsolute(self.file_path, .{}) catch |err| {
+        const file = std.Io.Dir.openFileAbsolute(self.io, self.file_path, .{}) catch |err| {
             if (err == error.FileNotFound) return;
             return err;
         };
-        defer file.close();
+        defer file.close(self.io);
 
-        const stat = try file.stat();
+        const stat = try file.stat(self.io);
         if (stat.size == 0) return;
 
-        const content = try file.readToEndAlloc(self.allocator, stat.size);
+        const content = try blk: { var __buf: [8192]u8 = undefined; var __reader = file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(stat.size)); };
         defer self.allocator.free(content);
 
         // Parse JSON Lines format: {"key":"...","value":"..."}
@@ -163,9 +190,9 @@ pub const FileKvStore = struct {
         const key_pattern = "\"key\":\"";
         const value_pattern = "\"value\":\"";
         const search = if (std.mem.eql(u8, field_name, "key")) key_pattern else value_pattern;
-        const start = std.mem.indexOf(u8, json, search) orelse return error.NotFound;
+        const start = std.mem.find(u8, json, search) orelse return error.NotFound;
         const value_start = start + search.len;
-        const value_end = std.mem.indexOfPos(u8, json, value_start, "\"") orelse return error.NotFound;
+        const value_end = std.mem.findPos(u8, json, value_start, "\"") orelse return error.NotFound;
         return json[value_start..value_end];
     }
 
@@ -183,9 +210,9 @@ pub const FileKvStore = struct {
             try content.appendSlice(&.{ '"', '}', '\n' });
         }
 
-        const file = try std.fs.createFileAbsolute(self.file_path, .{});
-        defer file.close();
-        try file.writeAll(content.items);
+        const file = try std.Io.Dir.createFileAbsolute(self.io, self.file_path, .{});
+        defer file.close(self.io);
+        try file.writeStreamingAll(self.io, content.items);
     }
 };
 

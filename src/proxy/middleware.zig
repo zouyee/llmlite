@@ -34,13 +34,13 @@ pub fn formatProxyError(err: ProxyError) struct { code: u16, message: []const u8
 
 /// Authenticate request using Bearer token
 pub fn authMiddleware(request_text: []const u8, key_store: *VirtualKeyStore) !void {
-    const auth_header_start = std.mem.indexOf(u8, request_text, "Authorization: Bearer ");
+    const auth_header_start = std.mem.find(u8, request_text, "Authorization: Bearer ");
     if (auth_header_start == null) {
         return ProxyError.MissingAuthHeader;
     }
 
     const auth_start = auth_header_start.? + 19;
-    const auth_end = std.mem.indexOf(u8, request_text[auth_start..], "\r\n");
+    const auth_end = std.mem.find(u8, request_text[auth_start..], "\r\n");
     if (auth_end == null) {
         return ProxyError.InvalidAuthFormat;
     }

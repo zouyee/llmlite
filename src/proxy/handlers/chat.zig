@@ -3,6 +3,7 @@
 //! Handles /v1/chat/completions requests
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 const http = @import("../../http.zig");
 const chat_pkg = @import("../../chat.zig");
 const types = @import("../../provider/types.zig");
@@ -10,9 +11,10 @@ const registry = @import("../../provider/registry.zig");
 
 pub const ChatHandler = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
 
     pub fn handle(self: *ChatHandler, request: *std.http.Server.Request, api_key: []const u8) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const chat_request = try std.json.parseFromSlice(
@@ -56,7 +58,7 @@ pub const ChatHandler = struct {
         defer self.allocator.free(response);
 
         // Parse response
-        const parsed = try parseResponse(self.allocator, target.provider_type, response);
+        const parsed = try parseResponse(self.allocator, self.io, target.provider_type, response);
         defer parsed.deinit();
 
         // Convert to proxy response format
@@ -73,7 +75,7 @@ pub const ChatHandler = struct {
     fn routeModel(self: *ChatHandler, model: []const u8) ProviderTarget {
         _ = self;
         // Check if model has provider prefix (e.g., "openai/gpt-4o")
-        if (std.mem.indexOf(u8, model, "/")) |idx| {
+        if (std.mem.find(u8, model, "/")) |idx| {
             const provider_str = model[0..idx];
             const model_name = model[idx + 1 ..];
             if (types.ProviderType.fromString(provider_str)) |provider_type| {
@@ -217,10 +219,10 @@ fn getEndpoint(allocator: std.mem.Allocator, provider: types.ProviderType, model
     };
 }
 
-fn parseResponse(allocator: std.mem.Allocator, provider: types.ProviderType, response: []const u8) !chat_pkg.ChatCompletion {
+fn parseResponse(allocator: std.mem.Allocator, io: std.Io, provider: types.ProviderType, response: []const u8) !chat_pkg.ChatCompletion {
     return switch (provider) {
-        .anthropic => try parseAnthropicResponse(allocator, response),
-        .google => try parseGoogleResponse(allocator, response),
+        .anthropic => try parseAnthropicResponse(allocator, io, response),
+        .google => try parseGoogleResponse(allocator, io, response),
         else => try parseOpenAIResponse(allocator, response),
     };
 }
@@ -230,7 +232,7 @@ fn parseOpenAIResponse(allocator: std.mem.Allocator, response: []const u8) !chat
     return parsed;
 }
 
-fn parseAnthropicResponse(allocator: std.mem.Allocator, response: []const u8) !chat_pkg.ChatCompletion {
+fn parseAnthropicResponse(allocator: std.mem.Allocator, io: std.Io, response: []const u8) !chat_pkg.ChatCompletion {
     const parsed = try std.json.parseFromSlice(struct {
         id: []const u8,
         type: []const u8,
@@ -260,7 +262,7 @@ fn parseAnthropicResponse(allocator: std.mem.Allocator, response: []const u8) !c
     return .{
         .id = try allocator.dupe(u8, parsed.value.id),
         .choices = choices,
-        .created = @intCast(std.time.timestamp()),
+        .created = @intCast(time_compat.timestamp(io)),
         .model = try allocator.dupe(u8, parsed.value.model),
         .usage = .{
             .prompt_tokens = parsed.value.usage.input_tokens,
@@ -270,7 +272,7 @@ fn parseAnthropicResponse(allocator: std.mem.Allocator, response: []const u8) !c
     };
 }
 
-fn parseGoogleResponse(allocator: std.mem.Allocator, response: []const u8) !chat_pkg.ChatCompletion {
+fn parseGoogleResponse(allocator: std.mem.Allocator, io: std.Io, response: []const u8) !chat_pkg.ChatCompletion {
     const parsed = try std.json.parseFromSlice(struct {
         candidates: []struct {
             content: struct {
@@ -316,9 +318,9 @@ fn parseGoogleResponse(allocator: std.mem.Allocator, response: []const u8) !chat
     };
 
     return .{
-        .id = try std.fmt.allocPrint(allocator, "gemini-{d}", .{std.time.timestamp()}),
+        .id = try std.fmt.allocPrint(allocator, "gemini-{d}", .{time_compat.timestamp(io)}),
         .choices = choices,
-        .created = @intCast(std.time.timestamp()),
+        .created = @intCast(time_compat.timestamp(io)),
         .model = "gemini",
         .usage = .{
             .prompt_tokens = parsed.value.usage_metadata.prompt_token_count,

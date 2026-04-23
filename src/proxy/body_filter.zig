@@ -132,10 +132,10 @@ test "body_filter - filters top level private params" {
     const output = try filterPrivateParams(allocator, input);
     defer allocator.free(output);
 
-    try std.testing.expect(std.mem.indexOf(u8, output, "_internal_id") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "_debug") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "model") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "max_tokens") != null);
+    try std.testing.expect(std.mem.find(u8, output, "_internal_id") == null);
+    try std.testing.expect(std.mem.find(u8, output, "_debug") == null);
+    try std.testing.expect(std.mem.find(u8, output, "model") != null);
+    try std.testing.expect(std.mem.find(u8, output, "max_tokens") != null);
 }
 
 test "body_filter - filters nested private params" {
@@ -147,9 +147,9 @@ test "body_filter - filters nested private params" {
     const output = try filterPrivateParams(allocator, input);
     defer allocator.free(output);
 
-    try std.testing.expect(std.mem.indexOf(u8, output, "_session_token") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "_tracking_id") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "user_id") != null);
+    try std.testing.expect(std.mem.find(u8, output, "_session_token") == null);
+    try std.testing.expect(std.mem.find(u8, output, "_tracking_id") == null);
+    try std.testing.expect(std.mem.find(u8, output, "user_id") != null);
 }
 
 test "body_filter - preserves non-private params" {
@@ -161,9 +161,9 @@ test "body_filter - preserves non-private params" {
     const output = try filterPrivateParams(allocator, input);
     defer allocator.free(output);
 
-    try std.testing.expect(std.mem.indexOf(u8, output, "model") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "messages") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "role") != null);
+    try std.testing.expect(std.mem.find(u8, output, "model") != null);
+    try std.testing.expect(std.mem.find(u8, output, "messages") != null);
+    try std.testing.expect(std.mem.find(u8, output, "role") != null);
 }
 
 test "body_filter - whitelist preserves specified private params" {
@@ -176,9 +176,9 @@ test "body_filter - whitelist preserves specified private params" {
     const output = try filterPrivateParamsWithWhitelist(allocator, input, whitelist);
     defer allocator.free(output);
 
-    try std.testing.expect(std.mem.indexOf(u8, output, "_metadata") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "_stream_options") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "_internal_id") == null);
+    try std.testing.expect(std.mem.find(u8, output, "_metadata") != null);
+    try std.testing.expect(std.mem.find(u8, output, "_stream_options") != null);
+    try std.testing.expect(std.mem.find(u8, output, "_internal_id") == null);
 }
 
 test "body_filter - empty object" {
@@ -200,7 +200,7 @@ test "body_filter - array of objects with private fields" {
     const output = try filterPrivateParams(allocator, input);
     defer allocator.free(output);
 
-    try std.testing.expect(std.mem.indexOf(u8, output, "_secret") == null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "\"id\":1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "\"id\":2") != null);
+    try std.testing.expect(std.mem.find(u8, output, "_secret") == null);
+    try std.testing.expect(std.mem.find(u8, output, "\"id\":1") != null);
+    try std.testing.expect(std.mem.find(u8, output, "\"id\":2") != null);
 }

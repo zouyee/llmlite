@@ -4,6 +4,32 @@
 //! health checking, connection pooling. Streaming support is simplified.
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const virtual_key = @import("virtual_key");
 const rate_limit = @import("proxy_rate_limit");
 const logger = @import("proxy_logger");
@@ -21,6 +47,7 @@ const tracking_analytics = @import("analytics");
 const savings_store_mod = @import("proxy_savings_store");
 const savings_handler_mod = @import("proxy_savings_handler");
 const unified_handler_mod = @import("proxy_unified_handler");
+const time_compat = @import("time_compat");
 
 // ==================== Provider Types ====================
 
@@ -77,13 +104,13 @@ pub const ProviderPreset = struct {
 
 pub const ProviderStore = struct {
     allocator: std.mem.Allocator,
-    providers: std.StringArrayHashMap(Provider),
+    providers: StringArrayHashMap(Provider),
     current_id: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator) ProviderStore {
         return .{
             .allocator = allocator,
-            .providers = std.StringArrayHashMap(Provider).init(allocator),
+            .providers = StringArrayHashMap(Provider).init(allocator),
             .current_id = null,
         };
     }
@@ -157,7 +184,7 @@ pub const ProviderStore = struct {
     }
 
     pub fn delete(self: *ProviderStore, id: []const u8) bool {
-        // In Zig 0.15, we use getPtr to check existence and mark as deleted
+        // In Zig 0.15+, we use getPtr to check existence and mark as deleted
         if (self.providers.getPtr(id)) |ptr| {
             // Free the provider data
             self.allocator.free(ptr.id);
@@ -234,6 +261,7 @@ pub const SortProvidersRequest = struct {
 
 pub const Server = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     port: u16,
     key_store: *virtual_key.VirtualKeyStore,
     rate_limiter: *rate_limit.RateLimiter,
@@ -260,19 +288,24 @@ pub const Server = struct {
     provider_store: ProviderStore,
     provider_handler: ProviderHandler,
 
+    // Runtime control
+    running: bool = true,
+
     pub fn init(
         allocator: std.mem.Allocator,
+        io: std.Io,
         port: u16,
         key_store: *virtual_key.VirtualKeyStore,
         rate_limiter: *rate_limit.RateLimiter,
         request_logger: *logger.RequestLogger,
         metrics: *logger.MetricsCollector,
     ) !Server {
-        return Server.initWithEdgeConfig(allocator, port, key_store, rate_limiter, request_logger, metrics, hot_reload.getDefaultEdgeConfig());
+        return Server.initWithEdgeConfig(allocator, io, port, key_store, rate_limiter, request_logger, metrics, hot_reload.getDefaultEdgeConfig());
     }
 
     pub fn initWithEdgeConfig(
         allocator: std.mem.Allocator,
+        io: std.Io,
         port: u16,
         key_store: *virtual_key.VirtualKeyStore,
         rate_limiter: *rate_limit.RateLimiter,
@@ -282,6 +315,7 @@ pub const Server = struct {
     ) !Server {
         var server = Server{
             .allocator = allocator,
+            .io = io,
             .port = port,
             .key_store = key_store,
             .rate_limiter = rate_limiter,
@@ -316,6 +350,7 @@ pub const Server = struct {
         // Initialize health checker
         server.health_checker = latency_health.HealthChecker.init(
             allocator,
+            io,
             edge_config.health_check_interval_ms,
             edge_config.health_check_timeout_ms,
         );
@@ -335,6 +370,7 @@ pub const Server = struct {
             server.active_health = try allocator.create(active_health.ActiveHealthChecker);
             server.active_health.?.* = active_health.ActiveHealthChecker.init(
                 allocator,
+                io,
                 active_health.ActiveHealthCheckerConfig{
                     .probe_interval_ms = edge_config.health_check_interval_ms,
                     .probe_timeout_ms = edge_config.health_check_timeout_ms,
@@ -348,6 +384,7 @@ pub const Server = struct {
             server.connection_pool = try allocator.create(connection_pool.ConnectionPool);
             server.connection_pool.?.* = connection_pool.ConnectionPool.init(
                 allocator,
+                io,
                 edge_config.max_conns_per_provider,
                 edge_config.idle_timeout_ms,
             );
@@ -358,11 +395,28 @@ pub const Server = struct {
         server.tracking_handler = tracking_analytics.TrackingHandler.init(allocator, &server.tracking_store);
 
         // Initialize savings store and handlers for proxy-cmd integration
-        server.savings_store = savings_store_mod.SavingsStore.init(allocator);
-        server.savings_handler = savings_handler_mod.SavingsHandler.init(allocator, &server.savings_store);
-        server.unified_handler = unified_handler_mod.UnifiedHandler.init(allocator, &server.savings_store);
+        server.savings_store = savings_store_mod.SavingsStore.init(allocator, io);
+        server.savings_handler = savings_handler_mod.SavingsHandler.init(allocator, io, &server.savings_store);
+        server.unified_handler = unified_handler_mod.UnifiedHandler.init(allocator, io, &server.savings_store);
 
         return server;
+    }
+
+    pub fn stop(self: *Server) void {
+        self.running = false;
+    }
+
+    fn streamRead(self: *Server, stream: std.Io.net.Stream, buf: []u8) !usize {
+        var reader_buf: [1024]u8 = undefined;
+        var reader = stream.reader(self.io, &reader_buf);
+        return reader.interface.readSliceShort(buf);
+    }
+
+    fn streamWriteAll(self: *Server, stream: std.Io.net.Stream, data: []const u8) !void {
+        var buf: [4096]u8 = undefined;
+        var writer = stream.writer(self.io, &buf);
+        try writer.interface.writeAll(data);
+        try writer.interface.flush();
     }
 
     pub fn deinit(self: *Server) void {
@@ -410,9 +464,9 @@ pub const Server = struct {
     }
 
     pub fn start(self: *Server) !void {
-        const address = try std.net.Address.parseIp("0.0.0.0", self.port);
-        var listener = try address.listen(.{ .reuse_address = true });
-        defer listener.deinit();
+        const address = try std.Io.net.IpAddress.parseIp4("0.0.0.0", self.port);
+        var listener = try address.listen(self.io, .{ .reuse_address = true });
+        defer listener.deinit(self.io);
 
         std.log.info("llmlite-proxy listening on http://0.0.0.0:{d} (edge routing)", .{self.port});
         std.log.info("  connection_pool: {}", .{self.edge_config.enable_connection_pool});
@@ -425,6 +479,7 @@ pub const Server = struct {
             self.hot_reload = try self.allocator.create(hot_reload.HotReloadConfig);
             self.hot_reload.?.* = hot_reload.HotReloadConfig.init(
                 self.allocator,
+                self.io,
                 "proxy.json",
                 self.edge_config.config_check_interval_ms,
             );
@@ -432,8 +487,8 @@ pub const Server = struct {
 
         var last_config_check: i64 = 0;
 
-        while (true) {
-            const now = std.time.timestamp();
+        while (self.running) {
+            const now = time_compat.timestamp(self.io);
 
             // Check for config hot reload periodically
             if (self.hot_reload) |hr| {
@@ -455,7 +510,7 @@ pub const Server = struct {
             // Active health probing
             self.probeProviders();
 
-            const connection = try listener.accept();
+            const connection = try listener.accept(self.io);
             self.handleConnection(connection) catch |err| {
                 std.log.err("Error handling connection: {}", .{err});
             };
@@ -480,12 +535,12 @@ pub const Server = struct {
 
     /// Probe a single provider for health
     fn probeSingleProvider(self: *Server, provider: types.ProviderType) void {
-        const start_time = std.time.timestamp();
+        const start_time = time_compat.timestamp(self.io);
         const endpoint = active_health.ActiveHealthChecker.getProbeEndpoint(provider);
 
         // Try to make a lightweight probe request
         const result = self.probeProvider(provider, endpoint);
-        const latency_ms = @as(u64, @intCast(std.time.timestamp() - start_time));
+        const latency_ms = @as(u64, @intCast(time_compat.timestamp(self.io) - start_time));
 
         switch (result) {
             .success => {
@@ -510,6 +565,7 @@ pub const Server = struct {
 
         var probe_client = http.HttpClient.initWithAuthType(
             self.allocator,
+            self.io,
             provider_config.base_url,
             "",
             null,
@@ -526,9 +582,9 @@ pub const Server = struct {
         return .success;
     }
 
-    fn handleConnection(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleConnection(self: *Server, connection: std.Io.net.Stream) !void {
         var buf: [16384]u8 = undefined;
-        const bytes_read = try connection.stream.read(&buf);
+        const bytes_read = try self.streamRead(connection, &buf);
         if (bytes_read == 0) return;
 
         const request_text = buf[0..bytes_read];
@@ -544,11 +600,11 @@ pub const Server = struct {
             // For now, always ready - could check health_checker.getHealthyProviders in future
             try self.writeJsonResponse(connection, 200, "{\"status\":\"ready\"}");
         } else if (std.mem.startsWith(u8, request_text, "GET /metrics")) {
-            const metrics_text = self.metrics.prometheusMetrics(@intCast(std.time.timestamp()));
-            try connection.stream.writeAll("HTTP/1.1 200 OK\r\n");
-            try connection.stream.writeAll("Content-Type: text/plain\r\n");
-            try connection.stream.writeAll("\r\n");
-            try connection.stream.writeAll(metrics_text);
+            const metrics_text = self.metrics.prometheusMetrics(@intCast(time_compat.timestamp(self.io)));
+            try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
+            try self.streamWriteAll(connection, "Content-Type: text/plain\r\n");
+            try self.streamWriteAll(connection, "\r\n");
+            try self.streamWriteAll(connection, metrics_text);
         } else if (std.mem.startsWith(u8, request_text, "GET /metrics/latency")) {
             // Latency metrics per provider
             try self.writeLatencyMetrics(connection);
@@ -577,8 +633,8 @@ pub const Server = struct {
         }
     }
 
-    fn handleChatCompletions(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
-        const start_time = std.time.timestamp();
+    fn handleChatCompletions(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
+        const start_time = time_compat.timestamp(self.io);
         var model: []const u8 = "unknown";
         var provider_str: ?[]const u8 = null;
         var prompt_tokens: u32 = 0;
@@ -602,7 +658,7 @@ pub const Server = struct {
         // Check rate limit
         if (self.key_store.keys.get(api_key)) |vk| {
             if (vk.rate_limit) |limit| {
-                if (!try self.rate_limiter.check(api_key, limit)) {
+                if (!try self.rate_limiter.check(self.io, api_key, limit)) {
                     const normalized = error_handler.normalizeError(error.RateLimitExceeded, null);
                     try self.writeError(connection, normalized);
                     return;
@@ -611,7 +667,7 @@ pub const Server = struct {
         }
 
         // Read request body
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n");
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n");
         if (body_start == null) {
             const normalized = error_handler.normalizeError(error.InvalidRequest, null);
             try self.writeError(connection, normalized);
@@ -636,7 +692,7 @@ pub const Server = struct {
 
     fn handleNonStreamingChatCompletions(
         self: *Server,
-        connection: std.net.Server.Connection,
+        connection: std.Io.net.Stream,
         route: Route,
         body: []const u8,
         start_time: i64,
@@ -646,10 +702,10 @@ pub const Server = struct {
         completion_tokens: *u32,
         total_tokens: *u32,
     ) !void {
-        const call_start = std.time.timestamp();
+        const call_start = time_compat.timestamp(self.io);
 
         // Check circuit breaker before making request
-        if (self.circuit_breaker.isOpen(route.provider)) {
+        if (self.circuit_breaker.isOpen(self.io, route.provider)) {
             std.log.warn("circuit breaker open for {s}, failing fast", .{route.provider.toString()});
             const normalized = error_handler.normalizeError(error.ServiceUnavailable, provider_str.*);
             try self.writeError(connection, normalized);
@@ -660,17 +716,17 @@ pub const Server = struct {
             std.log.warn("provider call failed: {}", .{err});
             // Record failure for health tracking and circuit breaker
             self.health_checker.recordFailure(route.provider);
-            self.circuit_breaker.recordFailure(route.provider);
+            self.circuit_breaker.recordFailure(self.io, route.provider);
             const normalized = error_handler.normalizeError(err, provider_str.*);
             try self.writeError(connection, normalized);
             return;
         };
 
         // Record success to health tracker, latency tracker, and circuit breaker
-        const latency_ms = @as(u64, @intCast(std.time.timestamp() - call_start));
+        const latency_ms = @as(u64, @intCast(time_compat.timestamp(self.io) - call_start));
         self.latency_tracker.record(route.provider, latency_ms);
         self.health_checker.recordSuccess(route.provider, latency_ms);
-        self.circuit_breaker.recordSuccess(route.provider);
+        self.circuit_breaker.recordSuccess(self.io, route.provider);
 
         // Parse response for usage stats
         if (std.json.parseFromSlice(chat.ChatCompletion, self.allocator, response, .{})) |parsed| {
@@ -680,7 +736,7 @@ pub const Server = struct {
             total_tokens.* = parsed.value.usage.total_tokens;
         } else |_| {}
 
-        const total_latency = @as(u64, @intCast(std.time.timestamp() - start_time));
+        const total_latency = @as(u64, @intCast(time_compat.timestamp(self.io) - start_time));
         self.metrics.recordRequest(true, total_latency, total_tokens.*);
 
         try self.request_logger.log(.{
@@ -698,14 +754,14 @@ pub const Server = struct {
             .error_msg = null,
         });
 
-        try connection.stream.writeAll("HTTP/1.1 200 OK\r\n");
-        try connection.stream.writeAll("Content-Type: application/json\r\n");
-        try connection.stream.writeAll("\r\n");
-        try connection.stream.writeAll(response);
+        try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
+        try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "\r\n");
+        try self.streamWriteAll(connection, response);
     }
 
-    fn handleEmbeddings(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
-        const start_time = std.time.timestamp();
+    fn handleEmbeddings(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
+        const start_time = time_compat.timestamp(self.io);
 
         // Extract API key
         const api_key = self.extractApiKey(request_text) catch |err| {
@@ -724,7 +780,7 @@ pub const Server = struct {
         // Check rate limit
         if (self.key_store.keys.get(api_key)) |vk| {
             if (vk.rate_limit) |limit| {
-                if (!try self.rate_limiter.check(api_key, limit)) {
+                if (!try self.rate_limiter.check(self.io, api_key, limit)) {
                     const normalized = error_handler.normalizeError(error.RateLimitExceeded, null);
                     try self.writeError(connection, normalized);
                     return;
@@ -732,7 +788,7 @@ pub const Server = struct {
             }
         }
 
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n");
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n");
         if (body_start == null) {
             const normalized = error_handler.normalizeError(error.InvalidRequest, null);
             try self.writeError(connection, normalized);
@@ -745,10 +801,10 @@ pub const Server = struct {
         const route = self.routeEmbeddingsRequest(body);
         const provider_str: ?[]const u8 = route.provider.toString();
 
-        const call_start = std.time.timestamp();
+        const call_start = time_compat.timestamp(self.io);
 
         // Check circuit breaker before making request
-        if (self.circuit_breaker.isOpen(route.provider)) {
+        if (self.circuit_breaker.isOpen(self.io, route.provider)) {
             std.log.warn("circuit breaker open for {s} embeddings, failing fast", .{provider_str orelse "unknown"});
             const normalized = error_handler.normalizeError(error.ServiceUnavailable, provider_str);
             try self.writeError(connection, normalized);
@@ -760,20 +816,20 @@ pub const Server = struct {
             std.log.warn("embeddings provider call failed: {}", .{err});
             // Record failure for health tracking and circuit breaker
             self.health_checker.recordFailure(route.provider);
-            self.circuit_breaker.recordFailure(route.provider);
+            self.circuit_breaker.recordFailure(self.io, route.provider);
             const normalized = error_handler.normalizeError(err, provider_str);
             try self.writeError(connection, normalized);
             return;
         };
 
         // Record success to health tracker, latency tracker, and circuit breaker
-        const latency_ms = @as(u64, @intCast(std.time.timestamp() - call_start));
+        const latency_ms = @as(u64, @intCast(time_compat.timestamp(self.io) - call_start));
         self.latency_tracker.record(route.provider, latency_ms);
         self.health_checker.recordSuccess(route.provider, latency_ms);
-        self.circuit_breaker.recordSuccess(route.provider);
+        self.circuit_breaker.recordSuccess(self.io, route.provider);
 
         // Parse response for usage stats (simplified)
-        const total_latency = @as(u64, @intCast(std.time.timestamp() - start_time));
+        const total_latency = @as(u64, @intCast(time_compat.timestamp(self.io) - start_time));
         self.metrics.recordRequest(true, total_latency, 10);
 
         try self.request_logger.log(.{
@@ -791,25 +847,25 @@ pub const Server = struct {
             .error_msg = null,
         });
 
-        try connection.stream.writeAll("HTTP/1.1 200 OK\r\n");
-        try connection.stream.writeAll("Content-Type: application/json\r\n");
-        try connection.stream.writeAll("\r\n");
-        try connection.stream.writeAll(response_body);
+        try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
+        try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "\r\n");
+        try self.streamWriteAll(connection, response_body);
     }
 
-    fn handleListModels(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleListModels(self: *Server, connection: std.Io.net.Stream) !void {
         const body = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-4o\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"openai\"},{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"anthropic\"},{\"id\":\"gemini-2.0-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"google\"},{\"id\":\"moonshot-v1-8k\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"kimi\"},{\"id\":\"abab6-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"minimax\"},{\"id\":\"deepseek-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}]}";
         try self.writeJsonResponse(connection, 200, body);
     }
 
     fn extractApiKey(_: *Server, request_text: []const u8) ![]const u8 {
-        const auth_header_start = std.mem.indexOf(u8, request_text, "Authorization: Bearer ");
+        const auth_header_start = std.mem.find(u8, request_text, "Authorization: Bearer ");
         if (auth_header_start == null) {
             return error.MissingAuthHeader;
         }
 
         const auth_start = auth_header_start.? + 19;
-        const auth_end = std.mem.indexOf(u8, request_text[auth_start..], "\r\n");
+        const auth_end = std.mem.find(u8, request_text[auth_start..], "\r\n");
         if (auth_end == null) {
             return error.InvalidAuthFormat;
         }
@@ -827,7 +883,7 @@ pub const Server = struct {
         const model = self.extractModelFromBody(body) catch "gpt-4o";
 
         // Check if model has provider prefix (e.g., "openai/gpt-4o")
-        if (std.mem.indexOf(u8, model, "/")) |idx| {
+        if (std.mem.find(u8, model, "/")) |idx| {
             const provider_str = model[0..idx];
             const model_name = model[idx + 1 ..];
             if (types.ProviderType.fromString(provider_str)) |provider_type| {
@@ -859,7 +915,7 @@ pub const Server = struct {
         const model = self.extractEmbeddingsModelFromBody(body) catch "text-embedding-ada-002";
 
         // Check if model has provider prefix (e.g., "openai/text-embedding-ada-002")
-        if (std.mem.indexOf(u8, model, "/")) |idx| {
+        if (std.mem.find(u8, model, "/")) |idx| {
             const provider_str = model[0..idx];
             const model_name = model[idx + 1 ..];
             if (types.ProviderType.fromString(provider_str)) |provider_type| {
@@ -877,22 +933,22 @@ pub const Server = struct {
     }
 
     fn extractEmbeddingsModelFromBody(_: *Server, body: []const u8) ![]const u8 {
-        const model_start = std.mem.indexOf(u8, body, "\"model\":\"") orelse {
+        const model_start = std.mem.find(u8, body, "\"model\":\"") orelse {
             return error.ModelNotFound;
         };
         const idx = model_start + 9;
-        const value_end = std.mem.indexOf(u8, body[idx..], "\"") orelse {
+        const value_end = std.mem.find(u8, body[idx..], "\"") orelse {
             return error.InvalidJson;
         };
         return body[idx .. idx + value_end];
     }
 
     fn extractModelFromBody(_: *Server, body: []const u8) ![]const u8 {
-        const model_start = std.mem.indexOf(u8, body, "\"model\":\"") orelse {
+        const model_start = std.mem.find(u8, body, "\"model\":\"") orelse {
             return error.ModelNotFound;
         };
         const idx = model_start + 9;
-        const value_end = std.mem.indexOf(u8, body[idx..], "\"") orelse {
+        const value_end = std.mem.find(u8, body[idx..], "\"") orelse {
             return error.InvalidJson;
         };
         return body[idx .. idx + value_end];
@@ -904,6 +960,7 @@ pub const Server = struct {
         // Create provider HTTP client
         var provider_http = http.HttpClient.initWithAuthType(
             self.allocator,
+            self.io,
             provider_config.base_url,
             "",
             null,
@@ -933,6 +990,7 @@ pub const Server = struct {
         // Create provider HTTP client
         var provider_http = http.HttpClient.initWithAuthType(
             self.allocator,
+            self.io,
             provider_config.base_url,
             api_key,
             null,
@@ -1013,19 +1071,19 @@ pub const Server = struct {
         var result = std.ArrayList(u8).empty;
         errdefer result.deinit(self.allocator);
 
-        try std.fmt.format(result.writer(self.allocator), "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"user\",\"content\":\"{s}\"}}]", .{
+        try result.print(self.allocator, "{{\"model\":\"{s}\",\"messages\":[{{\"role\":\"user\",\"content\":\"{s}\"}}]", .{
             parsed.value.model,
             try user_content.toOwnedSlice(self.allocator),
         });
 
         if (system_content) |sys| {
-            try std.fmt.format(result.writer(self.allocator), ",\"system\":\"{s}\"", .{sys});
+            try result.print(self.allocator, ",\"system\":\"{s}\"", .{sys});
         }
         if (parsed.value.max_tokens) |v| {
-            try std.fmt.format(result.writer(self.allocator), ",\"max_tokens\":{d}", .{v});
+            try result.print(self.allocator, ",\"max_tokens\":{d}", .{v});
         }
         if (parsed.value.temperature) |v| {
-            try std.fmt.format(result.writer(self.allocator), ",\"temperature\":{d}", .{v});
+            try result.print(self.allocator, ",\"temperature\":{d}", .{v});
         }
 
         try result.append(self.allocator, '}');
@@ -1049,7 +1107,7 @@ pub const Server = struct {
         for (parsed.value.messages, 0..) |msg, i| {
             if (i > 0) try contents_json.appendSlice(self.allocator, ",");
             const role_str = if (std.mem.eql(u8, msg.role, "user")) "user" else "model";
-            try std.fmt.format(contents_json.writer(self.allocator), "{{\"role\":\"{s}\",\"parts\":[{{\"text\":\"{s}\"}}]}}", .{ role_str, msg.content });
+            try contents_json.print(self.allocator, "{{\"role\":\"{s}\",\"parts\":[{{\"text\":\"{s}\"}}]}}", .{ role_str, msg.content });
         }
         try contents_json.appendSlice(self.allocator, "]");
 
@@ -1058,36 +1116,35 @@ pub const Server = struct {
         , .{try contents_json.toOwnedSlice(self.allocator)});
     }
 
-    fn writeError(self: *Server, connection: std.net.Server.Connection, err: error_handler.NormalizedError) !void {
+    fn writeError(self: *Server, connection: std.Io.net.Stream, err: error_handler.NormalizedError) !void {
         const status_text = error_handler.getStatusText(err.status);
         const json_body = error_handler.formatErrorJson(err, self.allocator) catch {
-            try connection.stream.writeAll("HTTP/1.1 500 Internal Server Error\r\n");
-            try connection.stream.writeAll("Content-Type: application/json\r\n");
-            try connection.stream.writeAll("\r\n");
-            try connection.stream.writeAll("{\"error\":{\"message\":\"Internal error\",\"type\":\"internal_error\"}}");
+            try self.streamWriteAll(connection, "HTTP/1.1 500 Internal Server Error\r\n");
+            try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+            try self.streamWriteAll(connection, "\r\n");
+            try self.streamWriteAll(connection, "{\"error\":{\"message\":\"Internal error\",\"type\":\"internal_error\"}}");
             return;
         };
         defer self.allocator.free(json_body);
 
         var buf: [64]u8 = undefined;
         const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} {s}\r\n", .{ err.status, status_text });
-        try connection.stream.writeAll(status_line);
-        try connection.stream.writeAll("Content-Type: application/json\r\n");
-        try connection.stream.writeAll("\r\n");
-        try connection.stream.writeAll(json_body);
+        try self.streamWriteAll(connection, status_line);
+        try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "\r\n");
+        try self.streamWriteAll(connection, json_body);
     }
 
-    fn writeJsonResponse(self: *Server, connection: std.net.Server.Connection, status: u16, body: []const u8) !void {
-        _ = self;
+    fn writeJsonResponse(self: *Server, connection: std.Io.net.Stream, status: u16, body: []const u8) !void {
         var buf: [32]u8 = undefined;
         const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} OK\r\n", .{status});
-        try connection.stream.writeAll(status_line);
-        try connection.stream.writeAll("Content-Type: application/json\r\n");
-        try connection.stream.writeAll("\r\n");
-        try connection.stream.writeAll(body);
+        try self.streamWriteAll(connection, status_line);
+        try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "\r\n");
+        try self.streamWriteAll(connection, body);
     }
 
-    fn writeLatencyMetrics(self: *Server, connection: std.net.Server.Connection) !void {
+    fn writeLatencyMetrics(self: *Server, connection: std.Io.net.Stream) !void {
         // Build latency metrics response from actual tracker data
         const providers = &.{ .openai, .anthropic, .google, .moonshot, .minimax, .deepseek };
 
@@ -1098,7 +1155,7 @@ pub const Server = struct {
             const p95 = self.latency_tracker.getPercentile(provider, 95);
             const p99 = self.latency_tracker.getPercentile(provider, 99);
             const healthy = self.health_checker.isHealthy(provider);
-            const state = self.circuit_breaker.getState(provider);
+            const state = self.circuit_breaker.getState(self.io, provider);
 
             _ = avg;
             _ = p50;
@@ -1127,25 +1184,25 @@ pub const Server = struct {
             self.latency_tracker.getPercentile(.google, 95),
             self.latency_tracker.getPercentile(.google, 99),
             self.health_checker.isHealthy(.google),
-            @tagName(self.circuit_breaker.getState(.openai)),
-            @tagName(self.circuit_breaker.getState(.anthropic)),
-            @tagName(self.circuit_breaker.getState(.google)),
+            @tagName(self.circuit_breaker.getState(self.io, .openai)),
+            @tagName(self.circuit_breaker.getState(self.io, .anthropic)),
+            @tagName(self.circuit_breaker.getState(self.io, .google)),
         });
         defer self.allocator.free(response);
 
-        try connection.stream.writeAll("HTTP/1.1 200 OK\r\n");
-        try connection.stream.writeAll("Content-Type: application/json\r\n");
-        try connection.stream.writeAll("\r\n");
-        try connection.stream.writeAll(response);
+        try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
+        try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "\r\n");
+        try self.streamWriteAll(connection, response);
     }
 
     // =========================================================================
     // Tracking Analytics Handlers
     // =========================================================================
 
-    fn handleTrackingSync(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+    fn handleTrackingSync(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
         // Read request body
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n");
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n");
         if (body_start == null) {
             try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing request body\"}}");
             return;
@@ -1183,7 +1240,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, response);
     }
 
-    fn handleAnalyticsGain(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleAnalyticsGain(self: *Server, connection: std.Io.net.Stream) !void {
         const stats = try self.tracking_store.getGainStats(.{});
         const response = try std.json.Stringify.valueAlloc(self.allocator, .{
             .total_saved_tokens = stats.total_saved_tokens,
@@ -1195,7 +1252,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, response);
     }
 
-    fn handleAnalyticsTeam(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleAnalyticsTeam(self: *Server, connection: std.Io.net.Stream) !void {
         const stats = try self.tracking_store.getTeamStats(.{});
         const adoption_rate: f64 = if (stats.total_requests > 0)
             @as(f64, @floatFromInt(stats.total_llmlite_requests)) / @as(f64, @floatFromInt(stats.total_requests)) * 100.0
@@ -1214,7 +1271,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, response);
     }
 
-    fn handleAnalyticsSessions(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleAnalyticsSessions(self: *Server, connection: std.Io.net.Stream) !void {
         const sessions = try self.tracking_store.getSessionOverview(.{});
         var total_cmds: usize = 0;
         var total_llmlite: usize = 0;
@@ -1241,15 +1298,15 @@ pub const Server = struct {
     // Provider API Handlers
     // =========================================================================
 
-    fn handleProviderApi(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+    fn handleProviderApi(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
         // Extract method and path from request_text
-        const space1 = std.mem.indexOfScalar(u8, request_text, ' ') orelse {
+        const space1 = std.mem.findScalar(u8, request_text, ' ') orelse {
             try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request\"}}");
             return;
         };
         const method = request_text[0..space1];
         const after_space = request_text[space1 + 1 ..];
-        const space2 = std.mem.indexOfScalar(u8, after_space, ' ') orelse {
+        const space2 = std.mem.findScalar(u8, after_space, ' ') orelse {
             try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Invalid request\"}}");
             return;
         };
@@ -1262,7 +1319,7 @@ pub const Server = struct {
             } else if (std.mem.startsWith(u8, path, "/api/providers/presets/") and std.mem.eql(u8, method, "POST")) {
                 // POST /api/providers/presets/:id/import
                 const remainder = path[22..]; // Skip "/api/providers/presets/"
-                const slash_idx = std.mem.indexOfScalar(u8, remainder, '/') orelse remainder.len;
+                const slash_idx = std.mem.findScalar(u8, remainder, '/') orelse remainder.len;
                 const preset_id = remainder[0..slash_idx];
                 try self.handleImportProviderPreset(connection, preset_id);
             } else {
@@ -1283,7 +1340,7 @@ pub const Server = struct {
         } else if (std.mem.startsWith(u8, path, "/api/providers/")) {
             const id = path[15..];
             // Check for actions like /api/providers/:id/switch
-            if (std.mem.indexOfScalar(u8, id, '/')) |slash_idx| {
+            if (std.mem.findScalar(u8, id, '/')) |slash_idx| {
                 const actual_id = id[0..slash_idx];
                 const action = id[slash_idx + 1 ..];
                 if (std.mem.eql(u8, method, "POST")) {
@@ -1316,14 +1373,14 @@ pub const Server = struct {
         }
     }
 
-    fn handleListProviders(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleListProviders(self: *Server, connection: std.Io.net.Stream) !void {
         const sorted = self.provider_store.getSorted();
 
         try self.writeJsonResponse(connection, 200, "{\"object\":\"list\",\"data\":[]}");
         _ = sorted;
     }
 
-    fn handleGetProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+    fn handleGetProvider(self: *Server, connection: std.Io.net.Stream, id: []const u8) !void {
         const provider = self.provider_store.get(id) orelse {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
             return;
@@ -1335,8 +1392,8 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, response);
     }
 
-    fn handleCreateProvider(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n") orelse {
+    fn handleCreateProvider(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n") orelse {
             try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing body\"}}");
             return;
         };
@@ -1353,7 +1410,7 @@ pub const Server = struct {
         };
         defer create_req.deinit();
 
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         const auth_type: ProviderAuthType = if (std.mem.eql(u8, create_req.value.auth_type, "bearer")) .bearer else if (std.mem.eql(u8, create_req.value.auth_type, "api_key")) .api_key else .none;
 
         const provider = Provider{
@@ -1383,13 +1440,13 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 201, response);
     }
 
-    fn handleUpdateProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8, request_text: []const u8) !void {
+    fn handleUpdateProvider(self: *Server, connection: std.Io.net.Stream, id: []const u8, request_text: []const u8) !void {
         const existing = self.provider_store.get(id) orelse {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
             return;
         };
 
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n") orelse {
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n") orelse {
             try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing body\"}}");
             return;
         };
@@ -1421,7 +1478,7 @@ pub const Server = struct {
             .enabled = update_req.value.enabled orelse existing.enabled,
             .sort_order = update_req.value.sort_order orelse existing.sort_order,
             .created_at = existing.created_at,
-            .updated_at = std.time.timestamp(),
+            .updated_at = time_compat.timestamp(self.io),
             .metadata = update_req.value.metadata orelse existing.metadata,
         };
 
@@ -1436,7 +1493,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, response);
     }
 
-    fn handleDeleteProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+    fn handleDeleteProvider(self: *Server, connection: std.Io.net.Stream, id: []const u8) !void {
         if (self.provider_store.delete(id)) {
             const response = try std.fmt.allocPrint(self.allocator, "{{\"deleted\":true,\"id\":\"{s}\"}}", .{id});
             defer self.allocator.free(response);
@@ -1446,7 +1503,7 @@ pub const Server = struct {
         }
     }
 
-    fn handleSwitchProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+    fn handleSwitchProvider(self: *Server, connection: std.Io.net.Stream, id: []const u8) !void {
         const provider = self.provider_store.get(id) orelse {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
             return;
@@ -1462,7 +1519,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, full_response);
     }
 
-    fn handleTestProvider(self: *Server, connection: std.net.Server.Connection, id: []const u8) !void {
+    fn handleTestProvider(self: *Server, connection: std.Io.net.Stream, id: []const u8) !void {
         const provider = self.provider_store.get(id) orelse {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Provider not found\"}}");
             return;
@@ -1475,8 +1532,8 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, response);
     }
 
-    fn handleSortProviders(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n") orelse {
+    fn handleSortProviders(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n") orelse {
             try self.writeJsonResponse(connection, 400, "{\"error\":{\"message\":\"Missing body\"}}");
             return;
         };
@@ -1504,7 +1561,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, "{\"sorted\":true}");
     }
 
-    fn handleListProviderPresets(self: *Server, connection: std.net.Server.Connection) !void {
+    fn handleListProviderPresets(self: *Server, connection: std.Io.net.Stream) !void {
         const presets_response = "{\"object\":\"list\",\"data\":[" ++
             "{\"id\":\"openai\",\"name\":\"OpenAI\",\"provider_type\":\"openai\",\"base_url\":\"https://api.openai.com\",\"auth_type\":\"bearer\",\"default_models\":[\"gpt-4o\",\"gpt-4o-mini\"],\"features\":[\"chat\",\"embeddings\"],\"website\":\"https://openai.com\",\"description\":\"OpenAI\"}," ++
             "{\"id\":\"anthropic\",\"name\":\"Anthropic\",\"provider_type\":\"anthropic\",\"base_url\":\"https://api.anthropic.com\",\"auth_type\":\"bearer\",\"default_models\":[\"claude-3-5-sonnet\"],\"features\":[\"chat\"],\"website\":\"https://anthropic.com\",\"description\":\"Anthropic\"}," ++
@@ -1516,7 +1573,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 200, presets_response);
     }
 
-    fn handleImportProviderPreset(self: *Server, connection: std.net.Server.Connection, preset_id: []const u8) !void {
+    fn handleImportProviderPreset(self: *Server, connection: std.Io.net.Stream, preset_id: []const u8) !void {
         const provider_json = if (std.mem.eql(u8, preset_id, "openai"))
             "{\"id\":\"openai\",\"name\":\"OpenAI\",\"base_url\":\"https://api.openai.com\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"gpt-4o\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
         else if (std.mem.eql(u8, preset_id, "anthropic"))
@@ -1539,7 +1596,7 @@ pub const Server = struct {
         try self.writeJsonResponse(connection, 201, response);
     }
 
-    fn handlePostSavings(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+    fn handlePostSavings(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
         if (std.mem.startsWith(u8, request_text, "POST /tracking/savings/batch")) {
             try self.savings_handler.handleBatchPost(connection, request_text);
         } else {
@@ -1547,7 +1604,7 @@ pub const Server = struct {
         }
     }
 
-    fn handleGetUnified(self: *Server, connection: std.net.Server.Connection, request_text: []const u8) !void {
+    fn handleGetUnified(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
         try self.unified_handler.handleGet(connection, request_text);
     }
 };

@@ -15,7 +15,7 @@ pub const EmbeddingsHandler = struct {
     }
 
     pub fn handle(self: *EmbeddingsHandler, request: *std.http.Server.Request, api_key: []const u8) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const embeddings_request = try std.json.parseFromSlice(
@@ -42,7 +42,7 @@ pub const EmbeddingsHandler = struct {
     fn routeModel(self: *EmbeddingsHandler, model: []const u8) EmbeddingsTarget {
         _ = self;
         // Check if model has provider prefix (e.g., "openai/text-embedding-ada-002")
-        if (std.mem.indexOf(u8, model, "/")) |idx| {
+        if (std.mem.find(u8, model, "/")) |idx| {
             const provider_str = model[0..idx];
             const model_name = model[idx + 1 ..];
             if (types.ProviderType.fromString(provider_str)) |provider_type| {

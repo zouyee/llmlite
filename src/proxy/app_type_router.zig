@@ -81,10 +81,10 @@ pub const AppTypeRouter = struct {
             const lower_buf = lowerBuf(ua);
             const lower = lower_buf[0..ua.len];
 
-            if (std.mem.indexOf(u8, lower, "kiro") != null) return .kiro;
-            if (std.mem.indexOf(u8, lower, "cursor") != null) return .cursor;
-            if (std.mem.indexOf(u8, lower, "kimi") != null) return .kimi;
-            if (std.mem.indexOf(u8, lower, "minimax") != null) return .minimax;
+            if (std.mem.find(u8, lower, "kiro") != null) return .kiro;
+            if (std.mem.find(u8, lower, "cursor") != null) return .cursor;
+            if (std.mem.find(u8, lower, "kimi") != null) return .kimi;
+            if (std.mem.find(u8, lower, "minimax") != null) return .minimax;
         }
 
         return .unknown;

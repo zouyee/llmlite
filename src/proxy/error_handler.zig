@@ -132,7 +132,7 @@ pub fn formatErrorJson(err: NormalizedError, allocator: std.mem.Allocator) ![]u8
 
     // Start: {"error":{"code":STATUS,
     try result.appendSlice(allocator, "{\"error\":{\"code\":");
-    try std.fmt.format(result.writer(allocator), "{d}", .{err.status});
+    try result.print(allocator, "{d}", .{err.status});
     try result.appendSlice(allocator, ",\"message\":\"");
     try result.appendSlice(allocator, err.message);
     try result.appendSlice(allocator, "\",\"reason\":\"");

@@ -13,6 +13,33 @@
 //!   - Integration with existing HealthChecker for state management
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const provider_types = @import("types");
 const registry = @import("registry");
 
@@ -26,9 +53,10 @@ pub const ActiveHealthCheckerConfig = struct {
 
 pub const ActiveHealthChecker = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     config: ActiveHealthCheckerConfig,
-    probe_state: std.StringArrayHashMap(ProbeState),
-    lock: std.Thread.Mutex,
+    probe_state: StringArrayHashMap(ProbeState),
+    lock: std.Io.Mutex,
     last_probe_time: i64 = 0,
 
     pub const ProbeState = struct {
@@ -39,12 +67,13 @@ pub const ActiveHealthChecker = struct {
         last_latency_ms: u64 = 0,
     };
 
-    pub fn init(allocator: std.mem.Allocator, config: ActiveHealthCheckerConfig) ActiveHealthChecker {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ActiveHealthCheckerConfig) ActiveHealthChecker {
         return .{
             .allocator = allocator,
+            .io = io,
             .config = config,
-            .probe_state = std.StringArrayHashMap(ProbeState).init(allocator),
-            .lock = std.Thread.Mutex{},
+            .probe_state = StringArrayHashMap(ProbeState).init(allocator),
+            .lock = std.Io.Mutex.init,
         };
     }
 
@@ -56,18 +85,18 @@ pub const ActiveHealthChecker = struct {
     pub fn shouldProbe(self: *ActiveHealthChecker) bool {
         if (!self.config.enabled) return false;
 
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         const time_since_last = (now - self.last_probe_time) * 1000;
         return time_since_last >= self.config.probe_interval_ms;
     }
 
     /// Record a successful probe
     pub fn recordProbeSuccess(self: *ActiveHealthChecker, provider: provider_types.ProviderType, latency_ms: u64) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         const provider_name = provider.toString();
         var state = self.probe_state.getOrPut(provider_name) catch return;
@@ -77,7 +106,7 @@ pub const ActiveHealthChecker = struct {
 
         state.value_ptr.consecutive_successes += 1;
         state.value_ptr.consecutive_failures = 0;
-        state.value_ptr.last_probe = std.time.timestamp();
+        state.value_ptr.last_probe = time_compat.timestamp(self.io);
         state.value_ptr.last_latency_ms = latency_ms;
 
         // Transition to healthy after success_threshold successes
@@ -88,8 +117,8 @@ pub const ActiveHealthChecker = struct {
 
     /// Record a failed probe
     pub fn recordProbeFailure(self: *ActiveHealthChecker, provider: provider_types.ProviderType) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         const provider_name = provider.toString();
         var state = self.probe_state.getOrPut(provider_name) catch return;
@@ -99,7 +128,7 @@ pub const ActiveHealthChecker = struct {
 
         state.value_ptr.consecutive_failures += 1;
         state.value_ptr.consecutive_successes = 0;
-        state.value_ptr.last_probe = std.time.timestamp();
+        state.value_ptr.last_probe = time_compat.timestamp(self.io);
 
         // Transition to unhealthy after failure_threshold failures
         if (state.value_ptr.consecutive_failures >= self.config.failure_threshold) {
@@ -109,8 +138,8 @@ pub const ActiveHealthChecker = struct {
 
     /// Check if a provider is healthy based on active probing
     pub fn isHealthy(self: *ActiveHealthChecker, provider: provider_types.ProviderType) bool {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         const provider_name = provider.toString();
         const state = self.probe_state.get(provider_name) orelse return true; // Default healthy
@@ -119,8 +148,8 @@ pub const ActiveHealthChecker = struct {
 
     /// Get probe state for a provider
     pub fn getProbeState(self: *ActiveHealthChecker, provider: provider_types.ProviderType) ?ProbeState {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         const provider_name = provider.toString();
         return self.probe_state.get(provider_name);
@@ -128,10 +157,10 @@ pub const ActiveHealthChecker = struct {
 
     /// Mark that a probe cycle completed
     pub fn markProbeCycleComplete(self: *ActiveHealthChecker) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
-        self.last_probe_time = std.time.timestamp();
+        self.last_probe_time = time_compat.timestamp(self.io);
     }
 
     /// Get the target endpoint for probing a provider
@@ -156,8 +185,8 @@ pub const ActiveHealthChecker = struct {
 
     /// Check if all enabled providers are healthy
     pub fn areAllProvidersHealthy(self: *ActiveHealthChecker) bool {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         var it = self.probe_state.iterator();
         while (it.next()) |entry| {
@@ -170,8 +199,8 @@ pub const ActiveHealthChecker = struct {
 
     /// Get count of healthy vs unhealthy providers
     pub fn getHealthSummary(self: *ActiveHealthChecker) struct { healthy: usize, unhealthy: usize } {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         var healthy: usize = 0;
         var unhealthy: usize = 0;
@@ -189,8 +218,8 @@ pub const ActiveHealthChecker = struct {
 
     /// Reset probe state for all providers
     pub fn resetAll(self: *ActiveHealthChecker) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         var it = self.probe_state.iterator();
         while (it.next()) |entry| {

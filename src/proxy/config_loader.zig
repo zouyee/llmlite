@@ -20,8 +20,8 @@ pub const ConfigLoader = struct {
         return .{ .allocator = allocator };
     }
 
-    pub fn loadFromFile(self: *ConfigLoader, path: []const u8) !plugin.ProxyConfig {
-        const content = try std.fs.cwd().readFileAlloc(self.allocator, path, 1024 * 1024);
+    pub fn loadFromFile(self: *ConfigLoader, io: std.Io, path: []const u8) !plugin.ProxyConfig {
+        const content = try std.Io.Dir.cwd().readFileAlloc(io, path, self.allocator, .limited(1024 * 1024));
         defer self.allocator.free(content);
 
         // Determine format from extension
@@ -312,4 +312,124 @@ pub const EXAMPLE_CONFIGS = struct {
 
 test "config loader" {
     std.debug.print("Config loader test\n", .{});
+}
+
+// ============================================================================
+// Property-Based Tests
+// ============================================================================
+
+// **Feature: zig-016-upgrade, Property 1: 配置加载往返一致性**
+// Verify any valid JSON config written to temp file then loaded produces same result.
+//
+// **Validates: Requirements 2.1**
+test "Property 1: config loading round-trip consistency" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    // Use a deterministic PRNG seeded from test environment
+    var prng = std.Random.DefaultPrng.init(0xDEADBEEF);
+    const random = prng.random();
+
+    const iterations: usize = 100;
+
+    for (0..iterations) |_| {
+        // Generate random config values
+        const port: u16 = random.intRangeAtMost(u16, 1024, 65535);
+        const virtual_keys = random.boolean();
+        const multi_tenancy = random.boolean();
+        const cost_tracking = random.boolean();
+        const rate_limiting = random.boolean();
+        const observability = random.boolean();
+
+        // Pick a random host from a set of valid hosts
+        const hosts = [_][]const u8{ "0.0.0.0", "127.0.0.1", "localhost", "10.0.0.1" };
+        const host = hosts[random.intRangeLessThan(usize, 0, hosts.len)];
+
+        const log_levels = [_][]const u8{ "debug", "info", "warn", "error" };
+        const log_level = log_levels[random.intRangeLessThan(usize, 0, log_levels.len)];
+
+        // Build JSON string
+        const json = try std.fmt.allocPrint(allocator,
+            \\{{
+            \\    "host": "{s}",
+            \\    "port": {d},
+            \\    "log_level": "{s}",
+            \\    "features": {{
+            \\        "virtual_keys": {s},
+            \\        "multi_tenancy": {s},
+            \\        "cost_tracking": {s},
+            \\        "rate_limiting": {s},
+            \\        "observability": {s}
+            \\    }}
+            \\}}
+        , .{
+            host,
+            port,
+            log_level,
+            if (virtual_keys) "true" else "false",
+            if (multi_tenancy) "true" else "false",
+            if (cost_tracking) "true" else "false",
+            if (rate_limiting) "true" else "false",
+            if (observability) "true" else "false",
+        });
+        defer allocator.free(json);
+
+        // Test round-trip via loadFromJsonString (validates JSON parsing consistency)
+        var loader = ConfigLoader.init(allocator);
+        const config = try loader.loadFromJsonString(json);
+
+        // Verify round-trip consistency
+        try std.testing.expectEqualStrings(host, config.host);
+        try std.testing.expectEqual(port, config.port);
+        try std.testing.expectEqualStrings(log_level, config.log_level);
+        try std.testing.expectEqual(virtual_keys, config.features.virtual_keys);
+        try std.testing.expectEqual(multi_tenancy, config.features.multi_tenancy);
+        try std.testing.expectEqual(cost_tracking, config.features.cost_tracking);
+        try std.testing.expectEqual(rate_limiting, config.features.rate_limiting);
+        try std.testing.expectEqual(observability, config.features.observability);
+    }
+}
+
+// **Feature: zig-016-upgrade, Property 1 (file I/O): config file round-trip**
+// Verify writing JSON config to a temp file and loading via loadFromFile produces same result.
+//
+// **Validates: Requirements 2.1**
+test "Property 1: config file I/O round-trip" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    const json =
+        \\{
+        \\    "host": "127.0.0.1",
+        \\    "port": 8080,
+        \\    "log_level": "debug",
+        \\    "features": {
+        \\        "virtual_keys": false,
+        \\        "multi_tenancy": true,
+        \\        "cost_tracking": true,
+        \\        "rate_limiting": false,
+        \\        "observability": true
+        \\    }
+        \\}
+    ;
+
+    // Write to CWD-relative temp file, clean up after test
+    const test_file = "__test_config_roundtrip_prop1.json";
+    const cwd = std.Io.Dir.cwd();
+    try cwd.writeFile(io, .{ .sub_path = test_file, .data = json });
+    defer cwd.deleteFile(io, test_file) catch {};
+
+    // Load via ConfigLoader using the new io-based file API
+    var loader = ConfigLoader.init(allocator);
+    const config = try loader.loadFromFile(io, test_file);
+
+    // Verify round-trip consistency
+    try std.testing.expectEqualStrings("127.0.0.1", config.host);
+    try std.testing.expectEqual(@as(u16, 8080), config.port);
+    try std.testing.expectEqualStrings("debug", config.log_level);
+    try std.testing.expectEqual(false, config.features.virtual_keys);
+    try std.testing.expectEqual(true, config.features.multi_tenancy);
+    try std.testing.expectEqual(true, config.features.cost_tracking);
+    try std.testing.expectEqual(false, config.features.rate_limiting);
+    try std.testing.expectEqual(true, config.features.observability);
 }

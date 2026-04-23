@@ -4,6 +4,33 @@
 //! Zero dependency for simple cache - uses in-memory storage.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const plugin = @import("plugin");
 const http = @import("http");
 
@@ -17,14 +44,14 @@ const CacheEntry = struct {
 // ============ Simple TTL Cache ============
 
 pub const SimpleCache = struct {
-    entries: std.StringArrayHashMap(CacheEntry),
+    entries: StringArrayHashMap(CacheEntry),
     allocator: std.mem.Allocator,
     ttl_seconds: u32,
     max_entries: u32,
 
-    pub fn init(allocator: std.mem.Allocator, ttl_seconds: u32, max_entries: u32) SimpleCache {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, ttl_seconds: u32, max_entries: u32) SimpleCache {
         return .{
-            .entries = std.StringArrayHashMap(CacheEntry).init(allocator),
+            .entries = StringArrayHashMap(CacheEntry).init(allocator),
             .allocator = allocator,
             .ttl_seconds = ttl_seconds,
             .max_entries = max_entries,
@@ -58,7 +85,7 @@ pub const SimpleCache = struct {
         const entry = self.entries.get(key) orelse return null;
 
         // Check if expired
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         if (now > entry.expires_at) {
             // Clean up expired entry
             if (self.entries.fetchRemove(key)) |e| {
@@ -82,7 +109,7 @@ pub const SimpleCache = struct {
 
         const key_copy = try self.allocator.dupe(u8, key);
         const value_copy = try self.allocator.dupe(u8, value);
-        const expires_at = std.time.timestamp() + @as(i64, @intCast(ttl_seconds));
+        const expires_at = time_compat.timestamp(self.io) + @as(i64, @intCast(ttl_seconds));
 
         if (self.entries.put(key_copy, .{ .value = value_copy, .expires_at = expires_at })) |old| {
             self.allocator.free(old.value);
@@ -116,7 +143,7 @@ pub const SimpleCache = struct {
 
     fn evictOldest(self: *SimpleCache) !void {
         var oldest_key: ?[]const u8 = null;
-        var oldest_time: i64 = std.time.timestamp();
+        var oldest_time: i64 = time_compat.timestamp(self.io);
 
         var it = self.entries.iterator();
         while (it.next()) |entry| {
@@ -230,7 +257,7 @@ pub const SemanticCache = struct {
     pub fn findSimilar(self: *SemanticCache, query_embedding: []const f32) !?struct { []u8, f32 } {
         var best_similarity: f32 = 0;
         var best_idx: ?usize = null;
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
 
         for (self.entries.items, 0..) |*entry, idx| {
             // Skip expired entries
@@ -268,8 +295,8 @@ pub const SemanticCache = struct {
             .text = try self.allocator.dupe(u8, text),
             .embedding = try self.allocator.dupe(f32, embedding),
             .response = try self.allocator.dupe(u8, response),
-            .expires_at = std.time.timestamp() + @as(i64, @intCast(self.ttl_seconds)),
-            .created_at = std.time.timestamp(),
+            .expires_at = time_compat.timestamp(self.io) + @as(i64, @intCast(self.ttl_seconds)),
+            .created_at = time_compat.timestamp(self.io),
             .hit_count = 0,
         };
 
@@ -337,7 +364,7 @@ pub const SemanticCache = struct {
     pub fn searchByText(self: *SemanticCache, query_text: []const u8) ?[]u8 {
         var best_score: f32 = 0;
         var best_response: ?[]u8 = null;
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
 
         const query_words = std.mem.splitScalar(u8, query_text, ' ');
 
@@ -353,7 +380,7 @@ pub const SemanticCache = struct {
             while (qi.next()) |word| {
                 if (word.len > 2) { // Ignore very short words
                     query_word_count += 1;
-                    if (std.mem.indexOf(u8, entry.text, word) != null) {
+                    if (std.mem.find(u8, entry.text, word) != null) {
                         overlap += 1;
                     }
                 }
@@ -386,7 +413,7 @@ fn extractTextFromMessages(allocator: std.mem.Allocator, json_str: []const u8) !
     errdefer result.deinit();
 
     // Find "messages" array in JSON
-    const messages_start = std.mem.indexOf(u8, json_str, "\"messages\":") orelse {
+    const messages_start = std.mem.find(u8, json_str, "\"messages\":") orelse {
         // No messages, just use the whole JSON as text
         return allocator.dupe(u8, json_str);
     };
@@ -418,9 +445,9 @@ fn extractTextFromMessages(allocator: std.mem.Allocator, json_str: []const u8) !
         if (i >= json_str.len or json_str[i] != '{') break;
 
         // Find content field in this message object
-        const content_start = std.mem.indexOfPos(u8, json_str, i, "\"content\":\"") orelse blk: {
+        const content_start = std.mem.findPos(u8, json_str, i, "\"content\":\"") orelse blk: {
             // Try 'content':' (single quotes)
-            break :blk std.mem.indexOfPos(u8, json_str, i, "'content':'") orelse blk2: {
+            break :blk std.mem.findPos(u8, json_str, i, "'content':'") orelse blk2: {
                 // No content in this message
                 // Find end of object
                 var d: u32 = 0;
@@ -502,12 +529,12 @@ fn cosineSimilarity(a: []const f32, b: []const f32) f32 {
 /// Expected format: {"data":[{"embedding":[...],"index":0}],"usage":{"prompt_tokens":...}}
 fn parseEmbeddingResponse(allocator: std.mem.Allocator, response: []const u8) ![]f32 {
     // Find "embedding" array
-    const emb_start = std.mem.indexOf(u8, response, "\"embedding\":") orelse {
+    const emb_start = std.mem.find(u8, response, "\"embedding\":") orelse {
         return error.ParseError;
     };
 
     // Find opening bracket
-    const arr_start = std.mem.indexOfPos(u8, response, emb_start, "[") orelse {
+    const arr_start = std.mem.findPos(u8, response, emb_start, "[") orelse {
         return error.ParseError;
     };
 
@@ -662,5 +689,5 @@ test "text extraction" {
     const text = try extractTextFromMessages(std.heap.page_allocator, json);
     defer std.heap.page_allocator.free(text);
     std.debug.print("extracted text: {s}\n", .{text});
-    try std.testing.expect(std.mem.indexOf(u8, text, "Hello world") != null);
+    try std.testing.expect(std.mem.find(u8, text, "Hello world") != null);
 }

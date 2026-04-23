@@ -123,8 +123,8 @@ pub const RequestRectifier = struct {
         if (!self.options.normalize_thinking) return false;
 
         // Check for thinking block in response
-        return std.mem.indexOf(u8, body, "thinking_block_id") != null or
-            std.mem.indexOf(u8, body, "thinking") != null;
+        return std.mem.find(u8, body, "thinking_block_id") != null or
+            std.mem.find(u8, body, "thinking") != null;
     }
 
     /// Fix response thinking blocks to be compatible
@@ -142,14 +142,14 @@ pub const RequestRectifier = struct {
     pub fn detectFormat(self: *RequestRectifier, body: []const u8) ApiFormat {
         _ = self;
         // Check for Anthropic-specific fields
-        if (std.mem.indexOf(u8, body, "\"system\"") != null or
-            std.mem.indexOf(u8, body, "\"thinking\"") != null or
-            std.mem.indexOf(u8, body, "\"max_tokens\"") != null)
+        if (std.mem.find(u8, body, "\"system\"") != null or
+            std.mem.find(u8, body, "\"thinking\"") != null or
+            std.mem.find(u8, body, "\"max_tokens\"") != null)
         {
             return .anthropic;
         }
         // Check for OpenAI-specific fields
-        if (std.mem.indexOf(u8, body, "\"messages\"") != null) {
+        if (std.mem.find(u8, body, "\"messages\"") != null) {
             return .openai;
         }
         return .auto;
@@ -382,7 +382,7 @@ test "rectifier coerce types" {
     defer allocator.free(output);
 
     // Model should still be a number (coercion just prepares, doesn't guarantee string)
-    try std.testing.expect(std.mem.indexOf(u8, output, "12345") != null);
+    try std.testing.expect(std.mem.find(u8, output, "12345") != null);
 }
 
 test "rectifier convert anthropic to openai" {
@@ -400,10 +400,10 @@ test "rectifier convert anthropic to openai" {
     defer allocator.free(output);
 
     // Verify the output contains expected fields
-    try std.testing.expect(std.mem.indexOf(u8, output, "claude-3-5-sonnet-20241022") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "max_completion_tokens") != null); // Converted
-    try std.testing.expect(std.mem.indexOf(u8, output, "system") != null); // System in messages
-    try std.testing.expect(std.mem.indexOf(u8, output, "Hello") != null);
+    try std.testing.expect(std.mem.find(u8, output, "claude-3-5-sonnet-20241022") != null);
+    try std.testing.expect(std.mem.find(u8, output, "max_completion_tokens") != null); // Converted
+    try std.testing.expect(std.mem.find(u8, output, "system") != null); // System in messages
+    try std.testing.expect(std.mem.find(u8, output, "Hello") != null);
 }
 
 test "rectifier convert openai to anthropic" {
@@ -421,9 +421,9 @@ test "rectifier convert openai to anthropic" {
     defer allocator.free(output);
 
     // Verify the output
-    try std.testing.expect(std.mem.indexOf(u8, output, "gpt-4o") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "You are helpful") != null); // System preserved
-    try std.testing.expect(std.mem.indexOf(u8, output, "Hi") != null);
+    try std.testing.expect(std.mem.find(u8, output, "gpt-4o") != null);
+    try std.testing.expect(std.mem.find(u8, output, "You are helpful") != null); // System preserved
+    try std.testing.expect(std.mem.find(u8, output, "Hi") != null);
 }
 
 test "rectifier convert same format" {
@@ -437,7 +437,7 @@ test "rectifier convert same format" {
     defer allocator.free(output);
 
     // Should be unchanged (except whitespace)
-    try std.testing.expect(std.mem.indexOf(u8, output, "gpt-4o") != null);
+    try std.testing.expect(std.mem.find(u8, output, "gpt-4o") != null);
 }
 
 test "rectifier detect format with thinking" {

@@ -3,6 +3,32 @@
 //! Handles /tracking/* API endpoints for syncing cmd tracking data
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const analytics_types = @import("types");
 
 pub const SyncRequest = analytics_types.SyncRequest;
@@ -41,7 +67,7 @@ pub const TrackingHandler = struct {
 
     /// POST /tracking/sync - Receive tracking records from cmd
     fn handleSync(self: *TrackingHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 10_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(10_000_000));
         defer self.allocator.free(body);
 
         // Parse the sync request
@@ -196,17 +222,17 @@ pub const CommandStats = struct { count: usize, saved: usize };
 pub const TrackingStore = struct {
     allocator: std.mem.Allocator,
     records: std.ArrayList(analytics_types.TrackingRecord),
-    by_hostname: std.StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)),
-    by_user: std.StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)),
-    by_command: std.StringArrayHashMap(CommandStats),
+    by_hostname: StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)),
+    by_user: StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)),
+    by_command: StringArrayHashMap(CommandStats),
 
     pub fn init(allocator: std.mem.Allocator) std.mem.Allocator.Error!TrackingStore {
         return .{
             .allocator = allocator,
             .records = try std.ArrayList(analytics_types.TrackingRecord).initCapacity(allocator, 0),
-            .by_hostname = std.StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)).init(allocator),
-            .by_user = std.StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)).init(allocator),
-            .by_command = std.StringArrayHashMap(CommandStats).init(allocator),
+            .by_hostname = StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)).init(allocator),
+            .by_user = StringArrayHashMap(std.ArrayList(*const analytics_types.TrackingRecord)).init(allocator),
+            .by_command = StringArrayHashMap(CommandStats).init(allocator),
         };
     }
 
@@ -373,7 +399,7 @@ pub const TrackingStore = struct {
             0.0;
 
         // Aggregate by user
-        var user_map = std.StringArrayHashMap(struct {
+        var user_map = StringArrayHashMap(struct {
             total: usize = 0,
             llmlite: usize = 0,
             saved: usize = 0,
@@ -437,7 +463,7 @@ pub const TrackingStore = struct {
     pub fn getSessionOverview(self: *TrackingStore, query: analytics_types.AnalyticsQuery) ![]analytics_types.SessionSummary {
         _ = query;
         // Group by hostname and date
-        var sessions_map = std.StringArrayHashMap(struct {
+        var sessions_map = StringArrayHashMap(struct {
             cmds: usize = 0,
             llmlite: usize = 0,
             tokens: usize = 0,
@@ -471,7 +497,7 @@ pub const TrackingStore = struct {
         var it = sessions_map.iterator();
         while (it.next()) |entry| {
             // Parse hostname from key (format: hostname_date)
-            const last_underscore = std.mem.lastIndexOfScalar(u8, entry.key_ptr.*, '_');
+            const last_underscore = std.mem.findScalarLast(u8, entry.key_ptr.*, '_');
             const hostname = if (last_underscore) |idx| entry.key_ptr.*[0..idx] else entry.key_ptr.*;
             const date = if (last_underscore) |idx| entry.key_ptr.*[idx + 1 ..] else "unknown";
 

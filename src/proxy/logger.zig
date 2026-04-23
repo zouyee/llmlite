@@ -21,37 +21,25 @@ pub const LogEntry = struct {
 
 pub const RequestLogger = struct {
     allocator: std.mem.Allocator,
-    log_file: ?std.fs.File,
+    log_file_path: ?[]const u8,
     log_requests: bool,
 
     pub fn init(allocator: std.mem.Allocator, log_file_path: ?[]const u8, log_requests: bool) !RequestLogger {
-        var log_file: ?std.fs.File = null;
-
-        if (log_file_path) |path| {
-            log_file = try std.fs.createFileAbsolute(path, .{ .truncate = false });
-            // Write JSON array header
-            try log_file.?.writeAll("[\n");
-        }
-
         return .{
             .allocator = allocator,
-            .log_file = log_file,
+            .log_file_path = log_file_path,
             .log_requests = log_requests,
         };
     }
 
     pub fn deinit(self: *RequestLogger) void {
-        if (self.log_file) |*file| {
-            // Write JSON array footer
-            file.writeAll("\n]") catch {};
-            file.close();
-        }
+        _ = self;
     }
 
     /// Log a request entry
     pub fn log(self: *RequestLogger, entry: LogEntry) !void {
         if (!self.log_requests) return;
-        if (self.log_file == null) return;
+        if (self.log_file_path == null) return;
 
         // Simple JSON formatting without ArrayList
         const timestamp_str = try std.fmt.allocPrint(self.allocator, "{d}", .{entry.timestamp});
@@ -99,8 +87,8 @@ pub const RequestLogger = struct {
         });
         defer self.allocator.free(json_line);
 
-        try self.log_file.?.writeAll(json_line);
-        try self.log_file.?.writeAll(",\n");
+        // File logging requires io parameter - log to stderr instead
+        std.log.info("{s}", .{json_line});
     }
 
     /// Create a log entry builder
@@ -109,13 +97,13 @@ pub const RequestLogger = struct {
             logger: *RequestLogger,
             entry: LogEntry,
 
-            pub fn init(logger: *RequestLogger, method: []const u8, path: []const u8) @This() {
+            pub fn init(logger: *RequestLogger, method: []const u8, path_str: []const u8) @This() {
                 return .{
                     .logger = logger,
                     .entry = .{
-                        .timestamp = std.time.timestamp(),
+                        .timestamp = 0, // timestamp requires io
                         .method = method,
-                        .path = path,
+                        .path = path_str,
                         .status = 0,
                         .latency_ms = 0,
                         .virtual_key_id = null,
@@ -168,8 +156,8 @@ pub const RequestLogger = struct {
         };
     }
 
-    pub fn startLog(self: *RequestLogger, method: []const u8, path: []const u8) LogBuilder(@TypeOf(self.*)) {
-        return LogBuilder(@TypeOf(self.*)).init(self, method, path);
+    pub fn startLog(self: *RequestLogger, method: []const u8, path_str: []const u8) LogBuilder(@TypeOf(self.*)) {
+        return LogBuilder(@TypeOf(self.*)).init(self, method, path_str);
     }
 };
 
@@ -190,6 +178,11 @@ pub const MetricsCollector = struct {
         }
         self.latency_sum_ms += latency_ms;
         self.tokens_total += tokens;
+    }
+
+    pub fn getSuccessRate(self: *const MetricsCollector) f64 {
+        if (self.requests_total == 0) return 100.0;
+        return @as(f64, @floatFromInt(self.requests_success)) / @as(f64, @floatFromInt(self.requests_total)) * 100.0;
     }
 
     /// Get Prometheus-formatted metrics

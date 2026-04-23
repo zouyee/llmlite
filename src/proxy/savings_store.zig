@@ -4,23 +4,26 @@
 
 const std = @import("std");
 const shared = @import("shared_analytics");
+const time_compat = @import("time_compat");
 
 pub const SavingsStore = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     reports: std.ArrayList(shared.SavingsReport),
-    mutex: std.Thread.Mutex,
+    mutex: std.Io.Mutex,
 
-    pub fn init(allocator: std.mem.Allocator) SavingsStore {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) SavingsStore {
         return .{
             .allocator = allocator,
+            .io = io,
             .reports = std.ArrayList(shared.SavingsReport).empty,
-            .mutex = .{},
+            .mutex = std.Io.Mutex.init,
         };
     }
 
     pub fn deinit(self: *SavingsStore) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        while (!self.mutex.tryLock()) {}
+        defer self.mutex.state.store(.unlocked, .release);
         for (self.reports.items) |r| {
             self.allocator.free(r.original_cmd);
             self.allocator.free(r.hostname);
@@ -30,8 +33,8 @@ pub const SavingsStore = struct {
 
     /// Add a report (deep-copies string fields)
     pub fn addReport(self: *SavingsStore, report: shared.SavingsReport) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        while (!self.mutex.tryLock()) {}
+        defer self.mutex.state.store(.unlocked, .release);
 
         const owned_cmd = try self.allocator.dupe(u8, report.original_cmd);
         errdefer self.allocator.free(owned_cmd);
@@ -54,11 +57,11 @@ pub const SavingsStore = struct {
     pub fn aggregate(self: *SavingsStore, days: ?u32, team_id: ?[]const u8) shared.CmdSavingsSummary {
         _ = team_id; // team filtering not implemented for in-memory store
 
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        while (!self.mutex.tryLock()) {}
+        defer self.mutex.state.store(.unlocked, .release);
 
         const cutoff = if (days) |d|
-            std.time.timestamp() - @as(i64, @intCast(d * 86400))
+            time_compat.timestamp(self.io) - @as(i64, @intCast(d * 86400))
         else
             std.math.minInt(i64);
 
@@ -83,10 +86,10 @@ pub const SavingsStore = struct {
 
     /// Remove reports older than retention_days
     pub fn cleanup(self: *SavingsStore, retention_days: u32) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        while (!self.mutex.tryLock()) {}
+        defer self.mutex.state.store(.unlocked, .release);
 
-        const cutoff = std.time.timestamp() - @as(i64, @intCast(retention_days * 86400));
+        const cutoff = time_compat.timestamp(self.io) - @as(i64, @intCast(retention_days * 86400));
         var i: usize = 0;
         while (i < self.reports.items.len) {
             if (self.reports.items[i].timestamp < cutoff) {
@@ -100,8 +103,8 @@ pub const SavingsStore = struct {
     }
 
     pub fn reportCount(self: *SavingsStore) usize {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        while (!self.mutex.tryLock()) {}
+        defer self.mutex.state.store(.unlocked, .release);
         return self.reports.items.len;
     }
 };
@@ -112,11 +115,11 @@ pub const SavingsStore = struct {
 
 test "add and aggregate" {
     const allocator = std.testing.allocator;
-    var store = SavingsStore.init(allocator);
+    var store = SavingsStore.init(allocator, std.testing.io);
     defer store.deinit();
 
     try store.addReport(.{
-        .timestamp = std.time.timestamp(),
+        .timestamp = time_compat.timestamp(std.testing.io),
         .original_cmd = "git status",
         .raw_output_tokens = 100,
         .filtered_output_tokens = 40,
@@ -133,11 +136,11 @@ test "add and aggregate" {
 
 test "cleanup old reports" {
     const allocator = std.testing.allocator;
-    var store = SavingsStore.init(allocator);
+    var store = SavingsStore.init(allocator, std.testing.io);
     defer store.deinit();
 
     try store.addReport(.{
-        .timestamp = std.time.timestamp() - 86400 * 10,
+        .timestamp = time_compat.timestamp(std.testing.io) - 86400 * 10,
         .original_cmd = "old cmd",
         .raw_output_tokens = 10,
         .filtered_output_tokens = 5,

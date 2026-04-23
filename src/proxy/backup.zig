@@ -9,6 +9,7 @@
 //! - Atomic backup with temp file + rename
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 
 pub const BackupError = error{
     IoError,
@@ -28,20 +29,23 @@ pub const BackupConfig = struct {
 
 pub const BackupManager = struct {
     allocator: std.mem.Allocator,
+pub const BackupManager = struct {
+    io: std.Io,
     config: BackupConfig,
-    mutex: std.Thread.Mutex,
+    mutex: std.Io.Mutex,
 
-    pub fn init(allocator: std.mem.Allocator, config: BackupConfig) !BackupManager {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: BackupConfig) !BackupManager {
         // Ensure backup directory exists
-        std.fs.makeDirAbsolute(config.backup_dir) catch |err| switch (err) {
+        std.Io.Dir.createDirAbsolute(self.io, config.backup_dir, .default_dir) catch |err| switch (err) {
             error.FileNotFound => unreachable, // Should not happen for makeDirAbsolute
             else => return error.IoError,
         };
 
         return BackupManager{
             .allocator = allocator,
+            .io = io,
             .config = config,
-            .mutex = std.Thread.Mutex{},
+            .mutex = std.Io.Mutex.init,
         };
     }
 
@@ -52,11 +56,11 @@ pub const BackupManager = struct {
     /// Create a backup of a file
     pub fn backupFile(self: *BackupManager, source_path: []const u8, category: []const u8) BackupError![]const u8 {
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
 
         // Generate timestamp
-        const timestamp = std.time.timestamp();
+        const timestamp = time_compat.timestamp(self.io);
         const timestamp_str = std.fmt.allocPrint(self.allocator, "{d}", .{timestamp}) catch return error.OutOfMemory;
 
         // Create backup filename: {category}_{timestamp}_{original_name}
@@ -75,30 +79,30 @@ pub const BackupManager = struct {
         defer self.allocator.free(backup_path);
 
         // Read source file
-        const source_file = std.fs.openFileAbsolute(source_path, .{}) catch |err| switch (err) {
+        const source_file = std.Io.Dir.openFileAbsolute(self.io, source_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return error.FileNotFound,
             else => return error.IoError,
         };
-        defer source_file.close();
+        defer source_file.close(self.io);
 
-        const stat = source_file.stat() catch return error.IoError;
-        const content = source_file.readToEndAlloc(self.allocator, stat.size) catch return error.IoError;
+        const stat = source_file.stat(self.io) catch return error.IoError;
+        const content = blk: { var __buf: [8192]u8 = undefined; var __reader = source_file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(stat.size)); } catch return error.IoError;
         defer self.allocator.free(content);
 
         // Write backup atomically (temp file + rename)
         const temp_path = std.fmt.allocPrint(self.allocator, "{s}.tmp", .{backup_path}) catch return error.OutOfMemory;
         defer self.allocator.free(temp_path);
 
-        const temp_file = std.fs.createFileAbsolute(temp_path, .{}) catch |err| switch (err) {
+        const temp_file = std.Io.Dir.createFileAbsolute(self.io, temp_path, .{}) catch |err| switch (err) {
             else => return error.IoError,
         };
-        defer temp_file.close();
+        defer temp_file.close(self.io);
 
-        temp_file.writeAll(content) catch return error.IoError;
-        temp_file.sync() catch return error.IoError;
+        temp_file.writeStreamingAll(self.io, content) catch return error.IoError;
+        temp_file.sync(self.io) catch return error.IoError;
 
         // Rename to final location
-        std.fs.renameAbsolute(temp_path, backup_path) catch return error.IoError;
+        std.Io.Dir.renameAbsolute(temp_path, backup_path, self.io) catch return error.IoError;
 
         // Rotate old backups
         self.rotateBackups(category) catch return error.IoError;
@@ -109,47 +113,47 @@ pub const BackupManager = struct {
     /// Restore a backup
     pub fn restoreBackup(self: *BackupManager, backup_path: []const u8, target_path: []const u8) BackupError!void {
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
 
         // Read backup file
-        const backup_file = std.fs.openFileAbsolute(backup_path, .{}) catch |err| switch (err) {
+        const backup_file = std.Io.Dir.openFileAbsolute(self.io, backup_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return error.FileNotFound,
             else => return error.IoError,
         };
-        defer backup_file.close();
+        defer backup_file.close(self.io);
 
-        const stat = backup_file.stat() catch return error.IoError;
-        const content = backup_file.readToEndAlloc(self.allocator, stat.size) catch return error.IoError;
+        const stat = backup_file.stat(self.io) catch return error.IoError;
+        const content = blk: { var __buf: [8192]u8 = undefined; var __reader = backup_file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(stat.size)); } catch return error.IoError;
         defer self.allocator.free(content);
 
         // Create temp file for atomic write
         const temp_path = std.fmt.allocPrint(self.allocator, "{s}.tmp", .{target_path}) catch return error.OutOfMemory;
         defer self.allocator.free(temp_path);
 
-        const temp_file = std.fs.createFileAbsolute(temp_path, .{}) catch |err| switch (err) {
+        const temp_file = std.Io.Dir.createFileAbsolute(self.io, temp_path, .{}) catch |err| switch (err) {
             else => return error.IoError,
         };
-        defer temp_file.close();
+        defer temp_file.close(self.io);
 
-        temp_file.writeAll(content) catch return error.IoError;
-        temp_file.sync() catch return error.IoError;
+        temp_file.writeStreamingAll(self.io, content) catch return error.IoError;
+        temp_file.sync(self.io) catch return error.IoError;
 
         // Rename to final location
-        std.fs.renameAbsolute(temp_path, target_path) catch return error.IoError;
+        std.Io.Dir.renameAbsolute(temp_path, target_path, self.io) catch return error.IoError;
     }
 
     /// List all backups for a category
     pub fn listBackups(self: *BackupManager, category: []const u8) BackupError![][]const u8 {
         const mutex = &self.mutex;
-        mutex.lock();
-        defer mutex.unlock();
+        while (!mutex.tryLock()) {}
+        defer mutex.state.store(.unlocked, .release);
 
-        var dir = std.fs.openDirAbsolute(self.config.backup_dir, .{ .iterate = true }) catch |err| switch (err) {
+        var dir = std.Io.Dir.openDirAbsolute(self.io, self.config.backup_dir, .{ .iterate = true }) catch |err| switch (err) {
             error.FileNotFound => return BackupError.FileNotFound,
             else => return BackupError.IoError,
         };
-        defer dir.close();
+        defer dir.close(self.io);
 
         var backups = std.ArrayList([]const u8).initCapacity(self.allocator, 0) catch return error.OutOfMemory;
         errdefer backups.deinit(self.allocator);
@@ -194,7 +198,7 @@ pub const BackupManager = struct {
         // Delete oldest backups beyond max_backups
         const to_delete = backups[self.config.max_backups..];
         for (to_delete) |path| {
-            std.fs.deleteFileAbsolute(path) catch {};
+            std.Io.Dir.deleteFileAbsolute(self.io, path) catch {};
         }
     }
 
@@ -222,7 +226,7 @@ pub const BackupManager = struct {
             defer self.allocator.free(source_path);
 
             // Check if file exists
-            std.fs.accessAbsolute(source_path, .{}) catch {
+            std.Io.Dir.accessAbsolute(self.io, source_path, .{}) catch {
                 continue;
             };
             _ = self.backupFile(source_path, f.category) catch {};
@@ -234,7 +238,7 @@ test "backup manager init" {
     const allocator = std.heap.page_allocator;
     const test_dir = "/tmp/llmlite-backup-test";
 
-    std.fs.deleteDirRecursive(test_dir, .{}) catch {};
+    std.Io.Dir.cwd().deleteTree(self.io, test_dir) catch {};
 
     var mgr = try BackupManager.init(allocator, .{
         .backup_dir = test_dir,
@@ -250,17 +254,17 @@ test "backup file and restore" {
     const test_dir = "/tmp/llmlite-backup-test2";
     const source_dir = "/tmp/llmlite-backup-source2";
 
-    std.fs.deleteDirRecursive(test_dir, .{}) catch {};
-    std.fs.deleteDirRecursive(source_dir, .{}) catch {};
+    std.Io.Dir.cwd().deleteTree(self.io, test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(self.io, source_dir) catch {};
 
     // Create source file
-    try std.fs.makeDirAbsolute(source_dir);
+    try std.Io.Dir.createDirAbsolute(self.io, source_dir, .default_dir);
     const source_path = try std.fs.path.join(allocator, &.{ source_dir, "test.json" });
     defer allocator.free(source_path);
 
-    const source_file = try std.fs.createFileAbsolute(source_path, .{});
-    try source_file.writeAll("{\"test\": true}");
-    source_file.close();
+    const source_file = try std.Io.Dir.createFileAbsolute(self.io, source_path, .{});
+    try source_file.writeStreamingAll(self.io, "{\"test\": true}");
+    source_file.close(self.io);
 
     var mgr = try BackupManager.init(allocator, .{
         .backup_dir = test_dir,
@@ -273,9 +277,9 @@ test "backup file and restore" {
     defer allocator.free(backup_path);
 
     // Verify backup exists
-    try std.testing.expect(std.fs.accessAbsolute(backup_path, .{}));
+    try std.testing.expect(std.Io.Dir.accessAbsolute(self.io, backup_path, .{}));
 
     // Clean up
-    std.fs.deleteDirRecursive(test_dir, .{}) catch {};
-    std.fs.deleteDirRecursive(source_dir, .{}) catch {};
+    std.Io.Dir.cwd().deleteTree(self.io, test_dir) catch {};
+    std.Io.Dir.cwd().deleteTree(self.io, source_dir) catch {};
 }

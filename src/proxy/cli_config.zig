@@ -10,6 +10,40 @@
 //! Supports atomic writes with backup for safe hot-switching.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const preset = @import("proxy_preset");
 
 pub const CliTool = preset.CliTool;
@@ -34,12 +68,14 @@ pub const TargetConfig = struct {
     /// Model to use
     model: []const u8,
     /// Optional additional config
-    extra: ?std.StringArrayHashMap([]const u8) = null,
+    extra: ?StringArrayHashMap([]const u8) = null,
 };
 
 /// CLI Config Generator
 pub const CliConfigGenerator = struct {
     allocator: std.mem.Allocator,
+pub const CliConfigGenerator = struct {
+    io: std.Io,
 
     pub fn init(allocator: std.mem.Allocator) CliConfigGenerator {
         return .{ .allocator = allocator };
@@ -186,7 +222,7 @@ pub const CliConfigGenerator = struct {
     }
 
     /// Helper to convert StringHashMap to an object for JSON serialization
-    fn hashMapToObject(_: *CliConfigGenerator, map: std.StringArrayHashMap([]const u8)) std.json.Value {
+    fn hashMapToObject(_: *CliConfigGenerator, map: StringArrayHashMap([]const u8)) std.json.Value {
         // Note: In a full implementation, this would properly convert the map
         // For now, return an empty object since extra config is rarely used
         _ = map;
@@ -201,7 +237,7 @@ pub const AtomicConfigSwitcher = struct {
     generator: CliConfigGenerator,
     backup_dir: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, backup_dir: []const u8) AtomicConfigSwitcher {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, backup_dir: []const u8) AtomicConfigSwitcher {
         return .{
             .allocator = allocator,
             .generator = CliConfigGenerator.init(allocator),
@@ -242,29 +278,29 @@ pub const AtomicConfigSwitcher = struct {
         const temp_path = try std.fmt.allocPrint(
             self.allocator,
             "{s}.tmp.{d}",
-            .{ config_path, std.time.timestamp() },
+            .{ config_path, time_compat.timestamp(self.io) },
         );
         defer self.allocator.free(temp_path);
 
         try self.writeFile(temp_path, new_config);
 
         // Atomic rename
-        try std.fs.rename(self.allocator, temp_path, config_path);
+        try std.Io.Dir.renameAbsolute(temp_path, config_path, self.io);
 
         std.log.info("switched {s} config: {s}", .{ @tagName(tool), config_path });
     }
 
     /// Create a backup of the existing config
     fn createBackup(self: *AtomicConfigSwitcher, config_path: []const u8) !void {
-        const file = std.fs.openFileAbsolute(config_path, .{}) catch return;
-        defer file.close();
+        const file = std.Io.Dir.openFileAbsolute(self.io, config_path, .{}) catch return;
+        defer file.close(self.io);
 
         // Create backup directory if needed
         const home_dir = std.os.getenv("HOME") orelse return error.HomeDirectoryNotFound;
         const backup_path = try std.fmt.allocPrint(
             self.allocator,
             "{s}/{s}/{s}.{d}",
-            .{ home_dir, self.backup_dir, "settings.json", std.time.timestamp() },
+            .{ home_dir, self.backup_dir, "settings.json", time_compat.timestamp(self.io) },
         );
         defer self.allocator.free(backup_path);
 
@@ -276,24 +312,24 @@ pub const AtomicConfigSwitcher = struct {
         );
         defer self.allocator.free(backup_dir);
 
-        try std.fs.makeDirAbsolute(backup_dir);
+        try std.Io.Dir.createDirAbsolute(self.io, backup_dir, .default_dir);
 
         // Read and write backup
-        const content = try file.readToEndAlloc(self.allocator, 1_000_000);
+        const content = try blk: { var __buf: [8192]u8 = undefined; var __reader = file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(1_000_000)); };
         defer self.allocator.free(content);
         try self.writeFile(backup_path, content);
     }
 
     /// Write content to a file
     fn writeFile(_: *AtomicConfigSwitcher, path: []const u8, content: []const u8) !void {
-        const file = try std.fs.createFileAbsolute(path, .{});
-        defer file.close();
-        try file.writeAll(content);
+        const file = try std.Io.Dir.createFileAbsolute(self.io, path, .{});
+        defer file.close(self.io);
+        try file.writeStreamingAll(self.io, content);
     }
 
     /// Get current active configuration from a file
     pub fn getCurrentConfig(self: *AtomicConfigSwitcher, tool: CliTool) !?TargetConfig {
-        const home_dir = std.process.getEnvVarOwned(self.allocator, "HOME") catch |err| {
+        const home_dir = _getEnvVarOwned(self.allocator, "HOME") catch |err| {
             if (err == error.EnvironmentVariableNotFound) {
                 return error.HomeDirectoryNotFound;
             }
@@ -308,10 +344,10 @@ pub const AtomicConfigSwitcher = struct {
         );
         defer self.allocator.free(config_path);
 
-        const file = std.fs.openFileAbsolute(config_path, .{}) catch return null;
-        defer file.close();
+        const file = std.Io.Dir.openFileAbsolute(self.io, config_path, .{}) catch return null;
+        defer file.close(self.io);
 
-        const content = try file.readToEndAlloc(self.allocator, 1_000_000);
+        const content = try blk: { var __buf: [8192]u8 = undefined; var __reader = file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(1_000_000)); };
         defer self.allocator.free(content);
 
         // Parse based on tool
@@ -489,10 +525,10 @@ pub const AtomicConfigSwitcher = struct {
 
     /// Extract value from YAML line like "  key: value" or "key: value"
     fn extractYamlValue(line: []const u8) ![]const u8 {
-        const colon_idx = std.mem.indexOfScalar(u8, line, ':') orelse return error.ParseError;
+        const colon_idx = std.mem.findScalar(u8, line, ':') orelse return error.ParseError;
         var value = std.mem.trim(u8, line[colon_idx + 1 ..], " \t\"");
         // Remove trailing comment if present
-        if (std.mem.indexOf(u8, value, " #")) |idx| {
+        if (std.mem.find(u8, value, " #")) |idx| {
             value = std.mem.trim(u8, value[0..idx], " \t");
         }
         return value;

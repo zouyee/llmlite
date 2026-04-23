@@ -14,6 +14,7 @@
 //!   defer adapter.deinit();
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 
 /// Supported upstream LLM provider types
 pub const ProviderAdapterType = enum(u4) {
@@ -49,11 +50,13 @@ pub const ProviderAdapterConfig = struct {
 
 pub const ProviderAdapter = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     config: ProviderAdapterConfig,
 
-    pub fn init(allocator: std.mem.Allocator, config: ProviderAdapterConfig) ProviderAdapter {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ProviderAdapterConfig) ProviderAdapter {
         return .{
             .allocator = allocator,
+            .io = io,
             .config = config,
         };
     }
@@ -130,7 +133,7 @@ pub const ProviderAdapter = struct {
     /// Returns true if oauth_expiry is set and is less than the current time.
     pub fn isTokenExpired(self: *const ProviderAdapter) bool {
         const expiry = self.config.oauth_expiry orelse return false;
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         return expiry < now;
     }
 
@@ -439,7 +442,7 @@ test "provider_adapter - isGeminiOAuth empty string returns false" {
 // --- needsTokenRefresh tests (Task 24.4) ---
 
 test "provider_adapter - needsTokenRefresh returns true for expired oauth_codex" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -451,7 +454,7 @@ test "provider_adapter - needsTokenRefresh returns true for expired oauth_codex"
 }
 
 test "provider_adapter - needsTokenRefresh returns false for non-expired oauth" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -463,7 +466,7 @@ test "provider_adapter - needsTokenRefresh returns false for non-expired oauth" 
 }
 
 test "provider_adapter - needsTokenRefresh returns false for api_key strategy" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .claude,
         .base_url = "https://api.anthropic.com",
         .auth_strategy = .api_key,
@@ -475,7 +478,7 @@ test "provider_adapter - needsTokenRefresh returns false for api_key strategy" {
 }
 
 test "provider_adapter - needsTokenRefresh returns false for bearer_token strategy" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .claude_auth,
         .base_url = "https://proxy.example.com",
         .auth_strategy = .bearer_token,
@@ -486,7 +489,7 @@ test "provider_adapter - needsTokenRefresh returns false for bearer_token strate
 }
 
 test "provider_adapter - needsTokenRefresh oauth_copilot expired" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .github_copilot,
         .base_url = "https://api.githubcopilot.com",
         .auth_strategy = .oauth_copilot,
@@ -498,7 +501,7 @@ test "provider_adapter - needsTokenRefresh oauth_copilot expired" {
 }
 
 test "provider_adapter - needsTokenRefresh oauth_gemini_cli expired" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .gemini_cli,
         .base_url = "https://generativelanguage.googleapis.com",
         .auth_strategy = .oauth_gemini_cli,
@@ -512,7 +515,7 @@ test "provider_adapter - needsTokenRefresh oauth_gemini_cli expired" {
 // --- setOAuthToken tests (Task 24.4) ---
 
 test "provider_adapter - setOAuthToken updates token and expiry" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -527,7 +530,7 @@ test "provider_adapter - setOAuthToken updates token and expiry" {
 }
 
 test "provider_adapter - setOAuthToken sets token when previously null" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -541,7 +544,7 @@ test "provider_adapter - setOAuthToken sets token when previously null" {
 }
 
 test "provider_adapter - setOAuthToken then needsTokenRefresh reflects new expiry" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -611,7 +614,7 @@ test "provider_adapter - autoDetect url priority over auth_mode" {
 // --- buildAuthHeaders tests ---
 
 test "provider_adapter - buildAuthHeaders api_key for claude uses x-api-key" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .claude,
         .base_url = "https://api.anthropic.com",
         .auth_strategy = .api_key,
@@ -625,7 +628,7 @@ test "provider_adapter - buildAuthHeaders api_key for claude uses x-api-key" {
 }
 
 test "provider_adapter - buildAuthHeaders api_key for codex uses Bearer" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex,
         .base_url = "https://api.openai.com",
         .auth_strategy = .api_key,
@@ -639,7 +642,7 @@ test "provider_adapter - buildAuthHeaders api_key for codex uses Bearer" {
 }
 
 test "provider_adapter - buildAuthHeaders bearer_token strategy" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .claude_auth,
         .base_url = "https://proxy.example.com",
         .auth_strategy = .bearer_token,
@@ -653,7 +656,7 @@ test "provider_adapter - buildAuthHeaders bearer_token strategy" {
 }
 
 test "provider_adapter - buildAuthHeaders oauth uses oauth_token" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -667,7 +670,7 @@ test "provider_adapter - buildAuthHeaders oauth uses oauth_token" {
 }
 
 test "provider_adapter - buildAuthHeaders oauth_copilot" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .github_copilot,
         .base_url = "https://api.githubcopilot.com",
         .auth_strategy = .oauth_copilot,
@@ -681,7 +684,7 @@ test "provider_adapter - buildAuthHeaders oauth_copilot" {
 }
 
 test "provider_adapter - buildAuthHeaders oauth_gemini_cli" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .gemini_cli,
         .base_url = "https://generativelanguage.googleapis.com",
         .auth_strategy = .oauth_gemini_cli,
@@ -695,7 +698,7 @@ test "provider_adapter - buildAuthHeaders oauth_gemini_cli" {
 }
 
 test "provider_adapter - buildAuthHeaders returns empty when no key" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex,
         .base_url = "https://api.openai.com",
         .auth_strategy = .api_key,
@@ -709,7 +712,7 @@ test "provider_adapter - buildAuthHeaders returns empty when no key" {
 }
 
 test "provider_adapter - buildAuthHeaders oauth returns empty when no oauth_token" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -725,7 +728,7 @@ test "provider_adapter - buildAuthHeaders oauth returns empty when no oauth_toke
 // --- isTokenExpired tests ---
 
 test "provider_adapter - isTokenExpired returns false when no expiry" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -736,7 +739,7 @@ test "provider_adapter - isTokenExpired returns false when no expiry" {
 }
 
 test "provider_adapter - isTokenExpired returns true for past expiry" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -748,7 +751,7 @@ test "provider_adapter - isTokenExpired returns true for past expiry" {
 }
 
 test "provider_adapter - isTokenExpired returns false for far future expiry" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .codex_oauth,
         .base_url = "https://api.openai.com",
         .auth_strategy = .oauth_codex,
@@ -762,7 +765,7 @@ test "provider_adapter - isTokenExpired returns false for far future expiry" {
 // --- getEndpoint tests ---
 
 test "provider_adapter - getEndpoint returns base_url" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .claude,
         .base_url = "https://api.anthropic.com",
         .auth_strategy = .api_key,
@@ -775,7 +778,7 @@ test "provider_adapter - getEndpoint returns base_url" {
 // --- init/deinit tests ---
 
 test "provider_adapter - init and deinit" {
-    var adapter = ProviderAdapter.init(std.testing.allocator, .{
+    var adapter = ProviderAdapter.init(std.testing.allocator, std.testing.io, .{
         .adapter_type = .gemini,
         .base_url = "https://generativelanguage.googleapis.com",
         .auth_strategy = .api_key,

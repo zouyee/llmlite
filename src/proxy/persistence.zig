@@ -8,6 +8,7 @@ const sqlite = @import("sqlite");
 const virtual_key = @import("virtual_key");
 const team = @import("team");
 const cost = @import("cost");
+const time_compat = @import("time_compat");
 
 pub const ProxyDbError = error{
     OpenFailed,
@@ -25,10 +26,11 @@ pub const ProxyDbError = error{
 pub const ProxyDb = struct {
     db: sqlite.Database,
     allocator: std.mem.Allocator,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !ProxyDb {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, db_path: []const u8) !ProxyDb {
         const dir = std.fs.path.dirname(db_path) orelse ".";
-        try std.fs.cwd().makePath(dir);
+        try std.Io.Dir.cwd().createDirPath(io, dir);
 
         const path_z = try allocator.dupeZ(u8, db_path);
         defer allocator.free(path_z);
@@ -54,6 +56,7 @@ pub const ProxyDb = struct {
         var self = ProxyDb{
             .db = db,
             .allocator = allocator,
+            .io = io,
         };
 
         try self.runMigrations();
@@ -99,7 +102,7 @@ pub const ProxyDb = struct {
     fn recordMigration(self: *ProxyDb, version: u32) !void {
         try self.db.exec(
             "INSERT INTO schema_versions (version, applied_at) VALUES (:version, :applied_at)",
-            .{ .version = version, .applied_at = std.time.timestamp() },
+            .{ .version = version, .applied_at = time_compat.timestamp(self.io) },
         );
     }
 
@@ -357,7 +360,7 @@ pub const ProxyDb = struct {
     pub fn updateVirtualKeySpend(self: *ProxyDb, id: []const u8, spend_delta: f64) !void {
         try self.db.exec(
             "UPDATE virtual_keys SET spend = spend + :delta, request_count = request_count + 1, last_used = :now WHERE id = :id",
-            .{ .delta = spend_delta, .now = std.time.timestamp(), .id = sqlite.text(id) },
+            .{ .delta = spend_delta, .now = time_compat.timestamp(self.io), .id = sqlite.text(id) },
         );
     }
 
@@ -828,8 +831,8 @@ pub const Persistence = struct {
     allocator: std.mem.Allocator,
     proxy_db: ProxyDb,
 
-    pub fn init(allocator: std.mem.Allocator, db_path: []const u8) !Persistence {
-        const proxy_db = try ProxyDb.init(allocator, db_path);
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, db_path: []const u8) !Persistence {
+        const proxy_db = try ProxyDb.init(allocator, io, db_path);
         return .{
             .allocator = allocator,
             .proxy_db = proxy_db,
@@ -977,14 +980,15 @@ pub const Persistence = struct {
 
 test "ProxyDb init and schema" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const test_path = "/tmp/llmlite_proxy_test.db";
 
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
 
-    var db = try ProxyDb.init(allocator, test_path);
+    var db = try ProxyDb.init(allocator, io, test_path);
     defer {
         db.deinit();
-        std.fs.deleteFileAbsolute(test_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
     }
 
     const version = try db.getCurrentVersion();
@@ -993,13 +997,14 @@ test "ProxyDb init and schema" {
 
 test "VirtualKey round-trip" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const test_path = "/tmp/llmlite_proxy_vk_test.db";
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
 
-    var db = try ProxyDb.init(allocator, test_path);
+    var db = try ProxyDb.init(allocator, io, test_path);
     defer {
         db.deinit();
-        std.fs.deleteFileAbsolute(test_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
     }
 
     const models = try allocator.alloc([]const u8, 2);
@@ -1047,13 +1052,14 @@ test "VirtualKey round-trip" {
 
 test "Team round-trip and cascade delete" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const test_path = "/tmp/llmlite_proxy_team_test.db";
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
 
-    var db = try ProxyDb.init(allocator, test_path);
+    var db = try ProxyDb.init(allocator, io, test_path);
     defer {
         db.deinit();
-        std.fs.deleteFileAbsolute(test_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
     }
 
     const t = team.Team{
@@ -1110,13 +1116,14 @@ test "Team round-trip and cascade delete" {
 
 test "SpendEntry round-trip and aggregation" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const test_path = "/tmp/llmlite_proxy_spend_test.db";
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
 
-    var db = try ProxyDb.init(allocator, test_path);
+    var db = try ProxyDb.init(allocator, io, test_path);
     defer {
         db.deinit();
-        std.fs.deleteFileAbsolute(test_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
     }
 
     const entries = [_]cost.SpendEntry{
@@ -1175,13 +1182,14 @@ test "SpendEntry round-trip and aggregation" {
 
 test "VirtualKey spend accumulation" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const test_path = "/tmp/llmlite_proxy_vk_spend_test.db";
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
 
-    var db = try ProxyDb.init(allocator, test_path);
+    var db = try ProxyDb.init(allocator, io, test_path);
     defer {
         db.deinit();
-        std.fs.deleteFileAbsolute(test_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
     }
 
     const vk = virtual_key.VirtualKey{
@@ -1216,13 +1224,14 @@ test "VirtualKey spend accumulation" {
 
 test "Project spend bidirectional propagation" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     const test_path = "/tmp/llmlite_proxy_proj_spend_test.db";
-    std.fs.deleteFileAbsolute(test_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
 
-    var db = try ProxyDb.init(allocator, test_path);
+    var db = try ProxyDb.init(allocator, io, test_path);
     defer {
         db.deinit();
-        std.fs.deleteFileAbsolute(test_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(io, test_path) catch {};
     }
 
     const t = team.Team{

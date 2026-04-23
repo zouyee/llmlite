@@ -2,16 +2,18 @@ const std = @import("std");
 
 pub const HotReloadConfig = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     config_path: []const u8,
-    last_modified: i128,
+    last_modified: std.Io.Timestamp,
     check_interval_ms: u32,
     reload_count: u32 = 0,
 
-    pub fn init(allocator: std.mem.Allocator, config_path: []const u8, check_interval_ms: u32) HotReloadConfig {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config_path: []const u8, check_interval_ms: u32) HotReloadConfig {
         return .{
             .allocator = allocator,
+            .io = io,
             .config_path = config_path,
-            .last_modified = 0,
+            .last_modified = .{ .nanoseconds = 0 },
             .check_interval_ms = check_interval_ms,
         };
     }
@@ -21,13 +23,17 @@ pub const HotReloadConfig = struct {
     }
 
     pub fn checkAndReload(self: *HotReloadConfig) !bool {
-        const file = std.fs.cwd().openFile(self.config_path, .{}) catch return false;
-        defer file.close();
+        // Use cwd().openFile for relative paths, openFileAbsolute only for absolute paths
+        const file = if (std.fs.path.isAbsolute(self.config_path))
+            std.Io.Dir.openFileAbsolute(self.io, self.config_path, .{}) catch return false
+        else
+            std.Io.Dir.cwd().openFile(self.io, self.config_path, .{}) catch return false;
+        defer file.close(self.io);
 
-        const stat = file.stat() catch return false;
+        const stat = file.stat(self.io) catch return false;
         const modified = stat.mtime;
 
-        if (modified != self.last_modified) {
+        if (modified.nanoseconds != self.last_modified.nanoseconds) {
             self.last_modified = modified;
             self.reload_count += 1;
             std.log.info("config hot-reloaded from {s} (reload #{d})", .{ self.config_path, self.reload_count });
@@ -44,10 +50,15 @@ pub const HotReloadConfig = struct {
     /// Load and return a new EdgeRouterConfig from the config file
     /// Returns the new config if successful, or an error if parsing fails
     pub fn loadConfig(self: *HotReloadConfig) !EdgeRouterConfig {
-        const file = try std.fs.cwd().openFile(self.config_path, .{});
-        defer file.close();
+        const file = if (std.fs.path.isAbsolute(self.config_path))
+            try std.Io.Dir.openFileAbsolute(self.io, self.config_path, .{})
+        else
+            try std.Io.Dir.cwd().openFile(self.io, self.config_path, .{});
+        defer file.close(self.io);
 
-        const content = try file.readToEndAlloc(self.allocator, 8192);
+        var reader_buffer: [8192]u8 = undefined;
+        var file_reader = file.reader(self.io, &reader_buffer);
+        const content = try file_reader.interface.allocRemaining(self.allocator, .limited(8192));
         defer self.allocator.free(content);
 
         // Parse JSON config
@@ -102,18 +113,20 @@ pub fn getDefaultEdgeConfig() EdgeRouterConfig {
 
 test "hot_reload - HotReloadConfig.init" {
     const allocator = std.heap.page_allocator;
-    var config = HotReloadConfig.init(allocator, "proxy.json", 5000);
+    const io = std.testing.io;
+    var config = HotReloadConfig.init(allocator, io, "proxy.json", 5000);
     defer config.deinit();
 
     try std.testing.expectEqualStrings("proxy.json", config.config_path);
-    try std.testing.expectEqual(@as(i128, 0), config.last_modified);
+    try std.testing.expectEqual(@as(i128, 0), config.last_modified.nanoseconds);
     try std.testing.expectEqual(@as(u32, 5000), config.check_interval_ms);
     try std.testing.expectEqual(@as(u32, 0), config.reload_count);
 }
 
 test "hot_reload - getReloadCount" {
     const allocator = std.heap.page_allocator;
-    var config = HotReloadConfig.init(allocator, "proxy.json", 5000);
+    const io = std.testing.io;
+    var config = HotReloadConfig.init(allocator, io, "proxy.json", 5000);
     defer config.deinit();
 
     try std.testing.expectEqual(@as(u32, 0), config.getReloadCount());
@@ -121,10 +134,11 @@ test "hot_reload - getReloadCount" {
 
 test "hot_reload - checkAndReload returns false when file doesn't exist" {
     const allocator = std.heap.page_allocator;
-    var config = HotReloadConfig.init(allocator, "nonexistent_file.json", 5000);
+    const io = std.testing.io;
+    var config = HotReloadConfig.init(allocator, io, "nonexistent_file.json", 5000);
     defer config.deinit();
 
-    const result = config.checkAndReload();
+    const result = try config.checkAndReload();
     try std.testing.expectEqual(false, result);
 }
 

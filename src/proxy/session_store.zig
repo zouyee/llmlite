@@ -10,6 +10,33 @@
 //! Provides search, browsing, and restoration capabilities.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const preset = @import("proxy_preset");
 
 pub const CliTool = preset.CliTool;
@@ -80,14 +107,16 @@ pub const SessionSummary = struct {
 /// Session store
 pub const SessionStore = struct {
     allocator: std.mem.Allocator,
-    sessions: std.StringArrayHashMap(Session),
+pub const SessionStore = struct {
+    io: std.Io,
+    sessions: StringArrayHashMap(Session),
     sessions_by_tool: std.enums.EnumArray(CliTool, std.array_list.Managed([]const u8)),
     index_dir: []const u8,
 
     pub fn init(allocator: std.mem.Allocator) SessionStore {
         return .{
             .allocator = allocator,
-            .sessions = std.StringArrayHashMap(Session).init(allocator),
+            .sessions = StringArrayHashMap(Session).init(allocator),
             .sessions_by_tool = std.enums.EnumArray(CliTool, std.array_list.Managed([]const u8)).init(undefined),
             .index_dir = undefined,
         };
@@ -108,7 +137,7 @@ pub const SessionStore = struct {
             // will be destroyed. We just need to free any owned slices.
             const tools = [_]CliTool{ .claude_code, .codex, .gemini_cli, .opencode, .openclaw };
             for (tools) |tool| {
-                // Get the list - in Zig 0.15 EnumArray.get returns *const
+                // Get the list - in Zig 0.15+ EnumArray.get returns *const
                 // We can't call deinit, but we can at least free the items
                 const list = self.sessions_by_tool.get(tool);
                 for (list.items) |id| self.allocator.free(id);
@@ -147,7 +176,7 @@ pub const SessionStore = struct {
         const title = self.generateTitle(first_message);
         errdefer self.allocator.free(title);
 
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
 
         const session = Session{
             .id = id,
@@ -169,7 +198,7 @@ pub const SessionStore = struct {
 
     fn generateSessionId(self: *SessionStore) ![]u8 {
         // Use timestamp + random for unique ID
-        const timestamp = std.time.timestamp();
+        const timestamp = time_compat.timestamp(self.io);
         const random = std.crypto.randomInt(u32);
         return std.fmt.allocPrint(self.allocator, "sess_{d}_{x}", .{ timestamp, random });
     }
@@ -213,13 +242,13 @@ pub const SessionStore = struct {
         const message = Message{
             .role = try self.allocator.dupe(u8, role),
             .content = try self.allocator.dupe(u8, content),
-            .timestamp = std.time.timestamp(),
+            .timestamp = time_compat.timestamp(self.io),
         };
 
         const new_messages = try self.allocator.realloc(session.messages, session.messages.len + 1);
         new_messages[new_messages.len - 1] = message;
         session.messages = new_messages;
-        session.updated_at = std.time.timestamp();
+        session.updated_at = time_compat.timestamp(self.io);
     }
 
     /// Update token usage for a session
@@ -236,7 +265,7 @@ pub const SessionStore = struct {
         session.token_usage.prompt_tokens += prompt;
         session.token_usage.completion_tokens += completion;
         session.token_usage.total_tokens = session.token_usage.prompt_tokens + session.token_usage.completion_tokens;
-        session.updated_at = std.time.timestamp();
+        session.updated_at = time_compat.timestamp(self.io);
     }
 
     /// List sessions for a tool (with pagination)
@@ -308,7 +337,7 @@ pub const SessionStore = struct {
         }
         // Find a good break point (end of sentence or space)
         const truncated = content[0..max_len];
-        if (std.mem.lastIndexOfScalar(u8, truncated, ' ')) |space_idx| {
+        if (std.mem.findScalarLast(u8, truncated, ' ')) |space_idx| {
             return truncated[0..space_idx];
         }
         return truncated;
@@ -326,11 +355,11 @@ pub const SessionStore = struct {
 
             // Search in title and messages
             var found = false;
-            if (std.mem.indexOf(u8, session.title, query) != null) {
+            if (std.mem.find(u8, session.title, query) != null) {
                 found = true;
             } else {
                 for (session.messages) |msg| {
-                    if (std.mem.indexOf(u8, msg.content, query) != null) {
+                    if (std.mem.find(u8, msg.content, query) != null) {
                         found = true;
                         break;
                     }
@@ -365,11 +394,11 @@ pub const SessionStore = struct {
 
             // Search in title and messages
             var found = false;
-            if (std.mem.indexOf(u8, session.title, query) != null) {
+            if (std.mem.find(u8, session.title, query) != null) {
                 found = true;
             } else {
                 for (session.messages) |msg| {
-                    if (std.mem.indexOf(u8, msg.content, query) != null) {
+                    if (std.mem.find(u8, msg.content, query) != null) {
                         found = true;
                         break;
                     }
@@ -390,7 +419,7 @@ pub const SessionStore = struct {
     pub fn archiveSession(self: *SessionStore, id: []const u8) bool {
         const session = self.sessions.get(id) orelse return false;
         session.archived = true;
-        session.updated_at = std.time.timestamp();
+        session.updated_at = time_compat.timestamp(self.io);
         return true;
     }
 
@@ -398,7 +427,7 @@ pub const SessionStore = struct {
     pub fn restoreSession(self: *SessionStore, id: []const u8) bool {
         const session = self.sessions.get(id) orelse return false;
         session.archived = false;
-        session.updated_at = std.time.timestamp();
+        session.updated_at = time_compat.timestamp(self.io);
         return true;
     }
 
@@ -491,7 +520,7 @@ pub const SessionStore = struct {
         defer self.allocator.free(sessions_dir);
 
         // Create directory
-        try std.fs.makeDirAbsolute(sessions_dir);
+        try std.Io.Dir.createDirAbsolute(self.io, sessions_dir, .default_dir);
 
         // Write each session to its own file
         var it = self.sessions.iterator();
@@ -507,9 +536,9 @@ pub const SessionStore = struct {
             const content = try std.json.Stringify.valueAlloc(self.allocator, session.*, .{ .whitespace = .indent_tab });
             defer self.allocator.free(content);
 
-            const file = try std.fs.createFileAbsolute(file_path, .{});
-            defer file.close();
-            try file.writeAll(content);
+            const file = try std.Io.Dir.createFileAbsolute(self.io, file_path, .{});
+            defer file.close(self.io);
+            try file.writeStreamingAll(self.io, content);
         }
     }
 
@@ -527,10 +556,10 @@ pub const SessionStore = struct {
         defer self.allocator.free(sessions_dir);
 
         // Open directory
-        const dir = std.fs.openDirAbsolute(sessions_dir, .{ .iterate = true }) catch {
+        const dir = std.Io.Dir.openDirAbsolute(self.io, sessions_dir, .{ .iterate = true }) catch {
             return; // No sessions directory yet
         };
-        defer dir.close();
+        defer dir.close(self.io);
 
         // Iterate JSON files
         var it = dir.iterate();
@@ -544,10 +573,10 @@ pub const SessionStore = struct {
             );
             defer self.allocator.free(file_path);
 
-            const file = std.fs.openFileAbsolute(file_path, .{}) catch continue;
-            defer file.close();
+            const file = std.Io.Dir.openFileAbsolute(self.io, file_path, .{}) catch continue;
+            defer file.close(self.io);
 
-            const content = try file.readToEndAlloc(self.allocator, 10_000_000);
+            const content = try blk: { var __buf: [8192]u8 = undefined; var __reader = file.reader(self.io, &__buf); break :blk __reader.interface.allocRemaining(self.allocator, .limited(10_000_000)); };
             defer self.allocator.free(content);
 
             // Import session
@@ -567,7 +596,7 @@ pub const UnifiedSessionPreview = struct {
     allocator: std.mem.Allocator,
     store: *SessionStore,
 
-    pub fn init(allocator: std.mem.Allocator, store: *SessionStore) UnifiedSessionPreview {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, store: *SessionStore) UnifiedSessionPreview {
         return .{
             .allocator = allocator,
             .store = store,

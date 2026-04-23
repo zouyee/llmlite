@@ -6,20 +6,22 @@ const savings_store_mod = @import("proxy_savings_store");
 
 pub const SavingsHandler = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     store: *savings_store_mod.SavingsStore,
 
-    pub fn init(allocator: std.mem.Allocator, store: *savings_store_mod.SavingsStore) SavingsHandler {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, store: *savings_store_mod.SavingsStore) SavingsHandler {
         return .{
             .allocator = allocator,
+            .io = io,
             .store = store,
         };
     }
 
     /// Handle POST /tracking/savings
-    pub fn handlePost(self: *SavingsHandler, connection: std.net.Server.Connection, request_text: []const u8) !void {
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n");
+    pub fn handlePost(self: *SavingsHandler, stream: std.Io.net.Stream, request_text: []const u8) !void {
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n");
         if (body_start == null) {
-            try writeJsonResponse(connection, 400, "{\"error\":\"Missing request body\"}");
+            try self.writeJsonResponse(stream, 400, "{\"error\":\"Missing request body\"}");
             return;
         }
         const body = request_text[body_start.? + 4 ..];
@@ -32,7 +34,7 @@ pub const SavingsHandler = struct {
             };
             const response = try std.fmt.allocPrint(self.allocator, "{{\"error\":\"{s}\"}}", .{msg});
             defer self.allocator.free(response);
-            try writeJsonResponse(connection, 400, response);
+            try self.writeJsonResponse(stream, 400, response);
             return;
         };
         defer {
@@ -42,25 +44,25 @@ pub const SavingsHandler = struct {
 
         // Store the report (store makes its own deep copy)
         self.store.addReport(report) catch {
-            try writeJsonResponse(connection, 500, "{\"error\":\"Failed to store report\"}");
+            try self.writeJsonResponse(stream, 500, "{\"error\":\"Failed to store report\"}");
             return;
         };
 
-        try writeJsonResponse(connection, 200, "{\"status\":\"ok\"}");
+        try self.writeJsonResponse(stream, 200, "{\"status\":\"ok\"}");
     }
 
     /// Handle POST /tracking/savings/batch
-    pub fn handleBatchPost(self: *SavingsHandler, connection: std.net.Server.Connection, request_text: []const u8) !void {
-        const body_start = std.mem.indexOf(u8, request_text, "\r\n\r\n");
+    pub fn handleBatchPost(self: *SavingsHandler, stream: std.Io.net.Stream, request_text: []const u8) !void {
+        const body_start = std.mem.find(u8, request_text, "\r\n\r\n");
         if (body_start == null) {
-            try writeJsonResponse(connection, 400, "{\"error\":\"Missing request body\"}");
+            try self.writeJsonResponse(stream, 400, "{\"error\":\"Missing request body\"}");
             return;
         }
         const body = request_text[body_start.? + 4 ..];
 
         // Parse as array of SavingsReport
         const parsed = std.json.parseFromSlice([]shared.SavingsReport, self.allocator, body, .{}) catch {
-            try writeJsonResponse(connection, 400, "{\"error\":\"Invalid JSON array\"}");
+            try self.writeJsonResponse(stream, 400, "{\"error\":\"Invalid JSON array\"}");
             return;
         };
         defer parsed.deinit();
@@ -81,15 +83,18 @@ pub const SavingsHandler = struct {
             .rejected = rejected,
         }, .{});
         defer self.allocator.free(response);
-        try writeJsonResponse(connection, 200, response);
+        try self.writeJsonResponse(stream, 200, response);
+    }
+
+    fn writeJsonResponse(self: *SavingsHandler, stream: std.Io.net.Stream, status: u16, body: []const u8) !void {
+        var buf: [32]u8 = undefined;
+        const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} OK\r\n", .{status});
+        var write_buf: [4096]u8 = undefined;
+        var writer = stream.writer(self.io, &write_buf);
+        try writer.interface.writeAll(status_line);
+        try writer.interface.writeAll("Content-Type: application/json\r\n");
+        try writer.interface.writeAll("\r\n");
+        try writer.interface.writeAll(body);
+        try writer.interface.flush();
     }
 };
-
-fn writeJsonResponse(connection: std.net.Server.Connection, status: u16, body: []const u8) !void {
-    var buf: [32]u8 = undefined;
-    const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} OK\r\n", .{status});
-    try connection.stream.writeAll(status_line);
-    try connection.stream.writeAll("Content-Type: application/json\r\n");
-    try connection.stream.writeAll("\r\n");
-    try connection.stream.writeAll(body);
-}

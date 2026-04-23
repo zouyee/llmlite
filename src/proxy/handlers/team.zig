@@ -47,7 +47,7 @@ pub const TeamHandler = struct {
     // ============ Team Endpoints ============
 
     fn handleCreateTeam(self: *TeamHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const create_req = std.json.parseFromSlice(
@@ -186,7 +186,7 @@ pub const TeamHandler = struct {
     // ============ Project Endpoints ============
 
     fn handleCreateProject(self: *TeamHandler, request: *std.http.Server.Request) !void {
-        const body = try request.reader().readAllAlloc(self.allocator, 1_000_000);
+        const body = try request.reader().allocRemaining(self.allocator, .limited(1_000_000));
         defer self.allocator.free(body);
 
         const req_with_team = try std.json.parseFromSlice(

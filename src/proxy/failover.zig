@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const provider_types = @import("types");
+const time_compat = @import("time_compat");
 
 pub const FailoverConfig = struct {
     enabled: bool = true,
@@ -35,16 +36,16 @@ pub const FailoverEvent = struct {
 };
 
 /// SwitchLock prevents concurrent provider switches for the same app_type:provider_id.
-/// Uses std.Thread.Mutex to protect the active_switches map.
+/// Uses std.Io.Mutex to protect the active_switches map.
 pub const SwitchLock = struct {
-    lock: std.Thread.Mutex,
-    active_switches: std.StringArrayHashMap(bool),
+    lock: std.Io.Mutex,
+    active_switches: std.array_hash_map.String(bool),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) SwitchLock {
         return .{
-            .lock = .{},
-            .active_switches = std.StringArrayHashMap(bool).init(allocator),
+            .lock = std.Io.Mutex.init,
+            .active_switches = std.array_hash_map.String(bool){},
             .allocator = allocator,
         };
     }
@@ -54,21 +55,21 @@ pub const SwitchLock = struct {
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
-        self.active_switches.deinit();
+        self.active_switches.deinit(self.allocator);
     }
 
     /// Try to acquire the switch lock for the given key.
     /// Returns false if the key is already locked (another switch is in progress).
-    pub fn tryAcquire(self: *SwitchLock, key: []const u8) bool {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn tryAcquire(self: *SwitchLock, io: std.Io, key: []const u8) bool {
+        self.lock.lock(io) catch return false;
+        defer self.lock.unlock(io);
 
         if (self.active_switches.contains(key)) {
             return false;
         }
 
         const owned_key = self.allocator.dupe(u8, key) catch return false;
-        self.active_switches.put(owned_key, true) catch {
+        self.active_switches.put(self.allocator, owned_key, true) catch {
             self.allocator.free(owned_key);
             return false;
         };
@@ -76,11 +77,11 @@ pub const SwitchLock = struct {
     }
 
     /// Release the switch lock for the given key.
-    pub fn release(self: *SwitchLock, key: []const u8) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+    pub fn release(self: *SwitchLock, io: std.Io, key: []const u8) void {
+        self.lock.lock(io) catch return;
+        defer self.lock.unlock(io);
 
-        if (self.active_switches.fetchOrderedRemove(key)) |entry| {
+        if (self.active_switches.fetchSwapRemove(key)) |entry| {
             self.allocator.free(entry.key);
         }
     }
@@ -88,27 +89,29 @@ pub const SwitchLock = struct {
 
 pub const FailoverManager = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     config: FailoverConfig,
-    pending_switches: std.StringArrayHashMap(i64),
-    provider_states: std.StringArrayHashMap(ProviderState),
-    cooldown_endpoints: std.StringArrayHashMap(i64),
+    pending_switches: std.array_hash_map.String(i64),
+    provider_states: std.array_hash_map.String(ProviderState),
+    cooldown_endpoints: std.array_hash_map.String(i64),
     event_history: std.array_list.Managed(FailoverEvent),
     switch_lock: SwitchLock,
     /// Tracks current provider per app_type for hot swap
-    current_providers: std.StringArrayHashMap([]const u8),
-    lock: std.Thread.Mutex,
+    current_providers: std.array_hash_map.String([]const u8),
+    lock: std.Io.Mutex,
 
-    pub fn init(allocator: std.mem.Allocator, config: FailoverConfig) FailoverManager {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, config: FailoverConfig) FailoverManager {
         return .{
             .allocator = allocator,
+            .io = io,
             .config = config,
-            .pending_switches = std.StringArrayHashMap(i64).init(allocator),
-            .provider_states = std.StringArrayHashMap(ProviderState).init(allocator),
-            .cooldown_endpoints = std.StringArrayHashMap(i64).init(allocator),
+            .pending_switches = std.array_hash_map.String(i64){},
+            .provider_states = std.array_hash_map.String(ProviderState){},
+            .cooldown_endpoints = std.array_hash_map.String(i64){},
             .event_history = std.array_list.Managed(FailoverEvent).init(allocator),
             .switch_lock = SwitchLock.init(allocator),
-            .current_providers = std.StringArrayHashMap([]const u8).init(allocator),
-            .lock = .{},
+            .current_providers = std.array_hash_map.String([]const u8){},
+            .lock = std.Io.Mutex.init,
         };
     }
 
@@ -117,19 +120,19 @@ pub const FailoverManager = struct {
         while (it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
-        self.pending_switches.deinit();
+        self.pending_switches.deinit(self.allocator);
 
-        it = self.provider_states.iterator();
-        while (it.next()) |entry| {
+        var pit = self.provider_states.iterator();
+        while (pit.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
-        self.provider_states.deinit();
+        self.provider_states.deinit(self.allocator);
 
         var cit = self.cooldown_endpoints.iterator();
         while (cit.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
         }
-        self.cooldown_endpoints.deinit();
+        self.cooldown_endpoints.deinit(self.allocator);
 
         for (self.event_history.items) |event| {
             self.allocator.free(event.app_type);
@@ -146,15 +149,15 @@ pub const FailoverManager = struct {
             self.allocator.free(entry.key_ptr.*);
             self.allocator.free(entry.value_ptr.*);
         }
-        self.current_providers.deinit();
+        self.current_providers.deinit(self.allocator);
     }
 
     /// Check if failover is allowed (not in cooldown, not already pending, not switch-locked)
     pub fn canFailover(self: *FailoverManager, app_type: []const u8, provider_id: []const u8) bool {
         if (!self.config.enabled) return false;
 
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return false;
+        defer self.lock.unlock(self.io);
 
         // Build the composite key
         var buf: [512]u8 = undefined;
@@ -172,7 +175,7 @@ pub const FailoverManager = struct {
 
         // Check cooldown
         if (self.cooldown_endpoints.get(key)) |cooldown_end| {
-            const now = std.time.timestamp() * 1000;
+            const now = time_compat.timestamp(self.io) * 1000;
             if (now < cooldown_end) {
                 return false;
             }
@@ -183,43 +186,47 @@ pub const FailoverManager = struct {
 
     /// Record a provider failure
     pub fn recordFailure(self: *FailoverManager, app_type: []const u8, provider: provider_types.ProviderType) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return;
+        defer self.lock.unlock(self.io);
 
         const provider_name = provider.toString();
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_name }) catch return;
 
-        const owned_key = self.allocator.dupe(u8, key) catch return;
-        self.provider_states.put(owned_key, .unhealthy) catch {
-            self.allocator.free(owned_key);
-        };
+        const data = self.provider_states.getOrPut(self.allocator, key) catch return;
+        if (!data.found_existing) {
+            const owned_key = self.allocator.dupe(u8, key) catch return;
+            data.key_ptr.* = owned_key;
+        }
+        data.value_ptr.* = .unhealthy;
     }
 
     /// Record a provider success (recovery)
     pub fn recordSuccess(self: *FailoverManager, app_type: []const u8, provider: provider_types.ProviderType) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return;
+        defer self.lock.unlock(self.io);
 
         const provider_name = provider.toString();
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_name }) catch return;
 
-        const owned_key = self.allocator.dupe(u8, key) catch return;
-        self.provider_states.put(owned_key, .healthy) catch {
-            self.allocator.free(owned_key);
-        };
+        const data = self.provider_states.getOrPut(self.allocator, key) catch return;
+        if (!data.found_existing) {
+            const owned_key = self.allocator.dupe(u8, key) catch return;
+            data.key_ptr.* = owned_key;
+        }
+        data.value_ptr.* = .healthy;
 
         // Clear cooldown on success
-        if (self.cooldown_endpoints.fetchOrderedRemove(key)) |entry| {
+        if (self.cooldown_endpoints.fetchSwapRemove(key)) |entry| {
             self.allocator.free(entry.key);
         }
     }
 
     /// Get provider state
     pub fn getProviderState(self: *FailoverManager, app_type: []const u8, provider: provider_types.ProviderType) ProviderState {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return .healthy;
+        defer self.lock.unlock(self.io);
 
         const provider_name = provider.toString();
         var buf: [512]u8 = undefined;
@@ -230,32 +237,32 @@ pub const FailoverManager = struct {
 
     /// Start a failover attempt (marks as pending)
     pub fn startFailover(self: *FailoverManager, app_type: []const u8, provider_id: []const u8) !void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return error.OutOfMemory;
+        defer self.lock.unlock(self.io);
 
         const key = try std.fmt.allocPrint(self.allocator, "{s}:{s}", .{ app_type, provider_id });
         errdefer self.allocator.free(key);
 
-        try self.pending_switches.put(key, std.time.timestamp());
+        try self.pending_switches.put(self.allocator, key, time_compat.timestamp(self.io));
     }
 
     /// End a failover attempt
     pub fn endFailover(self: *FailoverManager, app_type: []const u8, provider_id: []const u8, success: bool) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return;
+        defer self.lock.unlock(self.io);
 
         var buf: [512]u8 = undefined;
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, provider_id }) catch return;
 
-        if (self.pending_switches.fetchOrderedRemove(key)) |entry| {
+        if (self.pending_switches.fetchSwapRemove(key)) |entry| {
             self.allocator.free(entry.key);
         }
 
         if (!success) {
             // Set cooldown on failure
-            const cooldown_end = std.time.timestamp() * 1000 + self.config.cooldown_period_ms;
+            const cooldown_end = time_compat.timestamp(self.io) * 1000 + self.config.cooldown_period_ms;
             const owned_key = self.allocator.dupe(u8, key) catch return;
-            self.cooldown_endpoints.put(owned_key, cooldown_end) catch {
+            self.cooldown_endpoints.put(self.allocator, owned_key, cooldown_end) catch {
                 self.allocator.free(owned_key);
             };
         }
@@ -269,14 +276,14 @@ pub const FailoverManager = struct {
         const key = std.fmt.bufPrint(&buf, "{s}:{s}", .{ app_type, new_provider_id }) catch return false;
 
         // Try to acquire the switch lock
-        if (!self.switch_lock.tryAcquire(key)) {
+        if (!self.switch_lock.tryAcquire(self.io, key)) {
             return false;
         }
         // Ensure lock is released even on error
-        errdefer self.switch_lock.release(key);
+        errdefer self.switch_lock.release(self.io, key);
 
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return false;
+        defer self.lock.unlock(self.io);
 
         // Get old provider for event recording
         const old_provider = if (self.current_providers.get(app_type)) |p| p else "none";
@@ -287,15 +294,15 @@ pub const FailoverManager = struct {
         const owned_provider = try self.allocator.dupe(u8, new_provider_id);
         errdefer self.allocator.free(owned_provider);
 
-        if (self.current_providers.fetchOrderedRemove(app_type)) |old_entry| {
+        if (self.current_providers.fetchSwapRemove(app_type)) |old_entry| {
             self.allocator.free(old_entry.key);
             self.allocator.free(old_entry.value);
         }
-        try self.current_providers.put(owned_app_type, owned_provider);
+        try self.current_providers.put(self.allocator, owned_app_type, owned_provider);
 
         // Record failover event
         const event = FailoverEvent{
-            .timestamp = std.time.timestamp(),
+            .timestamp = time_compat.timestamp(self.io),
             .app_type = app_type,
             .from_provider = old_provider,
             .to_provider = new_provider_id,
@@ -305,15 +312,15 @@ pub const FailoverManager = struct {
         try self.recordEvent(event);
 
         // Release the switch lock
-        self.switch_lock.release(key);
+        self.switch_lock.release(self.io, key);
 
         return true;
     }
 
     /// Get best available provider from a list
     pub fn selectBestProvider(self: *FailoverManager, providers: []const provider_types.ProviderType, app_type: []const u8) ?provider_types.ProviderType {
-        self.lock.lock();
-        defer self.lock.unlock();
+        self.lock.lock(self.io) catch return null;
+        defer self.lock.unlock(self.io);
 
         var best: ?provider_types.ProviderType = null;
         var best_state: ProviderState = .offline;
@@ -400,7 +407,7 @@ pub const FailoverManager = struct {
         var recent_successes: usize = 0;
         var recent_failures: usize = 0;
 
-        const cutoff = std.time.timestamp() - 300; // Last 5 minutes
+        const cutoff = time_compat.timestamp(self.io) - 300; // Last 5 minutes
         for (self.event_history.items) |event| {
             if (event.timestamp >= cutoff) {
                 if (event.success) {
@@ -434,6 +441,7 @@ pub const FailoverManager = struct {
 // ============================================================================
 
 test "FailoverManager.init and deinit" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{
         .enabled = true,
@@ -442,7 +450,7 @@ test "FailoverManager.init and deinit" {
         .cooldown_period_ms = 30000,
     };
 
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     try std.testing.expect(manager.config.enabled == true);
@@ -450,6 +458,7 @@ test "FailoverManager.init and deinit" {
 }
 
 test "FailoverManager.canFailover - enabled config allows failover" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{
         .enabled = true,
@@ -458,13 +467,14 @@ test "FailoverManager.canFailover - enabled config allows failover" {
         .cooldown_period_ms = 30000,
     };
 
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     try std.testing.expect(manager.canFailover("claude", "openai"));
 }
 
 test "FailoverManager.canFailover - disabled config blocks failover" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{
         .enabled = false,
@@ -473,16 +483,17 @@ test "FailoverManager.canFailover - disabled config blocks failover" {
         .cooldown_period_ms = 30000,
     };
 
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     try std.testing.expect(!manager.canFailover("claude", "openai"));
 }
 
 test "FailoverManager.recordFailure - sets provider to unhealthy" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     manager.recordFailure("claude", .openai);
@@ -492,9 +503,10 @@ test "FailoverManager.recordFailure - sets provider to unhealthy" {
 }
 
 test "FailoverManager.recordSuccess - sets provider to healthy" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // First record a failure
@@ -507,9 +519,10 @@ test "FailoverManager.recordSuccess - sets provider to healthy" {
 }
 
 test "FailoverManager.getProviderState - unknown provider is healthy" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     const state = manager.getProviderState("claude", .openai);
@@ -517,9 +530,10 @@ test "FailoverManager.getProviderState - unknown provider is healthy" {
 }
 
 test "FailoverManager.startFailover and endFailover - pending state" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // Initially can failover
@@ -539,6 +553,7 @@ test "FailoverManager.startFailover and endFailover - pending state" {
 }
 
 test "FailoverManager.endFailover - failure sets cooldown" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{
         .enabled = true,
@@ -546,7 +561,7 @@ test "FailoverManager.endFailover - failure sets cooldown" {
         .retry_delay_ms = 1000,
         .cooldown_period_ms = 30000, // 30 seconds
     };
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // Start and end with failure
@@ -558,9 +573,10 @@ test "FailoverManager.endFailover - failure sets cooldown" {
 }
 
 test "FailoverManager.selectBestProvider - selects healthy over unhealthy" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // Mark openai as unhealthy
@@ -574,9 +590,10 @@ test "FailoverManager.selectBestProvider - selects healthy over unhealthy" {
 }
 
 test "FailoverManager.hasAvailableProvider - returns true when providers available" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     const providers = &.{ .openai, .anthropic };
@@ -584,13 +601,14 @@ test "FailoverManager.hasAvailableProvider - returns true when providers availab
 }
 
 test "FailoverManager.recordEvent - records events" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     const event = FailoverEvent{
-        .timestamp = std.time.timestamp(),
+        .timestamp = time_compat.timestamp(io),
         .app_type = "claude",
         .from_provider = "openai",
         .to_provider = "anthropic",
@@ -606,9 +624,10 @@ test "FailoverManager.recordEvent - records events" {
 }
 
 test "FailoverManager.getStats - returns correct stats" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     const stats = manager.getStats();
@@ -618,9 +637,10 @@ test "FailoverManager.getStats - returns correct stats" {
 }
 
 test "FailoverManager.resetAllStates - clears all states" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // Mark providers as unhealthy
@@ -640,50 +660,54 @@ test "FailoverManager.resetAllStates - clears all states" {
 // ============================================================================
 
 test "SwitchLock.tryAcquire - acquires lock successfully" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     var lock = SwitchLock.init(allocator);
     defer lock.deinit();
 
-    try std.testing.expect(lock.tryAcquire("claude:openai"));
-    lock.release("claude:openai");
+    try std.testing.expect(lock.tryAcquire(io, "claude:openai"));
+    lock.release(io, "claude:openai");
 }
 
 test "SwitchLock.tryAcquire - deduplication rejects second acquire on same key" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     var lock = SwitchLock.init(allocator);
     defer lock.deinit();
 
     // First acquire succeeds
-    try std.testing.expect(lock.tryAcquire("claude:openai"));
+    try std.testing.expect(lock.tryAcquire(io, "claude:openai"));
 
     // Second acquire on same key fails (deduplication)
-    try std.testing.expect(!lock.tryAcquire("claude:openai"));
+    try std.testing.expect(!lock.tryAcquire(io, "claude:openai"));
 
     // Release and re-acquire succeeds
-    lock.release("claude:openai");
-    try std.testing.expect(lock.tryAcquire("claude:openai"));
-    lock.release("claude:openai");
+    lock.release(io, "claude:openai");
+    try std.testing.expect(lock.tryAcquire(io, "claude:openai"));
+    lock.release(io, "claude:openai");
 }
 
 test "SwitchLock.tryAcquire - different keys are independent" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     var lock = SwitchLock.init(allocator);
     defer lock.deinit();
 
-    try std.testing.expect(lock.tryAcquire("claude:openai"));
-    try std.testing.expect(lock.tryAcquire("codex:anthropic"));
+    try std.testing.expect(lock.tryAcquire(io, "claude:openai"));
+    try std.testing.expect(lock.tryAcquire(io, "codex:anthropic"));
 
-    lock.release("claude:openai");
-    lock.release("codex:anthropic");
+    lock.release(io, "claude:openai");
+    lock.release(io, "codex:anthropic");
 }
 
 test "SwitchLock.release - releasing non-existent key is safe" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     var lock = SwitchLock.init(allocator);
     defer lock.deinit();
 
     // Should not crash
-    lock.release("nonexistent:key");
+    lock.release(io, "nonexistent:key");
 }
 
 // ============================================================================
@@ -691,9 +715,10 @@ test "SwitchLock.release - releasing non-existent key is safe" {
 // ============================================================================
 
 test "FailoverManager.hotSwapProvider - basic swap succeeds" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     const result = try manager.hotSwapProvider("claude", "anthropic");
@@ -712,9 +737,10 @@ test "FailoverManager.hotSwapProvider - basic swap succeeds" {
 }
 
 test "FailoverManager.hotSwapProvider - swap updates existing provider" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // First swap
@@ -734,20 +760,21 @@ test "FailoverManager.hotSwapProvider - swap updates existing provider" {
 }
 
 test "FailoverManager.hotSwapProvider - returns false when lock held" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{};
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // Manually acquire the switch lock
-    try std.testing.expect(manager.switch_lock.tryAcquire("claude:anthropic"));
+    try std.testing.expect(manager.switch_lock.tryAcquire(io, "claude:anthropic"));
 
     // hotSwapProvider should return false since lock is held
     const result = try manager.hotSwapProvider("claude", "anthropic");
     try std.testing.expect(result == false);
 
     // Release the lock
-    manager.switch_lock.release("claude:anthropic");
+    manager.switch_lock.release(io, "claude:anthropic");
 
     // Now it should succeed
     const result2 = try manager.hotSwapProvider("claude", "anthropic");
@@ -755,22 +782,23 @@ test "FailoverManager.hotSwapProvider - returns false when lock held" {
 }
 
 test "FailoverManager.canFailover - blocked by SwitchLock" {
+    const io = std.testing.io;
     const allocator = std.testing.allocator;
     const config = FailoverConfig{ .enabled = true };
-    var manager = FailoverManager.init(allocator, config);
+    var manager = FailoverManager.init(allocator, io, config);
     defer manager.deinit();
 
     // Initially can failover
     try std.testing.expect(manager.canFailover("claude", "openai"));
 
     // Acquire switch lock
-    try std.testing.expect(manager.switch_lock.tryAcquire("claude:openai"));
+    try std.testing.expect(manager.switch_lock.tryAcquire(io, "claude:openai"));
 
     // Now canFailover should return false due to SwitchLock
     try std.testing.expect(!manager.canFailover("claude", "openai"));
 
     // Release lock
-    manager.switch_lock.release("claude:openai");
+    manager.switch_lock.release(io, "claude:openai");
 
     // Can failover again
     try std.testing.expect(manager.canFailover("claude", "openai"));

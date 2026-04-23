@@ -1,4 +1,31 @@
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const types = @import("../provider/types.zig");
 const http = @import("../http.zig");
 const registry = @import("../provider/registry.zig");
@@ -19,7 +46,7 @@ pub const RouterError = error{
 pub const Router = struct {
     allocator: std.mem.Allocator,
     retry_config: RetryConfig,
-    provider_stats: std.StringArrayHashMap(ProviderStats),
+    provider_stats: StringArrayHashMap(ProviderStats),
 
     pub const ProviderStats = struct {
         failures: u32 = 0,
@@ -33,7 +60,7 @@ pub const Router = struct {
         return .{
             .allocator = allocator,
             .retry_config = .{},
-            .provider_stats = std.StringArrayHashMap(ProviderStats).init(allocator),
+            .provider_stats = StringArrayHashMap(ProviderStats).init(allocator),
             .lock = .{},
         };
     }
@@ -42,7 +69,7 @@ pub const Router = struct {
         return .{
             .allocator = allocator,
             .retry_config = config,
-            .provider_stats = std.StringArrayHashMap(ProviderStats).init(allocator),
+            .provider_stats = StringArrayHashMap(ProviderStats).init(allocator),
             .lock = .{},
         };
     }
@@ -247,12 +274,12 @@ pub const Router = struct {
 
     /// Check if provider is unhealthy (too many recent failures)
     fn isProviderUnhealthy(self: *Router, provider_name: []const u8) bool {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
         const stats = self.provider_stats.get(provider_name) orelse return false;
 
         // If more than 5 consecutive failures in last minute, mark unhealthy
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         if (stats.consecutive_failures >= 5) {
             if (stats.last_failure) |last| {
                 // Cool down for 30 seconds after 5 failures
@@ -266,8 +293,8 @@ pub const Router = struct {
 
     /// Record a successful request
     fn recordSuccess(self: *Router, provider_name: []const u8, tokens: u32) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
         if (self.provider_stats.getPtr(provider_name)) |stats| {
             stats.consecutive_failures = 0;
             stats.total_requests += 1;
@@ -284,16 +311,16 @@ pub const Router = struct {
 
     /// Record a failed request
     fn recordFailure(self: *Router, provider_name: []const u8) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
         if (self.provider_stats.getPtr(provider_name)) |stats| {
             stats.consecutive_failures += 1;
-            stats.last_failure = std.time.timestamp();
+            stats.last_failure = time_compat.timestamp(self.io);
             stats.failures += 1;
         } else {
             self.provider_stats.put(provider_name, .{
                 .consecutive_failures = 1,
-                .last_failure = std.time.timestamp(),
+                .last_failure = time_compat.timestamp(self.io),
                 .failures = 1,
                 .total_requests = 0,
                 .total_tokens = 0,
@@ -350,13 +377,13 @@ pub const RoutingRule = struct {
 /// Routing table for model-based routing
 pub const RoutingTable = struct {
     allocator: std.mem.Allocator,
-    rules: std.StringArrayHashMap([]WeightedTarget),
+    rules: StringArrayHashMap([]WeightedTarget),
     default_providers: []types.ProviderType,
 
     pub fn init(allocator: std.mem.Allocator) RoutingTable {
         return .{
             .allocator = allocator,
-            .rules = std.StringArrayHashMap([]WeightedTarget).init(allocator),
+            .rules = StringArrayHashMap([]WeightedTarget).init(allocator),
             .default_providers = &.{.openai},
         };
     }
@@ -437,7 +464,7 @@ pub const RoutingTable = struct {
 
 test "router - init and deinit" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     try std.testing.expectEqual(@as(u3, 3), router.retry_config.max_retries);
@@ -453,7 +480,7 @@ test "router - initWithConfig" {
         .base_delay_ms = 200,
         .max_delay_ms = 10000,
     };
-    var router = Router.initWithConfig(allocator, config);
+    var router = Router.initWithConfig(allocator, std.testing.io, config);
     defer router.deinit();
 
     try std.testing.expectEqual(@as(u3, 5), router.retry_config.max_retries);
@@ -463,7 +490,7 @@ test "router - initWithConfig" {
 
 test "router - isRetryable errors" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     // Retryable errors
@@ -484,7 +511,7 @@ test "router - isRetryable errors" {
 
 test "router - calculateBackoff" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     // Attempt 0: base_delay_ms * 2^0 = 100 * 1 = 100
@@ -499,7 +526,7 @@ test "router - calculateBackoff" {
 
 test "router - calculateBackoff respects max" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     // Should cap at max_delay_ms (5000)
@@ -509,7 +536,7 @@ test "router - calculateBackoff respects max" {
 
 test "router - recordSuccess" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     router.recordSuccess("openai", 100);
@@ -523,7 +550,7 @@ test "router - recordSuccess" {
 
 test "router - recordFailure" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     router.recordFailure("openai");
@@ -537,7 +564,7 @@ test "router - recordFailure" {
 
 test "router - isProviderUnhealthy" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     // Unknown provider is not unhealthy
@@ -555,7 +582,7 @@ test "router - isProviderUnhealthy" {
 
 test "router - isProviderUnhealthy after cooldown" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     // Record 5 consecutive failures
@@ -571,7 +598,7 @@ test "router - isProviderUnhealthy after cooldown" {
 
 test "router - getStats" {
     const allocator = std.heap.page_allocator;
-    var router = Router.init(allocator);
+    var router = Router.init(allocator, std.testing.io);
     defer router.deinit();
 
     // Add some stats

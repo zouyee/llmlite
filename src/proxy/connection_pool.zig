@@ -1,13 +1,40 @@
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const provider_types = @import("types");
 const registry = @import("registry");
 
 pub const ConnectionPool = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     max_conns_per_provider: usize,
     idle_timeout_ms: u32,
-    connections: std.StringArrayHashMap(ProviderPool),
-    lock: std.Thread.Mutex,
+    connections: StringArrayHashMap(ProviderPool),
+    lock: std.Io.Mutex,
 
     pub const ProviderPool = struct {
         connections: std.ArrayList(*ManagedConnection),
@@ -16,32 +43,35 @@ pub const ConnectionPool = struct {
     };
 
     pub const ManagedConnection = struct {
-        stream: std.net.Stream,
+        stream: std.Io.net.Stream,
         last_used: i64,
         provider: provider_types.ProviderType,
         is_healthy: bool = true,
 
         pub fn isExpired(self: *ManagedConnection, idle_timeout_ms: u32) bool {
-            const now = std.time.timestamp();
+            // Use std.c.time for a simple timestamp without io
+            const now: i64 = @intCast(std.c.time(null));
             return (now - self.last_used) * 1000 > idle_timeout_ms;
         }
 
         pub fn markUsed(self: *ManagedConnection) void {
-            self.last_used = std.time.timestamp();
+            const now: i64 = @intCast(std.c.time(null));
+            self.last_used = now;
         }
 
-        pub fn close(self: *ManagedConnection) void {
-            self.stream.close();
+        pub fn close(self: *ManagedConnection, io: std.Io) void {
+            self.stream.close(io);
         }
     };
 
-    pub fn init(allocator: std.mem.Allocator, max_conns_per_provider: usize, idle_timeout_ms: u32) ConnectionPool {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, max_conns_per_provider: usize, idle_timeout_ms: u32) ConnectionPool {
         return .{
             .allocator = allocator,
+            .io = io,
             .max_conns_per_provider = max_conns_per_provider,
             .idle_timeout_ms = idle_timeout_ms,
-            .connections = std.StringArrayHashMap(ProviderPool).init(allocator),
-            .lock = std.Thread.Mutex{},
+            .connections = StringArrayHashMap(ProviderPool).init(allocator),
+            .lock = std.Io.Mutex.init,
         };
     }
 
@@ -49,7 +79,7 @@ pub const ConnectionPool = struct {
         var it = self.connections.iterator();
         while (it.next()) |entry| {
             for (entry.value_ptr.connections.items) |conn| {
-                conn.close();
+                conn.close(self.io);
                 self.allocator.destroy(conn);
             }
             entry.value_ptr.connections.deinit(self.allocator);
@@ -59,8 +89,8 @@ pub const ConnectionPool = struct {
     }
 
     pub fn getConnection(self: *ConnectionPool, provider: provider_types.ProviderType) !*ManagedConnection {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         const provider_name = provider.toString();
         var pool = try self.connections.getOrPut(provider_name);
@@ -76,8 +106,8 @@ pub const ConnectionPool = struct {
         var available_idx: ?usize = null;
         for (pool.value_ptr.connections.items, 0..) |conn, idx| {
             if (!pool.value_ptr.in_use.contains(conn)) {
-                if (conn.isExpired(self.idle_timeout_ms)) {
-                    conn.close();
+                if (conn.isExpired(self.idle_timeout_ms) and !pool.value_ptr.in_use.contains(conn)) {
+                    conn.close(self.io);
                     self.allocator.destroy(conn);
                     _ = pool.value_ptr.connections.swapRemove(idx);
                     continue;
@@ -100,13 +130,15 @@ pub const ConnectionPool = struct {
             const uri = std.Uri.parse(provider_config.base_url) catch return error.InvalidUrl;
             const host = uri.host orelse return error.InvalidUrl;
             const port: u16 = if (uri.port) |p| p else 443;
-            const stream = try std.net.tcpConnectToHost(self.allocator, host.percent_encoded, port);
-            errdefer stream.close();
+            const address = try std.Io.net.IpAddress.resolve(self.io, host.percent_encoded, port);
+            var stream = try address.connect(self.io, .{});
+            errdefer stream.close(self.io);
 
             const conn = try self.allocator.create(ManagedConnection);
+            const now: i64 = @intCast(std.c.time(null));
             conn.* = .{
                 .stream = stream,
-                .last_used = std.time.timestamp(),
+                .last_used = now,
                 .provider = provider,
                 .is_healthy = true,
             };
@@ -120,8 +152,8 @@ pub const ConnectionPool = struct {
     }
 
     pub fn releaseConnection(self: *ConnectionPool, conn: *ManagedConnection) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         const provider_name = conn.provider.toString();
         if (self.connections.getPtr(provider_name)) |pool| {
@@ -139,8 +171,8 @@ pub const ConnectionPool = struct {
     }
 
     pub fn closeIdleConnections(self: *ConnectionPool) void {
-        self.lock.lock();
-        defer self.lock.unlock();
+        while (!self.lock.tryLock()) {}
+        defer self.lock.state.store(.unlocked, .release);
 
         var it = self.connections.iterator();
         while (it.next()) |entry| {
@@ -148,7 +180,7 @@ pub const ConnectionPool = struct {
             while (i < entry.value_ptr.connections.items.len) {
                 const conn = entry.value_ptr.connections.items[i];
                 if (conn.isExpired(self.idle_timeout_ms) and !entry.value_ptr.in_use.contains(conn)) {
-                    conn.close();
+                    conn.close(self.io);
                     self.allocator.destroy(conn);
                     _ = entry.value_ptr.connections.swapRemove(i);
                 } else {
@@ -161,7 +193,8 @@ pub const ConnectionPool = struct {
 
 test "connection pool - init" {
     const allocator = std.heap.page_allocator;
-    var pool = ConnectionPool.init(allocator, 10, 30000);
+    const io = std.testing.io;
+    var pool = ConnectionPool.init(allocator, io, 10, 30000);
     defer pool.deinit();
 
     try std.testing.expectEqual(@as(usize, 10), pool.max_conns_per_provider);
@@ -188,7 +221,8 @@ test "connection pool - ProviderPool init" {
 
 test "connection pool - getConnection creates pool entry" {
     const allocator = std.heap.page_allocator;
-    var pool = ConnectionPool.init(allocator, 10, 30000);
+    const io = std.testing.io;
+    var pool = ConnectionPool.init(allocator, io, 10, 30000);
     defer pool.deinit();
 
     // Before getting connection, no pool exists
@@ -201,7 +235,8 @@ test "connection pool - getConnection creates pool entry" {
 
 test "connection pool - releaseConnection logic" {
     const allocator = std.heap.page_allocator;
-    var pool = ConnectionPool.init(allocator, 10, 30000);
+    const io = std.testing.io;
+    var pool = ConnectionPool.init(allocator, io, 10, 30000);
     defer pool.deinit();
 
     // Test that releaseConnection doesn't crash on empty pool
@@ -212,7 +247,8 @@ test "connection pool - releaseConnection logic" {
 
 test "connection pool - closeIdleConnections on empty pool" {
     const allocator = std.heap.page_allocator;
-    var pool = ConnectionPool.init(allocator, 10, 30000);
+    const io = std.testing.io;
+    var pool = ConnectionPool.init(allocator, io, 10, 30000);
     defer pool.deinit();
 
     // Should not crash on empty pool
@@ -222,7 +258,8 @@ test "connection pool - closeIdleConnections on empty pool" {
 
 test "connection pool - markUnhealthy" {
     const allocator = std.heap.page_allocator;
-    var pool = ConnectionPool.init(allocator, 10, 30000);
+    const io = std.testing.io;
+    var pool = ConnectionPool.init(allocator, io, 10, 30000);
     defer pool.deinit();
 
     // Create a mock connection to test markUnhealthy

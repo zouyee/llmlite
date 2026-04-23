@@ -8,8 +8,35 @@
 //! Supports bidirectional sync with conflict resolution.
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const preset = @import("proxy_preset");
 const webdav = @import("proxy_webdav");
+const time_compat = @import("time_compat");
 
 pub const CliTool = preset.CliTool;
 
@@ -96,13 +123,15 @@ pub const SyncResult = struct {
 /// Sync engine
 pub const SyncEngine = struct {
     allocator: std.mem.Allocator,
-    items: std.StringArrayHashMap(SyncItem),
+    io: std.Io,
+    items: StringArrayHashMap(SyncItem),
     sync_dir: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator) SyncEngine {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) SyncEngine {
         return .{
             .allocator = allocator,
-            .items = std.StringArrayHashMap(SyncItem).init(allocator),
+            .io = io,
+            .items = StringArrayHashMap(SyncItem).init(allocator),
             .sync_dir = undefined, // Set from home dir
         };
     }
@@ -238,7 +267,7 @@ pub const SyncEngine = struct {
 
         var result = SyncResult{
             .success = true,
-            .timestamp = std.time.timestamp(),
+            .timestamp = time_compat.timestamp(self.io),
         };
 
         // Perform sync based on direction
@@ -337,13 +366,13 @@ pub const SyncEngine = struct {
                 defer version_state.deinit();
 
                 // For each file in source directory, upload to WebDAV with versioning
-                var source_dir = std.fs.openDirAbsolute(source_path, .{ .iterate = true }) catch {
+                var source_dir = std.Io.Dir.openDirAbsolute(self.io, source_path, .{ .iterate = true }) catch {
                     result.errors += 1;
                     return;
                 };
-                defer source_dir.close();
+                defer source_dir.close(self.io);
 
-                var it = source_dir.iterate();
+                var it = source_dir.iterate(self.io);
                 while (try it.next()) |entry| {
                     const src_file_path = try std.fs.path.join(self.allocator, &.{ source_path, entry.name });
                     defer self.allocator.free(src_file_path);
@@ -352,11 +381,13 @@ pub const SyncEngine = struct {
                     if (entry.kind != .file) continue;
 
                     // Read file content
-                    const src_file = std.fs.openFileAbsolute(src_file_path, .{}) catch continue;
-                    defer src_file.close();
+                    const src_file = std.Io.Dir.openFileAbsolute(self.io, src_file_path, .{}) catch continue;
+                    defer src_file.close(self.io);
 
-                    const stat = src_file.stat() catch continue;
-                    const content = src_file.readToEndAlloc(self.allocator, 10_000_000) catch continue;
+                    const stat = src_file.stat(self.io) catch continue;
+                    var read_buf: [8192]u8 = undefined;
+                    var file_reader = src_file.reader(self.io, &read_buf);
+                    const content = file_reader.interface.allocRemaining(self.allocator, .limited(10_000_000)) catch continue;
                     defer self.allocator.free(content);
 
                     // Upload with versioning and conflict resolution
@@ -398,7 +429,8 @@ pub const SyncEngine = struct {
                 defer self.allocator.free(repo_git_path);
 
                 var repo_exists = true;
-                if (std.fs.openFileAbsolute(repo_git_path, .{})) |_| {
+                if (std.Io.Dir.openFileAbsolute(self.io, repo_git_path, .{})) |f| {
+                    f.close(self.io);
                     repo_exists = true;
                 } else |_| {
                     repo_exists = false;
@@ -413,13 +445,13 @@ pub const SyncEngine = struct {
                 }
 
                 // Sync files from repo to other targets
-                var source_dir = std.fs.openDirAbsolute(local_path, .{ .iterate = true }) catch {
+                var source_dir = std.Io.Dir.openDirAbsolute(self.io, local_path, .{ .iterate = true }) catch {
                     result.errors += 1;
                     return;
                 };
-                defer source_dir.close();
+                defer source_dir.close(self.io);
 
-                var it = source_dir.iterate();
+                var it = source_dir.iterate(self.io);
                 while (try it.next()) |entry| {
                     // Skip .git directory
                     if (std.mem.eql(u8, entry.name, ".git")) continue;
@@ -429,10 +461,12 @@ pub const SyncEngine = struct {
 
                     if (entry.kind == .file) {
                         // Read file content
-                        const src_file = std.fs.openFileAbsolute(src_file_path, .{}) catch continue;
-                        defer src_file.close();
+                        const src_file = std.Io.Dir.openFileAbsolute(self.io, src_file_path, .{}) catch continue;
+                        defer src_file.close(self.io);
 
-                        const content = src_file.readToEndAlloc(self.allocator, 10_000_000) catch continue;
+                        var read_buf: [8192]u8 = undefined;
+                        var file_reader = src_file.reader(self.io, &read_buf);
+                        const content = file_reader.interface.allocRemaining(self.allocator, .limited(10_000_000)) catch continue;
                         defer self.allocator.free(content);
 
                         // Content is read and counted - could push to another git remote
@@ -462,36 +496,44 @@ pub const SyncEngine = struct {
         // Ensure parent directory exists
         const parent = std.fs.path.dirname(local_path);
         if (parent) |p| {
-            try std.fs.makeDirAbsolute(p);
+            std.Io.Dir.createDirAbsolute(self.io, p, .{}) catch |err| {
+                if (err != error.PathAlreadyExists) return err;
+            };
         }
 
         // Run git clone: git clone --branch <branch> --single-branch <url> <local_path>
-        var child = std.process.Child.init(&.{
-            "git",             "clone",
-            "--branch",        branch,
-            "--single-branch", url,
-            local_path,
-        }, self.allocator);
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Pipe;
+        var child = std.process.Child.init(.{
+            .argv = &.{
+                "git",             "clone",
+                "--branch",        branch,
+                "--single-branch", url,
+                local_path,
+            },
+            .allocator = self.allocator,
+        });
+        child.stdout_behavior = .ignore;
+        child.stderr_behavior = .pipe;
 
-        try child.spawn();
-        const term = try child.wait();
-        if (term != .Exited or term.Exited != 0) {
+        try child.spawn(self.io);
+        const term = try child.wait(self.io);
+        if (term != .exited or term.exited != 0) {
             return error.GitCloneFailed;
         }
     }
 
     /// Pull latest changes from Git repository
     fn gitPull(self: *SyncEngine, local_path: []const u8) !void {
-        var child = std.process.Child.init(&.{ "git", "pull", "--rebase" }, self.allocator);
-        child.stdout_behavior = .Ignore;
-        child.stderr_behavior = .Pipe;
-        child.cwd = local_path;
+        var child = std.process.Child.init(.{
+            .argv = &.{ "git", "pull", "--rebase" },
+            .allocator = self.allocator,
+            .cwd = .{ .absolute = local_path },
+        });
+        child.stdout_behavior = .ignore;
+        child.stderr_behavior = .pipe;
 
-        try child.spawn();
-        const term = try child.wait();
-        if (term != .Exited or term.Exited != 0) {
+        try child.spawn(self.io);
+        const term = try child.wait(self.io);
+        if (term != .exited or term.exited != 0) {
             return error.GitPullFailed;
         }
     }
@@ -499,37 +541,41 @@ pub const SyncEngine = struct {
     /// Create a symlink (with backup if exists)
     fn createSymlink(self: *SyncEngine, source: []const u8, target: []const u8) !void {
         // Backup existing file/link if it exists
-        const target_file = std.fs.openFileAbsolute(target, .{}) catch null;
+        const target_file = std.Io.Dir.openFileAbsolute(self.io, target, .{}) catch null;
         if (target_file) |f| {
-            defer f.close();
+            defer f.close(self.io);
             // Read content and backup
             const backup_path = try std.fmt.allocPrint(
                 self.allocator,
                 "{s}.backup.{d}",
-                .{ target, std.time.timestamp() },
+                .{ target, time_compat.timestamp(self.io) },
             );
             defer self.allocator.free(backup_path);
-            const content = try f.readToEndAlloc(self.allocator, 1_000_000);
+            var read_buf: [8192]u8 = undefined;
+            var file_reader = f.reader(self.io, &read_buf);
+            const content = try file_reader.interface.allocRemaining(self.allocator, .limited(1_000_000));
             defer self.allocator.free(content);
             try self.writeFile(backup_path, content);
         }
 
         // Remove existing symlink if exists
-        std.fs.deleteFileAbsolute(target) catch {};
-        try std.fs.symLinkAbsolute(source, target, .{});
+        std.Io.Dir.deleteFileAbsolute(self.io, target) catch {};
+        try std.Io.Dir.symLinkAbsolute(self.io, source, target, .{});
     }
 
     /// Copy directory recursively
     fn copyDirectory(self: *SyncEngine, src: []const u8, dst: []const u8, ignores: [][]const u8) !u32 {
         var count: u32 = 0;
 
-        var src_dir = try std.fs.openDirAbsolute(src, .{ .iterate = true });
-        defer src_dir.close();
+        var src_dir = try std.Io.Dir.openDirAbsolute(self.io, src, .{ .iterate = true });
+        defer src_dir.close(self.io);
 
         // Create destination directory if needed
-        try std.fs.makeDirAbsolute(dst);
+        std.Io.Dir.createDirAbsolute(self.io, dst, .{}) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
 
-        var it = src_dir.iterate();
+        var it = src_dir.iterate(self.io);
         while (try it.next()) |entry| {
             // Check ignore patterns
             var ignored = false;
@@ -567,20 +613,25 @@ pub const SyncEngine = struct {
 
     /// Copy a single file
     fn copyFile(self: *SyncEngine, src: []const u8, dst: []const u8) !void {
-        const src_file = try std.fs.openFileAbsolute(src, .{});
-        defer src_file.close();
+        const src_file = try std.Io.Dir.openFileAbsolute(self.io, src, .{});
+        defer src_file.close(self.io);
 
-        const content = try src_file.readToEndAlloc(self.allocator, 10_000_000);
+        var read_buf: [8192]u8 = undefined;
+        var file_reader = src_file.reader(self.io, &read_buf);
+        const content = try file_reader.interface.allocRemaining(self.allocator, .limited(10_000_000));
         defer self.allocator.free(content);
 
         try self.writeFile(dst, content);
     }
 
     /// Write content to file
-    fn writeFile(_: *SyncEngine, path: []const u8, content: []const u8) !void {
-        const file = try std.fs.createFileAbsolute(path, .{});
-        defer file.close();
-        try file.writeAll(content);
+    fn writeFile(self: *SyncEngine, path: []const u8, content: []const u8) !void {
+        const file = try std.Io.Dir.createFileAbsolute(self.io, path, .{});
+        defer file.close(self.io);
+        var write_buf: [8192]u8 = undefined;
+        var writer = file.writer(self.io, &write_buf);
+        try writer.interface.writeAll(content);
+        try writer.interface.flush();
     }
 
     /// Simple pattern matching (supports * and **)
@@ -594,7 +645,7 @@ pub const SyncEngine = struct {
             const ext = pattern[1..];
             return std.mem.endsWith(u8, name, ext);
         }
-        return std.mem.indexOf(u8, name, pattern) != null;
+        return std.mem.find(u8, name, pattern) != null;
     }
 
     /// Sync all items marked with auto_sync
@@ -622,11 +673,7 @@ pub const SyncEngine = struct {
     }
 
     /// Export skills to a directory
-    pub fn exportSkills(self: *SyncEngine, tool: CliTool, target_dir: []const u8) !void {
-        const home_dir = std.os.getenv("HOME") orelse {
-            return error.HomeDirectoryNotFound;
-        };
-
+    pub fn exportSkills(self: *SyncEngine, tool: CliTool, target_dir: []const u8, home_dir: []const u8) !void {
         // Source: ~/.cc-switch/skills/
         const src_dir = try std.fmt.allocPrint(
             self.allocator,
@@ -647,11 +694,7 @@ pub const SyncEngine = struct {
     }
 
     /// Import skills from a directory
-    pub fn importSkills(self: *SyncEngine, tool: CliTool, source_dir: []const u8) !void {
-        const home_dir = std.os.getenv("HOME") orelse {
-            return error.HomeDirectoryNotFound;
-        };
-
+    pub fn importSkills(self: *SyncEngine, tool: CliTool, source_dir: []const u8, home_dir: []const u8) !void {
         // Destination: ~/.cc-switch/skills/
         const dst_dir = try std.fmt.allocPrint(
             self.allocator,
@@ -723,7 +766,7 @@ pub const SyncEngine = struct {
         }
 
         // Split owner/repo
-        const slash_idx = std.mem.indexOf(u8, remainder, "/") orelse return null;
+        const slash_idx = std.mem.find(u8, remainder, "/") orelse return null;
         const owner = remainder[0..slash_idx];
         const after_owner = remainder[slash_idx + 1 ..];
 
@@ -741,7 +784,7 @@ pub const SyncEngine = struct {
         if (std.mem.startsWith(u8, repo_part, tree_prefix)) {
             const after_tree = repo_part[tree_prefix.len..];
             // Find next slash or end
-            const end_idx = std.mem.indexOf(u8, after_tree, "/") orelse after_tree.len;
+            const end_idx = std.mem.find(u8, after_tree, "/") orelse after_tree.len;
             const branch_name = after_tree[0..end_idx];
             ref = .{
                 .kind = .branch,
@@ -778,7 +821,7 @@ pub const SyncEngine = struct {
         }
 
         // Find repo name (before any path components)
-        const repo_end = std.mem.indexOf(u8, repo_part, "/") orelse repo_part.len;
+        const repo_end = std.mem.find(u8, repo_part, "/") orelse repo_part.len;
         const repo = repo_part[0..repo_end];
 
         return .{
@@ -821,7 +864,9 @@ pub const SyncEngine = struct {
         };
 
         // Ensure target directory exists
-        try std.fs.makeDirAbsolute(target_dir);
+        std.Io.Dir.createDirAbsolute(self.io, target_dir, .{}) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
 
         if (parsed.ref) |ref| {
             // We have a specific ref - use ZIP download for tags/commits, git for branches
@@ -843,7 +888,13 @@ pub const SyncEngine = struct {
                     _ = try self.copyDirectory(temp_path, target_dir, &.{ ".git", "node_modules" });
 
                     // Cleanup temp
-                    std.fs.deleteTreeAbsolute(temp_path) catch {};
+                    if (std.fs.path.dirname(temp_path)) |parent| {
+                        if (std.Io.Dir.openDirAbsolute(self.io, parent, .{})) |*parent_dir| {
+                            defer parent_dir.close(self.io);
+                            const basename = std.fs.path.basename(temp_path);
+                            parent_dir.deleteTree(self.io, basename) catch {};
+                        } else |_| {}
+                    }
                 },
                 .tag => {
                     // For tags, download ZIP
@@ -882,9 +933,11 @@ pub const SyncEngine = struct {
             zip_data = try self.downloadFile(zip_url_or_path);
         } else {
             // Read local file
-            const file = try std.fs.openFileAbsolute(zip_url_or_path, .{});
-            defer file.close();
-            zip_data = try file.readToEndAlloc(self.allocator, 50_000_000); // 50MB max
+            const file = try std.Io.Dir.openFileAbsolute(self.io, zip_url_or_path, .{});
+            defer file.close(self.io);
+            var read_buf: [8192]u8 = undefined;
+            var file_reader = file.reader(self.io, &read_buf);
+            zip_data = try file_reader.interface.allocRemaining(self.allocator, .limited(50_000_000)); // 50MB max
         }
         defer self.allocator.free(zip_data);
 
@@ -919,7 +972,9 @@ pub const SyncEngine = struct {
     /// Extract ZIP data to target directory
     fn extractZip(self: *SyncEngine, zip_data: []u8, target_dir: []const u8) !void {
         // Ensure target directory exists
-        try std.fs.makeDirAbsolute(target_dir);
+        std.Io.Dir.createDirAbsolute(self.io, target_dir, .{}) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
 
         // Parse ZIP central directory
         // This is a simplified implementation - handles basic ZIP files
@@ -994,7 +1049,7 @@ pub const SyncEngine = struct {
                     continue;
                 };
                 defer decomp.deinit();
-                const decompressed = try decomp.readAllAlloc(self.allocator, 10_000_000);
+                const decompressed = try decomp.allocRemaining(self.allocator, .limited(10_000_000));
                 defer self.allocator.free(decompressed);
                 try self.writeFile(dst_path, decompressed);
             }
@@ -1018,9 +1073,9 @@ pub const SyncEngine = struct {
         // Skip macOS resource fork files
         if (std.mem.startsWith(u8, path, "._")) return true;
         // Skip .DS_Store
-        if (std.mem.indexOf(u8, path, ".DS_Store") != null) return true;
+        if (std.mem.find(u8, path, ".DS_Store") != null) return true;
         // Skip __MACOSX
-        if (std.mem.indexOf(u8, path, "__MACOSX") != null) return true;
+        if (std.mem.find(u8, path, "__MACOSX") != null) return true;
         return false;
     }
 
@@ -1028,10 +1083,67 @@ pub const SyncEngine = struct {
     fn extractBaseName(zip_path: []const u8) []const u8 {
         // GitHub archives have prefix like "repo-branch/"
         // Find last / to get actual filename
-        const last_slash = std.mem.lastIndexOf(u8, zip_path, "/");
+        const last_slash = std.mem.findLast(u8, zip_path, "/");
         if (last_slash) |idx| {
             return zip_path[idx + 1 ..];
         }
         return zip_path;
     }
 };
+
+
+// ============================================================================
+// Property-Based Tests
+// ============================================================================
+
+// **Feature: zig-016-upgrade, Property 2: 文件 I/O 往返一致性**
+// Verify any byte sequence written via new API then read back is identical.
+//
+// **Validates: Requirements 2.3, 2.4, 2.11, 2.12**
+test "Property 2: file I/O round-trip consistency" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+    const iterations: usize = 100;
+
+    // Simple PRNG for generating test data
+    var rng = std.Random.DefaultPrng.init(42);
+    const random = rng.random();
+
+    for (0..iterations) |i| {
+        // Generate random content of varying sizes (0 to 4096 bytes)
+        const content_len = random.intRangeAtMost(usize, 0, 4096);
+        const content = try allocator.alloc(u8, content_len);
+        defer allocator.free(content);
+        random.bytes(content);
+
+        // Build a unique temp file path
+        const path = try std.fmt.allocPrint(allocator, "/tmp/llmlite_prop2_roundtrip_{d}.bin", .{i});
+        defer allocator.free(path);
+
+        // Write via new API
+        {
+            const file = try std.Io.Dir.createFileAbsolute(io, path, .{});
+            defer file.close(io);
+            var write_buf: [8192]u8 = undefined;
+            var writer = file.writer(io, &write_buf);
+            try writer.interface.writeAll(content);
+            try writer.interface.flush();
+        }
+
+        // Read back via new API
+        const read_back = blk: {
+            const file = try std.Io.Dir.openFileAbsolute(io, path, .{});
+            defer file.close(io);
+            var read_buf: [8192]u8 = undefined;
+            var file_reader = file.reader(io, &read_buf);
+            break :blk try file_reader.interface.allocRemaining(allocator, .limited(10_000_000));
+        };
+        defer allocator.free(read_back);
+
+        // Verify round-trip: written content must equal read content
+        try std.testing.expectEqualSlices(u8, content, read_back);
+
+        // Cleanup
+        std.Io.Dir.deleteFileAbsolute(io, path) catch {};
+    }
+}

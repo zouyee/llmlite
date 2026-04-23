@@ -4,6 +4,32 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
+
 pub const ModelPricing = struct {
     provider: []const u8,
     model: []const u8,
@@ -14,12 +40,12 @@ pub const ModelPricing = struct {
 
 pub const CostTracker = struct {
     allocator: std.mem.Allocator,
-    pricing: std.StringArrayHashMap(ModelPricing),
+    pricing: StringArrayHashMap(ModelPricing),
 
     pub fn init(allocator: std.mem.Allocator) CostTracker {
         var tracker = CostTracker{
             .allocator = allocator,
-            .pricing = std.StringArrayHashMap(ModelPricing).init(allocator),
+            .pricing = StringArrayHashMap(ModelPricing).init(allocator),
         };
         tracker.initDefaultPricing();
         return tracker;
@@ -235,7 +261,7 @@ pub const SpendTracker = struct {
 
     /// Get daily spend breakdown
     pub fn getDailySpend(self: *SpendTracker, key_id: []const u8) []const struct { date: []const u8, cost: f64 } {
-        var daily = std.StringArrayHashMap(f64).init(self.allocator);
+        var daily = StringArrayHashMap(f64).init(self.allocator);
         defer daily.deinit();
 
         for (self.entries.items) |entry| {
@@ -256,7 +282,7 @@ pub const SpendTracker = struct {
 
     /// Get monthly spend breakdown
     pub fn getMonthlySpend(self: *SpendTracker, key_id: []const u8) []const struct { month: []const u8, cost: f64 } {
-        var monthly = std.StringArrayHashMap(f64).init(self.allocator);
+        var monthly = StringArrayHashMap(f64).init(self.allocator);
         defer monthly.deinit();
 
         for (self.entries.items) |entry| {

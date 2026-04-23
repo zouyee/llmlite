@@ -1,10 +1,37 @@
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const provider_types = @import("types");
 
 pub const LatencyTracker = struct {
     allocator: std.mem.Allocator,
     window_size: usize,
-    provider_stats: std.StringArrayHashMap(ProviderLatencyStats),
+    provider_stats: StringArrayHashMap(ProviderLatencyStats),
 
     pub const ProviderLatencyStats = struct {
         samples: []u64,
@@ -19,7 +46,7 @@ pub const LatencyTracker = struct {
         return .{
             .allocator = allocator,
             .window_size = window_size,
-            .provider_stats = std.StringArrayHashMap(ProviderLatencyStats).init(allocator),
+            .provider_stats = StringArrayHashMap(ProviderLatencyStats).init(allocator),
         };
     }
 
@@ -125,9 +152,10 @@ pub const LatencyTracker = struct {
 
 pub const HealthChecker = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     check_interval_ms: u32,
     timeout_ms: u32,
-    provider_health: std.StringArrayHashMap(HealthStatus),
+    provider_health: StringArrayHashMap(HealthStatus),
 
     pub const HealthStatus = struct {
         is_healthy: bool = true,
@@ -136,12 +164,13 @@ pub const HealthChecker = struct {
         latency_ms: u64 = 0,
     };
 
-    pub fn init(allocator: std.mem.Allocator, check_interval_ms: u32, timeout_ms: u32) HealthChecker {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, check_interval_ms: u32, timeout_ms: u32) HealthChecker {
         return .{
             .allocator = allocator,
+            .io = io,
             .check_interval_ms = check_interval_ms,
             .timeout_ms = timeout_ms,
-            .provider_health = std.StringArrayHashMap(HealthStatus).init(allocator),
+            .provider_health = StringArrayHashMap(HealthStatus).init(allocator),
         };
     }
 
@@ -154,14 +183,14 @@ pub const HealthChecker = struct {
         var status = self.provider_health.getOrPut(provider_name) catch return;
         if (!status.found_existing) {
             status.value_ptr.* = .{
-                .last_check = std.time.timestamp(),
+                .last_check = time_compat.timestamp(self.io),
             };
         }
 
         status.value_ptr.is_healthy = true;
         status.value_ptr.consecutive_failures = 0;
         status.value_ptr.latency_ms = latency_ms;
-        status.value_ptr.last_check = std.time.timestamp();
+        status.value_ptr.last_check = time_compat.timestamp(self.io);
     }
 
     pub fn recordFailure(self: *HealthChecker, provider: provider_types.ProviderType) void {
@@ -169,12 +198,12 @@ pub const HealthChecker = struct {
         var status = self.provider_health.getOrPut(provider_name) catch return;
         if (!status.found_existing) {
             status.value_ptr.* = .{
-                .last_check = std.time.timestamp(),
+                .last_check = time_compat.timestamp(self.io),
             };
         }
 
         status.value_ptr.consecutive_failures += 1;
-        status.value_ptr.last_check = std.time.timestamp();
+        status.value_ptr.last_check = time_compat.timestamp(self.io);
 
         if (status.value_ptr.consecutive_failures >= 3) {
             status.value_ptr.is_healthy = false;

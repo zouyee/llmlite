@@ -19,6 +19,32 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
+
 pub const FilterStrategy = enum {
     none, // No filtering
     stats, // Stats extraction
@@ -114,16 +140,16 @@ fn filterStats(allocator: std.mem.Allocator, input: []const u8, _: FilterLevel) 
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
     while (line_iter.next()) |line| {
-        if (std.mem.indexOf(u8, line, "error") != null or std.mem.indexOf(u8, line, "ERROR") != null or std.mem.indexOf(u8, line, "Error") != null) {
+        if (std.mem.find(u8, line, "error") != null or std.mem.find(u8, line, "ERROR") != null or std.mem.find(u8, line, "Error") != null) {
             error_count += 1;
         }
-        if (std.mem.indexOf(u8, line, "warning") != null or std.mem.indexOf(u8, line, "WARNING") != null or std.mem.indexOf(u8, line, "Warn") != null) {
+        if (std.mem.find(u8, line, "warning") != null or std.mem.find(u8, line, "WARNING") != null or std.mem.find(u8, line, "Warn") != null) {
             warning_count += 1;
         }
-        if (std.mem.indexOf(u8, line, "PASS") != null or std.mem.indexOf(u8, line, "ok") != null) {
+        if (std.mem.find(u8, line, "PASS") != null or std.mem.find(u8, line, "ok") != null) {
             pass_count += 1;
         }
-        if (std.mem.indexOf(u8, line, "FAIL") != null or std.mem.indexOf(u8, line, "failed") != null) {
+        if (std.mem.find(u8, line, "FAIL") != null or std.mem.find(u8, line, "failed") != null) {
             fail_count += 1;
         }
     }
@@ -149,13 +175,13 @@ fn filterErrorsOnly(allocator: std.mem.Allocator, input: []const u8) ![]const u8
         if (trimmed.len == 0) continue;
 
         // Check for error indicators
-        const is_error = std.mem.indexOf(u8, trimmed, "error") != null or
-            std.mem.indexOf(u8, trimmed, "Error") != null or
-            std.mem.indexOf(u8, trimmed, "ERROR") != null or
-            std.mem.indexOf(u8, trimmed, "failed") != null or
-            std.mem.indexOf(u8, trimmed, "FAILED") != null or
-            std.mem.indexOf(u8, trimmed, "Exception") != null or
-            std.mem.indexOf(u8, trimmed, "Traceback") != null;
+        const is_error = std.mem.find(u8, trimmed, "error") != null or
+            std.mem.find(u8, trimmed, "Error") != null or
+            std.mem.find(u8, trimmed, "ERROR") != null or
+            std.mem.find(u8, trimmed, "failed") != null or
+            std.mem.find(u8, trimmed, "FAILED") != null or
+            std.mem.find(u8, trimmed, "Exception") != null or
+            std.mem.find(u8, trimmed, "Traceback") != null;
 
         if (is_error) {
             if (!found_errors) {
@@ -177,7 +203,7 @@ fn filterErrorsOnly(allocator: std.mem.Allocator, input: []const u8) ![]const u8
 // ============ Strategy 3: Grouping ============
 
 fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var groups = std.StringArrayHashMap(usize).init(allocator);
+    var groups = StringArrayHashMap(usize).init(allocator);
     defer groups.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -189,9 +215,9 @@ fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
         var key: []const u8 = trimmed;
 
         // Check for common patterns
-        if (std.mem.indexOf(u8, trimmed, ":")) |idx| {
+        if (std.mem.find(u8, trimmed, ":")) |idx| {
             key = trimmed[0..idx];
-        } else if (std.mem.indexOf(u8, trimmed, " ")) |idx| {
+        } else if (std.mem.find(u8, trimmed, " ")) |idx| {
             key = trimmed[0..idx];
         }
 
@@ -234,7 +260,7 @@ fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]const
     var lines = std.array_list.Managed(struct { text: []const u8, count: usize }).init(allocator);
     defer lines.deinit();
 
-    var seen = std.StringArrayHashMap(usize).init(allocator);
+    var seen = StringArrayHashMap(usize).init(allocator);
     defer seen.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -478,15 +504,15 @@ fn filterFailureFocus(allocator: std.mem.Allocator, input: []const u8) ![]const 
         const trimmed = std.mem.trim(u8, line, " \t");
 
         // Check if this is a failure line
-        const is_failure = std.mem.indexOf(u8, trimmed, "FAIL") != null or
-            std.mem.indexOf(u8, trimmed, "failed") != null or
-            std.mem.indexOf(u8, trimmed, "FAILED") != null or
-            std.mem.indexOf(u8, trimmed, "AssertionError") != null or
-            std.mem.indexOf(u8, trimmed, "Error:") != null;
+        const is_failure = std.mem.find(u8, trimmed, "FAIL") != null or
+            std.mem.find(u8, trimmed, "failed") != null or
+            std.mem.find(u8, trimmed, "FAILED") != null or
+            std.mem.find(u8, trimmed, "AssertionError") != null or
+            std.mem.find(u8, trimmed, "Error:") != null;
 
         // Check for test failure pattern
         const is_test_fail = std.mem.startsWith(u8, trimmed, "test ") and
-            (std.mem.indexOf(u8, trimmed, " FAILED") != null or std.mem.indexOf(u8, trimmed, " failed") != null);
+            (std.mem.find(u8, trimmed, " FAILED") != null or std.mem.find(u8, trimmed, " failed") != null);
 
         if (is_failure or is_test_fail) {
             if (found_failure) try result.append('\n');
@@ -525,7 +551,7 @@ fn filterTreeCompression(allocator: std.mem.Allocator, input: []const u8) ![]con
     }
 
     // Simple tree building - group by directory prefix
-    var dir_counts = std.StringArrayHashMap(usize).init(allocator);
+    var dir_counts = StringArrayHashMap(usize).init(allocator);
     defer dir_counts.freeEntries();
 
     for (lines.items) |line| {
@@ -625,18 +651,18 @@ fn filterStateMachine(allocator: std.mem.Allocator, input: []const u8) ![]const 
         const trimmed = std.mem.trim(u8, line, " \t");
 
         // Simple state machine for test output
-        if (std.mem.indexOf(u8, trimmed, "running") != null) {
+        if (std.mem.find(u8, trimmed, "running") != null) {
             state = .running;
-        } else if (std.mem.indexOf(u8, trimmed, "PASS") != null or std.mem.indexOf(u8, trimmed, "ok") != null) {
+        } else if (std.mem.find(u8, trimmed, "PASS") != null or std.mem.find(u8, trimmed, "ok") != null) {
             state = .passed;
             passed_count += 1;
-        } else if (std.mem.indexOf(u8, trimmed, "FAIL") != null or std.mem.indexOf(u8, trimmed, "failed") != null) {
+        } else if (std.mem.find(u8, trimmed, "FAIL") != null or std.mem.find(u8, trimmed, "failed") != null) {
             state = .failed;
             failed_count += 1;
             if (trimmed.len < 100) {
                 try failed_tests.append(trimmed);
             }
-        } else if (std.mem.indexOf(u8, trimmed, "Test") != null and std.mem.indexOf(u8, trimmed, "...") != null) {
+        } else if (std.mem.find(u8, trimmed, "Test") != null and std.mem.find(u8, trimmed, "...") != null) {
             state = .running;
         }
     }
@@ -734,9 +760,9 @@ fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const 
         if (trimmed.len == 0) continue;
 
         // Check for pass/success
-        if (std.mem.indexOf(u8, trimmed, "PASS") != null or
-            std.mem.indexOf(u8, trimmed, "passed") != null or
-            std.mem.indexOf(u8, trimmed, "success") != null)
+        if (std.mem.find(u8, trimmed, "PASS") != null or
+            std.mem.find(u8, trimmed, "passed") != null or
+            std.mem.find(u8, trimmed, "success") != null)
         {
             try result.appendSlice(allocator, "✓ ");
             has_content = true;
@@ -744,10 +770,10 @@ fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const 
         }
 
         // Check for fail/error
-        if (std.mem.indexOf(u8, trimmed, "FAIL") != null or
-            std.mem.indexOf(u8, trimmed, "failed") != null or
-            std.mem.indexOf(u8, trimmed, "error") != null or
-            std.mem.indexOf(u8, trimmed, "Error") != null)
+        if (std.mem.find(u8, trimmed, "FAIL") != null or
+            std.mem.find(u8, trimmed, "failed") != null or
+            std.mem.find(u8, trimmed, "error") != null or
+            std.mem.find(u8, trimmed, "Error") != null)
         {
             try result.appendSlice(allocator, "✗ ");
             has_content = true;
@@ -763,8 +789,8 @@ fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const 
         }
 
         // Check for warning
-        if (std.mem.indexOf(u8, trimmed, "warning") != null or
-            std.mem.indexOf(u8, trimmed, "WARN") != null)
+        if (std.mem.find(u8, trimmed, "warning") != null or
+            std.mem.find(u8, trimmed, "WARN") != null)
         {
             try result.appendSlice(allocator, "⚠ ");
             has_content = true;
@@ -779,9 +805,9 @@ fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const 
         }
 
         // Check for file path
-        if (std.mem.indexOf(u8, trimmed, "/") != null and trimmed.len > 10) {
+        if (std.mem.find(u8, trimmed, "/") != null and trimmed.len > 10) {
             // Extract filename from path
-            if (std.mem.lastIndexOfScalar(u8, trimmed, '/')) |idx| {
+            if (std.mem.findScalarLast(u8, trimmed, '/')) |idx| {
                 try result.appendSlice(allocator, "📁 ");
                 try result.appendSlice(allocator, trimmed[idx + 1 ..]);
                 try result.append(allocator, '\n');
@@ -833,24 +859,24 @@ pub fn autoDetectStrategy(input: []const u8) FilterStrategy {
     }
 
     // Check for error patterns
-    if (std.mem.indexOf(u8, input, "error") != null or
-        std.mem.indexOf(u8, input, "Error") != null or
-        std.mem.indexOf(u8, input, "ERROR") != null or
-        std.mem.indexOf(u8, input, "failed") != null)
+    if (std.mem.find(u8, input, "error") != null or
+        std.mem.find(u8, input, "Error") != null or
+        std.mem.find(u8, input, "ERROR") != null or
+        std.mem.find(u8, input, "failed") != null)
     {
         return .errors_only;
     }
 
     // Check for test output
-    if (std.mem.indexOf(u8, input, "PASS") != null or
-        std.mem.indexOf(u8, input, "FAIL") != null or
-        std.mem.indexOf(u8, input, "test ") != null)
+    if (std.mem.find(u8, input, "PASS") != null or
+        std.mem.find(u8, input, "FAIL") != null or
+        std.mem.find(u8, input, "test ") != null)
     {
         return .failure_focus;
     }
 
     // Check for progress bars
-    if (std.mem.indexOf(u8, input, "=") != null and std.mem.indexOf(u8, input, "%") != null) {
+    if (std.mem.find(u8, input, "=") != null and std.mem.find(u8, input, "%") != null) {
         return .progress_strip;
     }
 
