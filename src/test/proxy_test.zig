@@ -75,9 +75,9 @@ test "error_handler.formatErrorJson" {
     const json = try error_handler.formatErrorJson(err, allocator);
     defer allocator.free(json);
 
-    try testing.expect(std.mem.indexOf(u8, json, "Test error message") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "Test reason") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "400") != null);
+    try testing.expect(std.mem.find(u8, json, "Test error message") != null);
+    try testing.expect(std.mem.find(u8, json, "Test reason") != null);
+    try testing.expect(std.mem.find(u8, json, "400") != null);
 }
 
 test "error_handler.formatErrorJson - with provider_code" {
@@ -93,8 +93,8 @@ test "error_handler.formatErrorJson - with provider_code" {
     const json = try error_handler.formatErrorJson(err, allocator);
     defer allocator.free(json);
 
-    try testing.expect(std.mem.indexOf(u8, json, "provider_code") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "deepseek") != null);
+    try testing.expect(std.mem.find(u8, json, "provider_code") != null);
+    try testing.expect(std.mem.find(u8, json, "deepseek") != null);
 }
 
 test "error_handler.getStatusText - extended" {

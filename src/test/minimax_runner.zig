@@ -6,18 +6,28 @@
 //! Usage: Set MINIMAX_API_KEY environment variable before running
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const http = @import("http");
 const chat = @import("chat");
 const provider = @import("provider");
 const language_model = @import("language_model");
 
-pub fn main() !void {
+var g_io: std.Io = undefined;
+
+pub fn main(init: std.process.Init) !void {
+    g_io = init.io;
     std.debug.print("=== MiniMax Full API Capability Test Runner ===\n\n", .{});
 
     const allocator = std.heap.page_allocator;
 
     // Read API key from environment variable
-    const api_key_env = std.process.getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch null;
+    const api_key_env = _getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch null;
     const api_key: []const u8 = api_key_env orelse {
         std.debug.print("Error: MINIMAX_API_KEY environment variable not set\n", .{});
         std.debug.print("Please set it in your .env file or export it:\n", .{});
@@ -140,6 +150,7 @@ pub fn main() !void {
 fn createHttpClient(allocator: std.mem.Allocator, api_key: []const u8) http.HttpClient {
     return http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         "https://api.minimaxi.com/v1",
         api_key,
         null,

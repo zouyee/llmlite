@@ -111,7 +111,7 @@ test "applyFilter max_lines" {
     const result = try toml_filter.applyFilter(allocator, rule, input);
     defer allocator.free(result.output);
     try testing.expect(result.output.len > 0);
-    try testing.expect(std.mem.indexOf(u8, result.output, "lines truncated") != null);
+    try testing.expect(std.mem.find(u8, result.output, "lines truncated") != null);
 }
 
 test "applyFilter on_empty" {
@@ -141,7 +141,7 @@ test "applyFilter head_lines" {
     const input = "a\nb\nc\nd\ne";
     const result = try toml_filter.applyFilter(allocator, rule, input);
     defer allocator.free(result.output);
-    try testing.expect(std.mem.indexOf(u8, result.output, "3 lines omitted") != null);
+    try testing.expect(std.mem.find(u8, result.output, "3 lines omitted") != null);
 }
 
 test "applyFilter tail_lines" {
@@ -155,7 +155,7 @@ test "applyFilter tail_lines" {
     const input = "a\nb\nc\nd\ne";
     const result = try toml_filter.applyFilter(allocator, rule, input);
     defer allocator.free(result.output);
-    try testing.expect(std.mem.indexOf(u8, result.output, "3 lines omitted") != null);
+    try testing.expect(std.mem.find(u8, result.output, "3 lines omitted") != null);
 }
 
 test "applyFilter match_output success" {
@@ -258,7 +258,7 @@ test "applyFilter head_and_tail_combined" {
     defer allocator.free(result.output);
     // Should contain first 2 lines and last 2 lines
     try testing.expect(std.mem.startsWith(u8, result.output, "a\nb\n"));
-    try testing.expect(std.mem.indexOf(u8, result.output, "2 lines omitted") != null);
+    try testing.expect(std.mem.find(u8, result.output, "2 lines omitted") != null);
     try testing.expect(std.mem.endsWith(u8, result.output, "e\nf"));
 }
 
@@ -274,7 +274,7 @@ test "applyFilter max_lines_counts_omit_message" {
     const result = try toml_filter.applyFilter(allocator, rule, input);
     defer allocator.free(result.output);
     // 3 content lines + 1 truncated message = 4 lines output
-    try testing.expect(std.mem.indexOf(u8, result.output, "lines truncated") != null);
+    try testing.expect(std.mem.find(u8, result.output, "lines truncated") != null);
 }
 
 test "applyFilter on_empty_not_triggered_when_output_remains" {
@@ -324,9 +324,9 @@ test "applyFilter full_pipeline_order" {
     const result = try toml_filter.applyFilter(allocator, rule, input);
     defer allocator.free(result.output);
     // After strip_ansi: ANSI codes removed
-    try testing.expect(std.mem.indexOf(u8, result.output, "red line") != null);
+    try testing.expect(std.mem.find(u8, result.output, "red line") != null);
     // After strip: noise should be removed
-    try testing.expect(std.mem.indexOf(u8, result.output, "noise skip") == null);
+    try testing.expect(std.mem.find(u8, result.output, "noise skip") == null);
     // Should contain omit/truncate message
-    try testing.expect(std.mem.indexOf(u8, result.output, "lines omitted") != null or std.mem.indexOf(u8, result.output, "lines truncated") != null);
+    try testing.expect(std.mem.find(u8, result.output, "lines omitted") != null or std.mem.find(u8, result.output, "lines truncated") != null);
 }

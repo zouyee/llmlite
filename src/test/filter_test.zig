@@ -37,8 +37,8 @@ test "filter.errors_only - error detection" {
 
     try std.testing.expect(result.reduction_pct > 50);
     // Should contain "Error:" or "FAIL"
-    try std.testing.expect(std.mem.indexOf(u8, result.filtered, "Error:") != null or
-        std.mem.indexOf(u8, result.filtered, "FAIL") != null);
+    try std.testing.expect(std.mem.find(u8, result.filtered, "Error:") != null or
+        std.mem.find(u8, result.filtered, "FAIL") != null);
 }
 
 test "filter.errors_only - no errors" {
@@ -84,7 +84,7 @@ test "filter.failure_focus - pytest output" {
     });
 
     // Should focus on failures
-    try std.testing.expect(std.mem.indexOf(u8, result.filtered, "FAILED") != null);
+    try std.testing.expect(std.mem.find(u8, result.filtered, "FAILED") != null);
 }
 
 test "filter.tree_compression - docker ps output" {
@@ -120,7 +120,7 @@ test "filter.code_filter - strip comments" {
     });
 
     // Should not contain comments
-    try std.testing.expect(std.mem.indexOf(u8, result.filtered, "// This is") == null);
+    try std.testing.expect(std.mem.find(u8, result.filtered, "// This is") == null);
 }
 
 test "filter.state_machine - pytest state detection" {

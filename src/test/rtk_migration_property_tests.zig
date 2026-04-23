@@ -409,7 +409,7 @@ test "Property 3: hook rewrite preserves llmlite-cmd prefix and base command" {
 
             // Assert: original base command name is preserved in the result
             const original_base = extractBaseCmd(rule.pattern);
-            try testing.expect(std.mem.indexOf(u8, result, original_base) != null);
+            try testing.expect(std.mem.find(u8, result, original_base) != null);
         }
     }
 }

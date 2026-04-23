@@ -14,6 +14,13 @@
 //! API Docs: https://platform.moonshot.cn/docs/api/chat
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const testing = std.testing;
 const http = @import("http");
 const chat = @import("chat");
@@ -22,7 +29,7 @@ const language_model = @import("../provider/language_model");
 
 /// Get API key from environment variable
 fn getApiKey(allocator: std.mem.Allocator) ![]const u8 {
-    const api_key = std.process.getEnvVarOwned(allocator, "KIMI_API_KEY") catch {
+    const api_key = _getEnvVarOwned(allocator, "KIMI_API_KEY") catch {
         std.debug.print("Error: KIMI_API_KEY environment variable not set\n", .{});
         std.debug.print("Please set it in your .env file or export it:\n", .{});
         std.debug.print("  export KIMI_API_KEY=your_api_key_here\n", .{});
@@ -33,10 +40,10 @@ fn getApiKey(allocator: std.mem.Allocator) ![]const u8 {
 
 /// Get API key from environment variable (with fallback to MOONSHOT_API_KEY)
 fn getKimiApiKey(allocator: std.mem.Allocator) ![]const u8 {
-    if (std.process.getEnvVarOwned(allocator, "KIMI_API_KEY")) |key| {
+    if (_getEnvVarOwned(allocator, "KIMI_API_KEY")) |key| {
         return key;
     } else |_| {
-        if (std.process.getEnvVarOwned(allocator, "MOONSHOT_API_KEY")) |key| {
+        if (_getEnvVarOwned(allocator, "MOONSHOT_API_KEY")) |key| {
             return key;
         } else |_| {
             std.debug.print("Error: KIMI_API_KEY or MOONSHOT_API_KEY environment variable not set\n", .{});
@@ -240,10 +247,10 @@ test "Kimi: Transform Request Format" {
     defer allocator.free(request_json);
 
     // Verify request format
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"model\":\"kimi-k2.5\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"messages\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"max_tokens\":50") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"temperature\":") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"model\":\"kimi-k2.5\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"messages\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"max_tokens\":50") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"temperature\":") != null);
 
     std.debug.print("Kimi Request: {s}\n", .{request_json});
 }
@@ -516,7 +523,7 @@ test "Kimi: List Models API" {
     defer allocator.free(response);
 
     // Verify response contains model list
-    try testing.expect(std.mem.indexOf(u8, response, "kimi-k2.5") != null);
+    try testing.expect(std.mem.find(u8, response, "kimi-k2.5") != null);
     std.debug.print("Kimi Models List: includes kimi-k2.5\n", .{});
 }
 
@@ -556,7 +563,7 @@ test "Kimi: Streaming Chat Completion" {
     defer allocator.free(stream_response);
 
     // Verify streaming response contains SSE chunks
-    try testing.expect(std.mem.indexOf(u8, stream_response, "data:") != null);
+    try testing.expect(std.mem.find(u8, stream_response, "data:") != null);
     std.debug.print("Kimi Streaming: Response received (contains SSE data)\n", .{});
 }
 
@@ -622,7 +629,7 @@ test "Kimi: Error Response Parsing" {
     }
 
     try testing.expect(std.mem.eql(u8, kimi_error.type, "invalid_request_error"));
-    try testing.expect(std.mem.indexOf(u8, kimi_error.message, "Invalid request") != null);
+    try testing.expect(std.mem.find(u8, kimi_error.message, "Invalid request") != null);
     std.debug.print("Kimi Error Parsing: type={s}\n", .{kimi_error.type});
 }
 
@@ -728,9 +735,9 @@ test "Kimi: Balance Response - Mock Response Parsing" {
 
     // This is a simple validation that our parsing works correctly
     // by checking that the mock response has the expected structure
-    try testing.expect(std.mem.indexOf(u8, mock_response, "\"available_balance\":") != null);
-    try testing.expect(std.mem.indexOf(u8, mock_response, "\"voucher_balance\":") != null);
-    try testing.expect(std.mem.indexOf(u8, mock_response, "\"cash_balance\":") != null);
+    try testing.expect(std.mem.find(u8, mock_response, "\"available_balance\":") != null);
+    try testing.expect(std.mem.find(u8, mock_response, "\"voucher_balance\":") != null);
+    try testing.expect(std.mem.find(u8, mock_response, "\"cash_balance\":") != null);
     std.debug.print("Kimi Balance: Mock response structure validated\n", .{});
 }
 
@@ -1109,9 +1116,9 @@ test "Kimi: Vision Message Content Serialization" {
     defer allocator.free(json);
 
     // Verify the JSON contains image_url structure
-    try testing.expect(std.mem.indexOf(u8, json, "\"type\":\"image_url\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "\"type\":\"text\"") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "data:image/png;base64,abc123") != null);
+    try testing.expect(std.mem.find(u8, json, "\"type\":\"image_url\"") != null);
+    try testing.expect(std.mem.find(u8, json, "\"type\":\"text\"") != null);
+    try testing.expect(std.mem.find(u8, json, "data:image/png;base64,abc123") != null);
 
     std.debug.print("Kimi Vision Serialization: JSON contains image_url parts\n", .{});
 }
@@ -1132,6 +1139,6 @@ test "Kimi: Simple Text Content (Backwards Compatible)" {
     defer allocator.free(json);
 
     // Verify the JSON contains the simple text content
-    try testing.expect(std.mem.indexOf(u8, json, "\"content\":\"\"") != null);
+    try testing.expect(std.mem.find(u8, json, "\"content\":\"\"") != null);
     std.debug.print("Kimi Simple Text Content: JSON serialized correctly\n", .{});
 }

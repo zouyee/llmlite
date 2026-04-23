@@ -5,6 +5,13 @@
 //! Usage: Set MINIMAX_API_KEY environment variable before running
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const testing = std.testing;
 const http = @import("http");
 const chat = @import("chat");
@@ -13,7 +20,7 @@ const language_model = @import("../provider/language_model");
 
 /// Get API key from environment variable
 fn getApiKey(allocator: std.mem.Allocator) ![]const u8 {
-    const api_key = std.process.getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch {
+    const api_key = _getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch {
         std.debug.print("Error: MINIMAX_API_KEY environment variable not set\n", .{});
         std.debug.print("Please set it in your .env file or export it:\n", .{});
         std.debug.print("  export MINIMAX_API_KEY=your_api_key_here\n", .{});
@@ -90,10 +97,10 @@ test "MiniMax: Transform Request Format" {
     defer allocator.free(request_json);
 
     // Verify request format
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"model\":\"MiniMax-Text-01\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"messages\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"max_tokens\":50") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"temperature\":") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"model\":\"MiniMax-Text-01\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"messages\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"max_tokens\":50") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"temperature\":") != null);
 
     std.debug.print("MiniMax Request: {s}\n", .{request_json});
 }

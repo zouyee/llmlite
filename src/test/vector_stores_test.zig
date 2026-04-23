@@ -160,8 +160,8 @@ test "buildToolMessage" {
     const json = try tool.buildToolMessage(testing.allocator, result.call_id, result.output);
     defer testing.allocator.free(json);
 
-    try testing.expect(std.mem.indexOf(u8, json, "call_abc") != null);
-    try testing.expect(std.mem.indexOf(u8, json, "Result: 42") != null);
+    try testing.expect(std.mem.find(u8, json, "call_abc") != null);
+    try testing.expect(std.mem.find(u8, json, "Result: 42") != null);
 }
 
 // ============================================================================
@@ -203,7 +203,7 @@ test "Tool calling flow simulation" {
 
     try testing.expectEqual(chat.Role.tool, tool_msg.role);
     try testing.expectEqualStrings("call_001", tool_msg.tool_call_id.?);
-    try testing.expect(std.mem.indexOf(u8, tool_msg.content.?, "Tokyo") != null);
+    try testing.expect(std.mem.find(u8, tool_msg.content.?, "Tokyo") != null);
 }
 
 test "Multiple tool calls in sequence" {

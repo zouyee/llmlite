@@ -671,7 +671,7 @@ test "Chat Content with multiple parts" {
 
     const part1 = google.Part{ .text = text };
 
-    var parts_array = std.ArrayListUnmanaged(google.Part){};
+    var parts_array: std.ArrayListUnmanaged(google.Part) = .empty;
     errdefer parts_array.deinit(allocator);
     try parts_array.append(allocator, part1);
 

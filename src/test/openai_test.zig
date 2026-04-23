@@ -1096,7 +1096,7 @@ test "FineTuningJobParams creation" {
 
 test "OpenAI client init" {
     const allocator = std.heap.page_allocator;
-    var client = OpenAI.init(allocator, "test-api-key");
+    var client = OpenAI.init(allocator, std.testing.io, "test-api-key");
 
     try testing.expectEqualStrings("test-api-key", client.http_client.api_key);
     try testing.expectEqualStrings("https://api.openai.com/v1", client.http_client.base_url);
@@ -1106,7 +1106,7 @@ test "OpenAI client init" {
 
 test "OpenAI client init with custom base URL" {
     const allocator = std.heap.page_allocator;
-    var client = OpenAI.initWithBaseUrl(allocator, "test-key", "https://api.minimaxi.com/v1");
+    var client = OpenAI.initWithBaseUrl(allocator, std.testing.io, "test-key", "https://api.minimaxi.com/v1");
 
     try testing.expectEqualStrings("test-key", client.http_client.api_key);
     try testing.expectEqualStrings("https://api.minimaxi.com/v1", client.http_client.base_url);

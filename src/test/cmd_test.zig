@@ -108,7 +108,7 @@ test "json.parseFromSlice - empty array" {
 test "json.parseFromSlice - invalid JSON" {
     const input = "{invalid json}";
     const result = std.json.parseFromSlice(std.json.Value, std.heap.page_allocator, input, .{});
-    // Zig 0.15+ returns error.SyntaxError for invalid JSON
+    // Zig 0.15+ and 0.16.0+ returns error.SyntaxError for invalid JSON
     try testing.expectError(error.SyntaxError, result);
 }
 

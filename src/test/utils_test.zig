@@ -48,8 +48,8 @@ test "utils.stripAnsi - remove ANSI codes" {
     const result = try utils.stripAnsi(std.heap.page_allocator, input);
     defer std.heap.page_allocator.free(result);
 
-    try std.testing.expect(std.mem.indexOf(u8, result, "\x1b") == null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "green") != null);
+    try std.testing.expect(std.mem.find(u8, result, "\x1b") == null);
+    try std.testing.expect(std.mem.find(u8, result, "green") != null);
 }
 
 test "utils.countTokens - empty string" {
@@ -67,14 +67,14 @@ test "utils.formatBytes - bytes" {
     const result = try utils.formatBytes(std.heap.page_allocator, 512);
     defer std.heap.page_allocator.free(result);
 
-    try std.testing.expect(std.mem.indexOf(u8, result, "B") != null);
+    try std.testing.expect(std.mem.find(u8, result, "B") != null);
 }
 
 test "utils.formatBytes - kilobytes" {
     const result = try utils.formatBytes(std.heap.page_allocator, 2048);
     defer std.heap.page_allocator.free(result);
 
-    try std.testing.expect(std.mem.indexOf(u8, result, "KB") != null);
+    try std.testing.expect(std.mem.find(u8, result, "KB") != null);
 }
 
 test "utils.isCI - not CI" {

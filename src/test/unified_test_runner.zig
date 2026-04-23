@@ -94,9 +94,9 @@ test "error_handler.formatErrorJson" {
     const json = try error_handler.formatErrorJson(err, allocator);
     defer allocator.free(json);
 
-    try std.testing.expect(std.mem.indexOf(u8, json, "Test error message") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "Test reason") != null);
-    try std.testing.expect(std.mem.indexOf(u8, json, "400") != null);
+    try std.testing.expect(std.mem.find(u8, json, "Test error message") != null);
+    try std.testing.expect(std.mem.find(u8, json, "Test reason") != null);
+    try std.testing.expect(std.mem.find(u8, json, "400") != null);
 }
 
 // ============================================================================

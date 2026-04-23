@@ -131,7 +131,7 @@ pub const Assert = struct {
     /// Assert a JSON string contains a field
     pub fn jsonHasField(self: *ResponseBuilder, json_str: []const u8, field: []const u8) !void {
         _ = self;
-        if (std.mem.indexOf(u8, json_str, field) == null) {
+        if (std.mem.find(u8, json_str, field) == null) {
             return error.FieldNotFound;
         }
     }
@@ -157,7 +157,7 @@ pub const TestHttpClient = struct {
         return .{
             .allocator = allocator,
             .mock = mock,
-            .last_request = std.ArrayListUnmanaged(u8){},
+            .last_request = .empty,
         };
     }
 

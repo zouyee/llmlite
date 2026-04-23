@@ -28,10 +28,10 @@ test "Google transformRequest creates valid Gemini format" {
     defer allocator.free(request_json);
 
     // Should contain Gemini-native format
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"contents\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"parts\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"role\":\"user\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"text\":\"Hello\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"contents\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"parts\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"role\":\"user\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"text\":\"Hello\"") != null);
 }
 
 test "Google transformRequest with system instruction" {
@@ -50,8 +50,8 @@ test "Google transformRequest with system instruction" {
     defer allocator.free(request_json);
 
     // Should contain systemInstruction
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"systemInstruction\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "You are a helpful assistant.") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"systemInstruction\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "You are a helpful assistant.") != null);
 }
 
 test "Google transformRequest with generation config" {
@@ -71,9 +71,9 @@ test "Google transformRequest with generation config" {
     defer allocator.free(request_json);
 
     // Should contain generationConfig
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"generationConfig\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"temperature\":0.7") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"maxOutputTokens\":100") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"generationConfig\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"temperature\":0.7") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"maxOutputTokens\":100") != null);
 }
 
 // ============================================================================
@@ -203,9 +203,9 @@ test "Google transformGeminiEmbeddingRequest creates valid format" {
     defer allocator.free(request_json);
 
     // Should contain Gemini-native format
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"content\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"parts\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"text\":\"Hello world\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"content\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"parts\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"text\":\"Hello world\"") != null);
 }
 
 test "Google transformGeminiEmbeddingRequest with array input" {
@@ -220,8 +220,8 @@ test "Google transformGeminiEmbeddingRequest with array input" {
     defer allocator.free(request_json);
 
     // Should contain both strings
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"text\":\"Hello\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"text\":\"World\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"text\":\"Hello\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"text\":\"World\"") != null);
 }
 
 test "Google getGeminiEmbedEndpoint returns correct path" {
@@ -251,9 +251,9 @@ test "Google provider with Gemini native request and response cycle" {
     defer allocator.free(request_json);
 
     // Verify request structure
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"model\":\"gemini-2.0-flash\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"contents\"") != null);
-    try testing.expect(std.mem.indexOf(u8, request_json, "\"temperature\":") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"model\":\"gemini-2.0-flash\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"contents\"") != null);
+    try testing.expect(std.mem.find(u8, request_json, "\"temperature\":") != null);
 
     // Simulate a Gemini API response
     const mock_response =

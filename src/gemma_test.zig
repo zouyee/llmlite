@@ -4,19 +4,27 @@
 //! Format: "provider/model" e.g., "google/gemini-2.0-flash"
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const OpenAI = @import("main").OpenAI;
 const chat = @import("chat");
 
 // Model string contains provider info, auto-selects base_url and auth_type
 const MODEL = "google/gemini-2.0-flash";
 
-pub fn main() void {
+pub fn main(init: std.process.Init) void {
     const allocator = std.heap.c_allocator;
-    const api_key = std.process.getEnvVarOwned(allocator, "GOOGLE_AI_API_KEY") catch null;
+    const io = init.io;
+    const api_key = _getEnvVarOwned(allocator, "GOOGLE_AI_API_KEY") catch null;
 
     if (api_key) |key| {
         defer allocator.free(key);
-        runTest(key) catch |e| {
+        runTest(io, key) catch |e| {
             std.debug.print("[Test] Error: {}\n", .{e});
         };
     } else {
@@ -24,7 +32,7 @@ pub fn main() void {
     }
 }
 
-fn runTest(api_key: []const u8) !void {
+fn runTest(io: std.Io, api_key: []const u8) !void {
     std.debug.print("=== Google AI (Gemma) Integration Test ===\n", .{});
     std.debug.print("Model: {s}\n\n", .{MODEL});
 
@@ -32,6 +40,7 @@ fn runTest(api_key: []const u8) !void {
     // Auto-detects provider (google) and configures base_url and auth_type
     var client = try OpenAI.create(
         std.heap.c_allocator,
+        io,
         api_key,
         MODEL,
     );

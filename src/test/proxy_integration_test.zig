@@ -11,6 +11,13 @@
 //!   PROXY_TEST_PORT=4001 ./zig-out/bin/proxy_integration_test
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const http = @import("http");
 
 // Test configuration
@@ -100,7 +107,7 @@ pub fn main() !void {
     const port = TEST_PORT;
 
     // Get port from environment if set
-    const env_port = std.process.getEnvVarOwned(allocator, "PROXY_TEST_PORT") catch null;
+    const env_port = _getEnvVarOwned(allocator, "PROXY_TEST_PORT") catch null;
     const use_port = if (env_port) |p| std.fmt.parseInt(u16, p, 10) catch port else port;
     if (env_port) |p| allocator.free(p);
 
@@ -116,7 +123,7 @@ pub fn main() !void {
     std.debug.print("[Test 1] GET /health ... ", .{});
     if (client.get("/health")) |response| {
         defer allocator.free(response);
-        if (std.mem.indexOf(u8, response, "healthy") != null) {
+        if (std.mem.find(u8, response, "healthy") != null) {
             std.debug.print("PASS\n", .{});
             recordTest("health endpoint", true, null);
         } else {
@@ -132,7 +139,7 @@ pub fn main() !void {
     std.debug.print("[Test 2] GET /health/live ... ", .{});
     if (client.get("/health/live")) |response| {
         defer allocator.free(response);
-        if (std.mem.indexOf(u8, response, "alive") != null) {
+        if (std.mem.find(u8, response, "alive") != null) {
             std.debug.print("PASS\n", .{});
             recordTest("health liveness", true, null);
         } else {
@@ -196,7 +203,7 @@ pub fn main() !void {
     defer allocator.free(response);
 
     // Check for MiniMax response (contains MiniMax AI)
-    if (std.mem.indexOf(u8, response, "MiniMax") != null or std.mem.indexOf(u8, response, "content") != null) {
+    if (std.mem.find(u8, response, "MiniMax") != null or std.mem.find(u8, response, "content") != null) {
         std.debug.print("PASS (response contains expected content)\n", .{});
         recordTest("chat completions valid key", true, null);
     } else {
@@ -232,7 +239,7 @@ pub fn main() !void {
     defer allocator.free(response2);
 
     // Should get 401 for invalid key
-    if (std.mem.indexOf(u8, response2, "401") != null or std.mem.indexOf(u8, response2, "authentication_error") != null) {
+    if (std.mem.find(u8, response2, "401") != null or std.mem.find(u8, response2, "authentication_error") != null) {
         std.debug.print("PASS (correctly rejected invalid key)\n", .{});
         recordTest("chat completions invalid key", true, null);
     } else {
@@ -244,7 +251,7 @@ pub fn main() !void {
     std.debug.print("[Test 5] GET /v1/models ... ", .{});
     if (client.get("/v1/models")) |models_response| {
         defer allocator.free(models_response);
-        if (std.mem.indexOf(u8, models_response, "gpt-4o") != null and std.mem.indexOf(u8, models_response, "claude") != null) {
+        if (std.mem.find(u8, models_response, "gpt-4o") != null and std.mem.find(u8, models_response, "claude") != null) {
             std.debug.print("PASS\n", .{});
             recordTest("models endpoint", true, null);
         } else {

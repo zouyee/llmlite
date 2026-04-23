@@ -125,19 +125,19 @@ pub fn main() !void {
 
         const chat_resp = try builder.chatCompletion("id-1", "gpt-4o", "Hello!");
         defer allocator.free(chat_resp);
-        try std.testing.expect(std.mem.indexOf(u8, chat_resp, "Hello!") != null);
+        try std.testing.expect(std.mem.find(u8, chat_resp, "Hello!") != null);
 
         const models_resp = try builder.modelsList();
         defer allocator.free(models_resp);
-        try std.testing.expect(std.mem.indexOf(u8, models_resp, "gpt-4o") != null);
+        try std.testing.expect(std.mem.find(u8, models_resp, "gpt-4o") != null);
 
         const err_resp = try builder.errorResponse("invalid_request", "Invalid request");
         defer allocator.free(err_resp);
-        try std.testing.expect(std.mem.indexOf(u8, err_resp, "invalid_request") != null);
+        try std.testing.expect(std.mem.find(u8, err_resp, "invalid_request") != null);
 
         const rate_resp = try builder.rateLimitResponse(60);
         defer allocator.free(rate_resp);
-        try std.testing.expect(std.mem.indexOf(u8, rate_resp, "rate_limit_exceeded") != null);
+        try std.testing.expect(std.mem.find(u8, rate_resp, "rate_limit_exceeded") != null);
 
         std.debug.print("  [PASS] ResponseBuilder generates correct JSON\n", .{});
     }
@@ -246,9 +246,9 @@ test "ResponseBuilder: chatCompletion" {
     const resp = try builder.chatCompletion("id-123", "gpt-4o", "Hello!");
     defer allocator.free(resp);
 
-    try std.testing.expect(std.mem.indexOf(u8, resp, "id-123") != null);
-    try std.testing.expect(std.mem.indexOf(u8, resp, "gpt-4o") != null);
-    try std.testing.expect(std.mem.indexOf(u8, resp, "Hello!") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "id-123") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "gpt-4o") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "Hello!") != null);
 }
 
 test "ResponseBuilder: modelsList" {
@@ -259,8 +259,8 @@ test "ResponseBuilder: modelsList" {
     const resp = try builder.modelsList();
     defer allocator.free(resp);
 
-    try std.testing.expect(std.mem.indexOf(u8, resp, "gpt-4o") != null);
-    try std.testing.expect(std.mem.indexOf(u8, resp, "claude") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "gpt-4o") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "claude") != null);
 }
 
 test "ResponseBuilder: errorResponse" {
@@ -271,8 +271,8 @@ test "ResponseBuilder: errorResponse" {
     const resp = try builder.errorResponse("test_error", "Test error message");
     defer allocator.free(resp);
 
-    try std.testing.expect(std.mem.indexOf(u8, resp, "test_error") != null);
-    try std.testing.expect(std.mem.indexOf(u8, resp, "Test error message") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "test_error") != null);
+    try std.testing.expect(std.mem.find(u8, resp, "Test error message") != null);
 }
 
 test "Assert: stringsEqual" {

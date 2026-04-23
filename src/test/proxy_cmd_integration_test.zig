@@ -6,6 +6,7 @@ const std = @import("std");
 const shared = @import("shared_analytics");
 const savings_store_mod = @import("proxy_savings_store");
 const config_mod = @import("config");
+const time_compat = @import("time_compat");
 
 // ============================================================================
 // SavingsStore Integration Tests
@@ -13,11 +14,11 @@ const config_mod = @import("config");
 
 test "SavingsStore: add report and aggregate" {
     const allocator = std.testing.allocator;
-    var store = savings_store_mod.SavingsStore.init(allocator);
+    var store = savings_store_mod.SavingsStore.init(allocator, std.testing.io);
     defer store.deinit();
 
     try store.addReport(.{
-        .timestamp = std.time.timestamp(),
+        .timestamp = time_compat.timestamp(std.testing.io),
         .original_cmd = "git status",
         .raw_output_tokens = 1000,
         .filtered_output_tokens = 400,
@@ -28,7 +29,7 @@ test "SavingsStore: add report and aggregate" {
     });
 
     try store.addReport(.{
-        .timestamp = std.time.timestamp(),
+        .timestamp = time_compat.timestamp(std.testing.io),
         .original_cmd = "cargo test",
         .raw_output_tokens = 2000,
         .filtered_output_tokens = 800,
@@ -45,10 +46,10 @@ test "SavingsStore: add report and aggregate" {
 
 test "SavingsStore: time range filtering" {
     const allocator = std.testing.allocator;
-    var store = savings_store_mod.SavingsStore.init(allocator);
+    var store = savings_store_mod.SavingsStore.init(allocator, std.testing.io);
     defer store.deinit();
 
-    const now = std.time.timestamp();
+    const now = time_compat.timestamp(std.testing.io);
 
     // Old report (10 days ago)
     try store.addReport(.{
@@ -84,7 +85,7 @@ test "SavingsStore: time range filtering" {
 
 test "SavingsStore: empty data returns zeros" {
     const allocator = std.testing.allocator;
-    var store = savings_store_mod.SavingsStore.init(allocator);
+    var store = savings_store_mod.SavingsStore.init(allocator, std.testing.io);
     defer store.deinit();
 
     const summary = store.aggregate(null, null);

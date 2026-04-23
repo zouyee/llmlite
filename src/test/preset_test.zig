@@ -17,7 +17,7 @@ test "preset: all presets have valid id" {
     for (preset.PRESETS) |p| {
         try testing.expect(p.id.len > 0);
         // IDs should not contain spaces
-        try testing.expect(std.mem.indexOf(u8, p.id, " ") == null);
+        try testing.expect(std.mem.find(u8, p.id, " ") == null);
     }
 }
 
@@ -39,7 +39,7 @@ test "preset: all presets have valid base_url" {
         {
             // Some providers like Ollama might not have /v1
             // Just check it's a reasonable URL
-            try testing.expect(std.mem.indexOf(u8, p.base_url, "://") != null);
+            try testing.expect(std.mem.find(u8, p.base_url, "://") != null);
         }
     }
 }

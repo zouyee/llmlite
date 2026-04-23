@@ -5,10 +5,19 @@
 //! Usage: Set OPENAI_API_KEY and OPENAI_BASE_URL environment variables before running
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const http = @import("http");
 const chat = @import("chat");
 const provider = @import("provider");
 const language_model = @import("language_model");
+
+var g_io: std.Io = undefined;
 const embedding = @import("embedding");
 const image = @import("image");
 const audio = @import("audio");
@@ -20,7 +29,7 @@ const MODEL = "gpt-5.4-2026-03-05";
 
 /// Get API key from environment variable
 fn getApiKey(allocator: std.mem.Allocator) ![]const u8 {
-    const api_key = std.process.getEnvVarOwned(allocator, "OPENAI_API_KEY") catch {
+    const api_key = _getEnvVarOwned(allocator, "OPENAI_API_KEY") catch {
         std.debug.print("Error: OPENAI_API_KEY environment variable not set\n", .{});
         std.debug.print("Please set it in your .env file or export it:\n", .{});
         std.debug.print("  export OPENAI_API_KEY=your_api_key_here\n", .{});
@@ -31,7 +40,7 @@ fn getApiKey(allocator: std.mem.Allocator) ![]const u8 {
 
 /// Get base URL from environment variable
 fn getBaseUrl(allocator: std.mem.Allocator) ![]const u8 {
-    const base_url = std.process.getEnvVarOwned(allocator, "OPENAI_BASE_URL") catch {
+    const base_url = _getEnvVarOwned(allocator, "OPENAI_BASE_URL") catch {
         std.debug.print("Error: OPENAI_BASE_URL environment variable not set\n", .{});
         std.debug.print("Please set it in your .env file or export it:\n", .{});
         std.debug.print("  export OPENAI_BASE_URL=https://api.openai.com/v1\n", .{});
@@ -40,7 +49,8 @@ fn getBaseUrl(allocator: std.mem.Allocator) ![]const u8 {
     return base_url;
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    g_io = init.io;
     std.debug.print("=== OpenAI Full API Capability Test Runner ===\n\n", .{});
 
     const allocator = std.heap.page_allocator;
@@ -202,7 +212,7 @@ pub fn main() !void {
     }
 
     // =========================================================================
-    // Category 6: Completions API (Legacy) - SKIPPED due to Zig 0.15 json.stringify issue
+    // Category 6: Completions API (Legacy) - SKIPPED due to Zig 0.15+ json.stringify removal
     // =========================================================================
     std.debug.print("\n========================================\n", .{});
     std.debug.print("[Category 6] Completions API (Legacy) - SKIPPED\n", .{});
@@ -234,6 +244,7 @@ pub fn main() !void {
 fn createHttpClient(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) http.HttpClient {
     return http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,

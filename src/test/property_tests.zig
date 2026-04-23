@@ -21,6 +21,7 @@ const usage_tracker = @import("proxy_usage_tracker");
 const shared = @import("shared_analytics");
 const config_mod = @import("config");
 const savings_store_mod = @import("proxy_savings_store");
+const time_compat = @import("time_compat");
 
 // ============================================================================
 // Property 1: Per-AppType 配置隔离
@@ -115,7 +116,7 @@ test "Property 26: all log codes match [A-Z]+-[0-9]+ format" {
 
     for (codes) |code| {
         // Must contain a hyphen
-        const hyphen = std.mem.indexOfScalar(u8, code, '-') orelse {
+        const hyphen = std.mem.findScalar(u8, code, '-') orelse {
             std.debug.print("FAIL: no hyphen in '{s}'\n", .{code});
             try testing.expect(false);
             continue;
@@ -170,7 +171,7 @@ test "Property 29: upstream error message preserved in formatted response" {
     const response = try error_mapper.formatErrorResponse(testing.allocator, .upstream_error, upstream, null);
     defer testing.allocator.free(response);
 
-    try testing.expect(std.mem.indexOf(u8, response, upstream) != null);
+    try testing.expect(std.mem.find(u8, response, upstream) != null);
 }
 
 // ============================================================================
@@ -547,10 +548,10 @@ test "Property 38: Config parsing round-trip with varied inputs" {
 // ============================================================================
 test "Property 39: time range filtering correctness" {
     const allocator = testing.allocator;
-    var store = savings_store_mod.SavingsStore.init(allocator);
+    var store = savings_store_mod.SavingsStore.init(allocator, std.testing.io);
     defer store.deinit();
 
-    const now = std.time.timestamp();
+    const now = time_compat.timestamp(testing.io);
 
     // Add reports at various ages
     const reports = [_]struct { age_days: i64, cmd: []const u8, saved: u64 }{

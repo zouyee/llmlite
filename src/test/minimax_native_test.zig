@@ -7,8 +7,17 @@
 //! - Music Generation
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const http = @import("http");
 const tts_mod = @import("minimax/tts");
+
+var g_io: std.Io = undefined;
 const video_mod = @import("minimax/video");
 const image_mod = @import("minimax/image");
 const music_mod = @import("minimax/music");
@@ -35,13 +44,13 @@ const MiniMaxEndpoint = struct {
 /// - If contains "minimaxi.com" → api.minimaxi.com
 /// - Default fallback: api.minimax.chat (most common)
 fn detectMinimaxEndpoint(base_url_or_key: []const u8) []const u8 {
-    if (std.mem.indexOf(u8, base_url_or_key, "minimax.io") != null) {
+    if (std.mem.find(u8, base_url_or_key, "minimax.io") != null) {
         return MiniMaxEndpoint.minimax_io;
     }
-    if (std.mem.indexOf(u8, base_url_or_key, "minimax.chat") != null) {
+    if (std.mem.find(u8, base_url_or_key, "minimax.chat") != null) {
         return "https://api.minimax.chat";
     }
-    if (std.mem.indexOf(u8, base_url_or_key, "minimaxi.com") != null) {
+    if (std.mem.find(u8, base_url_or_key, "minimaxi.com") != null) {
         return MiniMaxEndpoint.minimax_com;
     }
     // Default fallback - most common endpoint
@@ -50,26 +59,27 @@ fn detectMinimaxEndpoint(base_url_or_key: []const u8) []const u8 {
 
 /// Auto-detect the correct MiniMax endpoint based on API key or base URL
 fn getBaseUrl(allocator: std.mem.Allocator, api_key: []const u8) ![]const u8 {
-    if (std.mem.indexOf(u8, api_key, "minimax.io") != null) {
+    if (std.mem.find(u8, api_key, "minimax.io") != null) {
         return std.fmt.allocPrint(allocator, "{s}/v1", .{MiniMaxEndpoint.minimax_io});
     }
-    if (std.mem.indexOf(u8, api_key, "minimax.chat") != null) {
+    if (std.mem.find(u8, api_key, "minimax.chat") != null) {
         return std.fmt.allocPrint(allocator, "https://api.minimax.chat/v1", .{});
     }
-    if (std.mem.indexOf(u8, api_key, "minimaxi.com") != null) {
+    if (std.mem.find(u8, api_key, "minimaxi.com") != null) {
         return std.fmt.allocPrint(allocator, "{s}/v1", .{MiniMaxEndpoint.minimax_com});
     }
     // Default fallback (minimax.chat - most common)
     return std.fmt.allocPrint(allocator, "https://api.minimax.chat/v1", .{});
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    g_io = init.io;
     std.debug.print("=== MiniMax Native API Capability Test Runner ===\n\n", .{});
 
     const allocator = std.heap.page_allocator;
 
     // Read API key from environment variable
-    const api_key_env = std.process.getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch null;
+    const api_key_env = _getEnvVarOwned(allocator, "MINIMAX_API_KEY") catch null;
     const api_key: []const u8 = api_key_env orelse {
         std.debug.print("Error: MINIMAX_API_KEY environment variable not set\n", .{});
         std.debug.print("Please set it in your .env file or export it:\n", .{});
@@ -223,6 +233,7 @@ pub fn main() !void {
 fn testT2ABasic(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -271,6 +282,7 @@ fn testT2ABasic(allocator: std.mem.Allocator, api_key: []const u8, base_url: []c
 fn testT2AWithEmotion(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -316,6 +328,7 @@ fn testT2AWithEmotion(allocator: std.mem.Allocator, api_key: []const u8, base_ur
 fn testVideoT2V(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -361,6 +374,7 @@ fn testVideoT2V(allocator: std.mem.Allocator, api_key: []const u8, base_url: []c
 fn testImageGeneration(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -394,6 +408,7 @@ fn testImageGeneration(allocator: std.mem.Allocator, api_key: []const u8, base_u
 fn testImageGenerationWithStyle(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -430,6 +445,7 @@ fn testImageGenerationWithStyle(allocator: std.mem.Allocator, api_key: []const u
 fn testImageGenerationAspectRatio(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -467,6 +483,7 @@ fn testImageGenerationAspectRatio(allocator: std.mem.Allocator, api_key: []const
 fn testMusicGeneration(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
@@ -511,6 +528,7 @@ fn testMusicGeneration(allocator: std.mem.Allocator, api_key: []const u8, base_u
 fn testMusicGenerationInstrumental(allocator: std.mem.Allocator, api_key: []const u8, base_url: []const u8) !void {
     var http_client = http.HttpClient.initWithAuthType(
         allocator,
+        g_io,
         base_url,
         api_key,
         null,
