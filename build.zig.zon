@@ -3,8 +3,7 @@
     .version = "0.16.0",
     .dependencies = .{
         .sqlite = .{
-            .url = "https://github.com/nDimensional/zig-sqlite/archive/refs/tags/v0.3.2-3510100.tar.gz",
-            .hash = "sqlite-0.3.2-3510100-djiKTqmAAADFNYxhtQSupdE7DURa1hGE8tL7aQzUFMdK",
+            .path = "deps/zig-sqlite",
         },
 
     },
