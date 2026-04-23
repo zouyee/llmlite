@@ -158,7 +158,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Architecture diagram
 
 #### Build & Development
-- Zig 0.15+ build system
+- Zig 0.16+ build system (upgraded from 0.15.2)
 - Makefile with common targets
 - Docker support with multi-stage builds
 - CONTRIBUTING guidelines

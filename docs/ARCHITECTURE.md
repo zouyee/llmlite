@@ -314,7 +314,7 @@ pub fn runFiltered(
     // Sends SavingsReport to llmlite-proxy /tracking/savings
     // Fire-and-forget with JSONL fallback queue
     savings_reporter.reportAsync(.{
-        .timestamp = std.time.timestamp(),
+        .timestamp = time_compat.timestamp(io),
         .original_cmd = raw_args,
         .raw_output_tokens = estimateTokens(raw_output),
         .filtered_output_tokens = estimateTokens(filtered),
@@ -445,8 +445,8 @@ pub const Tee = struct {
     max_size: usize = 1024 * 1024, // 1MB
 };
 
-pub fn save(tee: *Tee, label: []const u8, raw_output: []const u8) !void {
-    const timestamp = std.time.timestamp();
+pub fn save(tee: *Tee, io: std.Io, label: []const u8, raw_output: []const u8) !void {
+    const timestamp = time_compat.timestamp(io);
     const filename = try std.fmt.allocPrint(
         tee.allocator,
         "{d}_{s}.log",
@@ -457,10 +457,10 @@ pub fn save(tee: *Tee, label: []const u8, raw_output: []const u8) !void {
     const filepath = try std.fs.path.join(tee.allocator, &.{ tee.directory, filename });
     defer tee.allocator.free(filepath);
 
-    const file = try std.fs.createFileAbsolute(filepath, .{});
-    defer file.close();
+    const file = try std.Io.Dir.createFileAbsolute(io, filepath, .{});
+    defer file.close(io);
 
-    try file.writeAll(raw_output);
+    try file.writeStreamingAll(io, raw_output);
     try tee.rotate(); // Remove old files if > max_files
 }
 ```

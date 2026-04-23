@@ -3,7 +3,7 @@
 **轻量级、高性能的 LLM SDK、Edge Router 与 CLI 工具，使用 Zig 编写**
 
 [![CI](https://github.com/zouyee/llmlite/actions/workflows/ci.yml/badge.svg)](https://github.com/zouyee/llmlite/actions)
-[![Zig](https://img.shields.io/badge/Zig-0.15+-orange.svg)](https://ziglang.org/)
+[![Zig](https://img.shields.io/badge/Zig-0.16+-orange.svg)](https://ziglang.org/)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Binary Size](https://img.shields.io/badge/Binary%20Size-672KB-success)](build.zig)
 
@@ -13,7 +13,7 @@ llmlite 是一个**零依赖、边缘就绪的 LLM SDK 和 AI 网关**，使用 
 
 - **边缘就绪** - 672KB 单一二进制文件，无需 Docker/K8s
 - **边缘场景** - 可部署到 IoT 设备、CLI 工具、WASM、嵌入式系统
-- **Zig 原生** - 使用 Zig 0.15+ 构建，极致性能与内存安全
+- **Zig 原生** - 使用 Zig 0.16+ 构建，极致性能与内存安全
 - **零依赖** - 完全自包含，无需 Python/Node.js 运行时
 - **类型安全** - 编译时检查消除运行时类型错误
 

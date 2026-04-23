@@ -29,7 +29,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
    ```
 
 2. **Follow the coding style**:
-   - Zig 0.15+ is required
+   - Zig 0.16+ is required
    - Run `zig build` to ensure compilation
    - Run `zig build test` to ensure tests pass
    - Follow existing code patterns in the project
@@ -51,7 +51,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Prerequisites
 
-- Zig 0.15+
+- Zig 0.16+
 - Git
 - Node.js 18+ (Web Dashboard development only)
 

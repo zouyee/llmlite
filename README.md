@@ -7,7 +7,7 @@
 **A lightweight, high-performance LLM SDK, Edge Router & CLI Tool written in Zig**
 
 [![CI](https://github.com/zouyee/llmlite/actions/workflows/ci.yml/badge.svg)](https://github.com/zouyee/llmlite/actions)
-[![Zig](https://img.shields.io/badge/Zig-0.15+-orange.svg)](https://ziglang.org/)
+[![Zig](https://img.shields.io/badge/Zig-0.16+-orange.svg)](https://ziglang.org/)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Binary Size](https://img.shields.io/badge/Binary%20Size-672KB-success)](build.zig)
 
@@ -25,7 +25,7 @@ Unlike Python-based solutions (LiteLLM ~50MB, vLLM Semantic Router requires K8s/
 
 - **Edge-Ready** — 672KB single static binary, no Docker/K8s/Python required
 - **Agent-First** — OpenAI-compatible gateway purpose-built for AI agents like [Hermes Agent](https://github.com/NousResearch/Hermes-Agent); just set `OPENAI_BASE_URL=http://localhost:4000/v1` and get multi-provider routing, failover, and cost tracking for free
-- **Zig Native** — Built with Zig 0.15+ for maximum performance, memory safety, and cross-compilation to any target (Linux, macOS, ARM, WASM)
+- **Zig Native** — Built with Zig 0.16+ for maximum performance, memory safety, and cross-compilation to any target (Linux, macOS, ARM, WASM)
 - **Zero Dependencies** — Fully self-contained, no runtime needed
 - **Type Safety** — Compile-time checks eliminate runtime type errors
 
@@ -45,7 +45,7 @@ llmlite consists of five core components:
 |-----------|-------------|--------|
 | **llmlite SDK** | Unified multi-provider LLM client library | `llmlite` |
 | **llmlite-proxy** | Production-grade AI gateway / Edge Router | `llmlite-proxy` |
-| **llmlite-cmd** | Developer command companion: intelligent output filtering, cross-session memory, shell hooks, and token savings tracking | `llmlite-cmd` |
+| **llmlite-cmd** | Developer command companion: intelligent output filtering, direct LLM API access, proxy management, cross-session memory, shell hooks, and token savings tracking | `llmlite-cmd` |
 | **llmlite-mcp** | MCP (Model Context Protocol) server | `llmlite-mcp` |
 | **Web Dashboard** | React management panel | `web/` |
 
@@ -85,6 +85,8 @@ llmlite-proxy includes production-grade edge routing:
 | **Savings Tracking** | Receive token savings reports from llmlite-cmd |
 | **Unified Analytics** | Aggregate API cost + cmd savings in one view |
 | **CLI Memory** | Cross-session command memory with FTS5 search |
+| **LLM CLI** | Direct chat/completion/embed via llmlite-cmd |
+| **Proxy Management CLI** | Health, metrics, provider, analytics queries |
 
 ### Endpoints
 
@@ -154,7 +156,10 @@ curl http://localhost:4000/analytics/unified?days=30
 ├─────────────────────────────────────────────────────────────┤
 │  CLI Tool (llmlite-cmd)                                    │
 │  ├── Command output filtering (60-90% token reduction)    │
+│  ├── Direct LLM API access (chat, complete, embed)        │
+│  ├── Proxy management (health, metrics, providers)        │
 │  ├── 50+ commands (git, cargo, npm, pytest, docker...)    │
+│  ├── CLI Memory (FTS5 search, cross-session)              │
 │  ├── SQLite tracking                                       │
 │  └── Shell hooks (bash/zsh)                               │
 ├─────────────────────────────────────────────────────────────┤
@@ -391,6 +396,25 @@ llmlite-cmd cargo test      # 90% token reduction
 llmlite-cmd npm test         # 90% token reduction
 llmlite-cmd pytest           # 90% token reduction
 
+# Direct LLM API access (via proxy)
+llmlite-cmd llm chat "Explain Zig's comptime"
+llmlite-cmd llm chat "Hello" --model claude-3-sonnet --provider anthropic
+llmlite-cmd llm complete "Write a fibonacci function in Zig" --max-tokens 500
+llmlite-cmd llm embed "machine learning"
+llmlite-cmd llm models --provider openai
+llmlite-cmd llm providers
+
+# Proxy management
+llmlite-cmd proxy start                    # Start proxy
+llmlite-cmd proxy start --tui              # Start with TUI dashboard
+llmlite-cmd proxy status                   # Check if running
+llmlite-cmd proxy health                   # Readiness probe
+llmlite-cmd proxy metrics                  # Prometheus metrics
+llmlite-cmd proxy providers                # List configured providers
+llmlite-cmd proxy analytics gain           # Token savings
+llmlite-cmd proxy analytics team           # Team analytics
+llmlite-cmd proxy keys list                # Virtual keys
+
 # View savings statistics
 llmlite-cmd gain              # Query proxy unified endpoint (default)
 llmlite-cmd gain --local      # Use local history.db only
@@ -497,7 +521,7 @@ cd web && npm install && npm run dev
 
 ### Prerequisites
 
-- Zig 0.15+
+- Zig 0.16+
 - Git
 - Node.js 18+ (Web Dashboard only)
 
