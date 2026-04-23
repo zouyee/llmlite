@@ -3,9 +3,9 @@ FROM alpine:3.19 AS builder
 
 RUN apk add --no-cache curl xz ca-certificates
 
-RUN curl -L https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz | \
+RUN curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | \
     tar -xJ -C /usr/local && \
-    ln -s /usr/local/zig-x86_64-linux-0.15.2/zig /usr/local/bin/zig
+    ln -s /usr/local/zig-x86_64-linux-0.16.0/zig /usr/local/bin/zig
 
 WORKDIR /app
 
