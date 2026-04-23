@@ -25,8 +25,8 @@ jobs:
         with:
           version: ${{ matrix.zig_version }}
 
-      - name: Create zig-pkg directory
-        run: mkdir -p zig-pkg
+      - name: Create cache directories
+        run: mkdir -p .zig-cache zig-pkg
 
       - name: Cache Zig build
         uses: actions/cache@v4
@@ -34,7 +34,6 @@ jobs:
           path: |
             .zig-cache
             zig-pkg
-            ~/.cache/zig
           key: ${{ runner.os }}-zig-${{ matrix.zig_version }}-${{ hashFiles('**/build.zig.zon') }}
           restore-keys: |
             ${{ runner.os }}-zig-${{ matrix.zig_version }}-
@@ -58,6 +57,9 @@ jobs:
         with:
           version: '0.16.0'
 
+      - name: Create cache directories
+        run: mkdir -p .zig-cache zig-pkg
+
       - name: Run build release-safe
         run: zig build --release=safe
 
@@ -73,6 +75,9 @@ jobs:
         uses: mlugg/setup-zig@v2.2.1
         with:
           version: '0.16.0'
+
+      - name: Create cache directories
+        run: mkdir -p .zig-cache zig-pkg
 
       - name: Run build
         run: zig build
@@ -115,6 +120,9 @@ jobs:
 
       - name: Show help
         run: make help
+
+      - name: Create cache directories
+        run: mkdir -p .zig-cache zig-pkg
 
       - name: Build with make
         run: make build
