@@ -4,10 +4,24 @@ const std = @import("std");
 const cmd = @import("cmd");
 const cmd_core = @import("cmd_core");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) !void {
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    const io = init.io;
+
+    // Get environment variables for memory subsystem
+    const home_dir: ?[]const u8 = if (std.c.getenv("HOME")) |ptr|
+        std.mem.sliceTo(ptr, 0)
+    else
+        null;
+    _ = home_dir;
+
+    const memory_disabled = if (std.c.getenv("LLMLITE_MEMORY_DISABLED")) |ptr| blk: {
+        const val = std.mem.sliceTo(ptr, 0);
+        break :blk std.mem.eql(u8, val, "1") or std.mem.eql(u8, val, "true");
+    } else false;
+    _ = memory_disabled;
 
     try cmd_core.tracking.init(allocator);
     defer cmd_core.tracking.deinit();
@@ -15,8 +29,7 @@ pub fn main() !void {
     try cmd_core.tee.init(allocator);
     defer cmd_core.tee.deinit();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     if (args.len < 2) {
         try printHelp();
@@ -53,7 +66,7 @@ pub fn main() !void {
     const command = args[idx];
     const cmd_args = args[idx + 1 ..];
 
-    const exit_code = try cmd.dispatch(allocator, command, cmd_args, verbose, ultra_compact);
+    const exit_code = try cmd.dispatch(allocator, io, command, cmd_args, verbose, ultra_compact);
 
     std.process.exit(@as(u8, @intCast(exit_code & 0xFF)));
 }
@@ -115,8 +128,23 @@ fn printHelp() !void {
     std.debug.print("    log [-n N] [--dedup]              Show command log (RTK-inspired)\n", .{});
     std.debug.print("    summary                         Show command usage summary\n", .{});
     std.debug.print("    session                         Show llmlite adoption across sessions\n\n", .{});
+    std.debug.print("LLM:\n", .{});
+    std.debug.print("    llm chat <prompt>                Chat completion via proxy\n", .{});
+    std.debug.print("    llm complete <prompt>            Single-shot completion\n", .{});
+    std.debug.print("    llm embed <text>                 Generate embeddings\n", .{});
+    std.debug.print("    llm models [--provider <p>]      List available models\n", .{});
+    std.debug.print("    llm providers                    List supported providers\n\n", .{});
+
     std.debug.print("PROXY:\n", .{});
-    std.debug.print("    proxy start|status|logs|config   Manage llmlite-proxy\n\n", .{});
+    std.debug.print("    proxy start [--tui]              Start llmlite-proxy (with TUI dashboard)\n", .{});
+    std.debug.print("    proxy status                     Check if proxy is running\n", .{});
+    std.debug.print("    proxy health                     Health check (readiness probe)\n", .{});
+    std.debug.print("    proxy metrics                    Prometheus metrics\n", .{});
+    std.debug.print("    proxy providers                  List configured providers\n", .{});
+    std.debug.print("    proxy analytics <type>           Analytics (gain|team|sessions|unified)\n", .{});
+    std.debug.print("    proxy keys list|create|revoke    Virtual key management\n", .{});
+    std.debug.print("    proxy logs                       Show proxy logs (journalctl)\n", .{});
+    std.debug.print("    proxy config                     Show config file locations\n\n", .{});
     std.debug.print("SETUP:\n", .{});
     std.debug.print("    init [-g] [--agent x]             Install shell hook for AI tools\n", .{});
     std.debug.print("    hook [install|uninstall|show]     Manage AI tool hooks\n\n", .{});

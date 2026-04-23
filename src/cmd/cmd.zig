@@ -2,19 +2,25 @@
 
 const std = @import("std");
 const core = @import("cmd_core");
+const time_compat = @import("time_compat");
 
 var global_verbose: u8 = 0;
 var global_ultra_compact: bool = false;
 var g_cmd_allocator: std.mem.Allocator = std.heap.page_allocator;
+var g_cmd_io: std.Io = undefined;
 
 pub fn dispatch(
     allocator: std.mem.Allocator,
+    io: std.Io,
     command: []const u8,
-    args: []const [:0]u8,
+    args: []const [:0]const u8,
     verbose: u8,
     ultra_compact: bool,
 ) !i32 {
     g_cmd_allocator = allocator;
+    g_cmd_io = io;
+    core.g_io = io;
+    core.hook.g_io = io;
     global_verbose = verbose;
     global_ultra_compact = ultra_compact;
 
@@ -188,6 +194,8 @@ pub fn dispatch(
         return dispatchKiro(args);
     } else if (std.mem.eql(u8, command, "memory") or std.mem.eql(u8, command, "mem")) {
         return dispatchMemory(args);
+    } else if (std.mem.eql(u8, command, "llm")) {
+        return core.llm.dispatch(g_cmd_allocator, g_cmd_io, args);
     } else {
         std.log.err("unknown command: {s}", .{command});
         std.debug.print("unknown command: {s}\n", .{command});
@@ -195,7 +203,7 @@ pub fn dispatch(
     }
 }
 
-fn dispatchGit(args: []const [:0]u8) !i32 {
+fn dispatchGit(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("git: missing subcommand\n", .{});
         return 1;
@@ -219,7 +227,7 @@ fn dispatchGit(args: []const [:0]u8) !i32 {
             .strategy = .git_log,
         });
     } else if (std.mem.eql(u8, subcmd, "add")) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "add" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "add" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "commit")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "commit" }, "git commit", "git commit", .{
             .verbose = global_verbose,
@@ -243,7 +251,7 @@ fn dispatchGit(args: []const [:0]u8) !i32 {
         });
     } else if (std.mem.eql(u8, subcmd, "checkout")) {
         // Just pass through - checkout can have many forms
-        return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "checkout" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "checkout" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "fetch")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "fetch" }, "git fetch", "git fetch", .{
             .verbose = global_verbose,
@@ -387,11 +395,11 @@ fn dispatchGit(args: []const [:0]u8) !i32 {
         defer g_cmd_allocator.free(argv);
         argv[0] = "git";
         for (args, 1..) |arg, i| argv[i] = arg;
-        return core.runner.runPassthrough(g_cmd_allocator, argv, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, argv, global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchCargo(args: []const [:0]u8) !i32 {
+fn dispatchCargo(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("cargo: missing subcommand\n", .{});
         return 1;
@@ -471,7 +479,7 @@ fn dispatchCargo(args: []const [:0]u8) !i32 {
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "fmt")) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "fmt" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "fmt" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "fix")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "fix" }, "cargo fix", "cargo fix", .{
             .verbose = global_verbose,
@@ -488,9 +496,9 @@ fn dispatchCargo(args: []const [:0]u8) !i32 {
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "generate-lockfile")) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "generate-lockfile" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "generate-lockfile" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "metadata")) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "metadata" }, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "metadata" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "package")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "package" }, "cargo package", "cargo package", .{
             .verbose = global_verbose,
@@ -508,11 +516,11 @@ fn dispatchCargo(args: []const [:0]u8) !i32 {
         defer g_cmd_allocator.free(argv);
         argv[0] = "cargo";
         for (args, 1..) |arg, i| argv[i] = arg;
-        return core.runner.runPassthrough(g_cmd_allocator, argv, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, argv, global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchNpm(args: []const [:0]u8) !i32 {
+fn dispatchNpm(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("npm: missing command\n", .{});
         return 1;
@@ -521,7 +529,7 @@ fn dispatchNpm(args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     // Detect package manager (RTK-style: pnpm > yarn > npm)
-    const pm = core.utils.detectPackageManager();
+    const pm = core.utils.detectPackageManager(g_cmd_io);
 
     if (std.mem.eql(u8, subcmd, "test")) {
         // For test, use the detected package manager's test runner
@@ -599,7 +607,7 @@ fn dispatchNpm(args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchPytest(args: []const [:0]u8) !i32 {
+fn dispatchPytest(args: []const [:0]const u8) !i32 {
     _ = args;
     return core.runner.runFiltered(g_cmd_allocator, &.{"pytest"}, "pytest", "pytest", .{
         .verbose = global_verbose,
@@ -607,7 +615,7 @@ fn dispatchPytest(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchDocker(args: []const [:0]u8) !i32 {
+fn dispatchDocker(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("docker: missing subcommand\n", .{});
         return 1;
@@ -656,11 +664,11 @@ fn dispatchDocker(args: []const [:0]u8) !i32 {
             .strategy = .stats,
         });
     } else {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{"docker"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"docker"}, global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchKubectl(args: []const [:0]u8) !i32 {
+fn dispatchKubectl(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("kubectl: missing subcommand (get, logs, pods, services, describe, apply, delete)\n", .{});
         return 1;
@@ -748,11 +756,11 @@ fn dispatchKubectl(args: []const [:0]u8) !i32 {
             .strategy = .stats,
         });
     } else {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{"kubectl"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"kubectl"}, global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchConfig(args: []const [:0]u8) !i32 {
+fn dispatchConfig(args: []const [:0]const u8) !i32 {
     // config - Show or create configuration
     var create_config = false;
 
@@ -763,7 +771,7 @@ fn dispatchConfig(args: []const [:0]u8) !i32 {
     }
 
     if (create_config) {
-        core.config.createDefaultConfig(g_cmd_allocator) catch |err| {
+        core.config.createDefaultConfig(g_cmd_io, g_cmd_allocator) catch |err| {
             std.debug.print("Failed to create config: {}\n", .{err});
             return 1;
         };
@@ -782,7 +790,7 @@ fn dispatchConfig(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchInit(args: []const [:0]u8) !i32 {
+fn dispatchInit(args: []const [:0]const u8) !i32 {
     var global = true;
     var agent: ?[]const u8 = null;
 
@@ -867,7 +875,7 @@ fn dispatchInit(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchGain(args: []const [:0]u8) !i32 {
+fn dispatchGain(args: []const [:0]const u8) !i32 {
     var show_graph = false;
     var show_json = false;
     var show_history = false;
@@ -923,7 +931,7 @@ fn dispatchGainFromProxy(show_json: bool) !i32 {
     // Query proxy for team-level gain statistics
     const proxy_url = "http://localhost:4000";
 
-    var client = std.http.Client{ .allocator = g_cmd_allocator };
+    var client = std.http.Client{ .allocator = g_cmd_allocator, .io = g_cmd_io };
     defer client.deinit();
 
     const uri = std.Uri.parse(proxy_url ++ "/analytics/gain") catch {
@@ -931,7 +939,7 @@ fn dispatchGainFromProxy(show_json: bool) !i32 {
         return 1;
     };
 
-    var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
+    var response_writer = std.Io.Writer.Allocating.init(g_cmd_allocator);
     defer response_writer.deinit();
 
     const response = client.fetch(.{
@@ -1001,7 +1009,7 @@ fn dispatchGainFromProxy(show_json: bool) !i32 {
     return 0;
 }
 
-fn dispatchDiscover(args: []const [:0]u8) !i32 {
+fn dispatchDiscover(args: []const [:0]const u8) !i32 {
     var all = false;
     var days: u32 = 7;
 
@@ -1028,25 +1036,25 @@ fn dispatchDiscover(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchLint(args: []const [:0]u8) !i32 {
+fn dispatchLint(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         // Auto-detect linter
-        if (core.utils.fileExists("biome.json") or core.utils.fileExists("biome.jsonc")) {
+        if (core.utils.fileExists(g_cmd_io, "biome.json") or core.utils.fileExists(g_cmd_io, "biome.jsonc")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome check", .{
                 .verbose = global_verbose,
                 .strategy = .grouping,
             });
-        } else if (core.utils.fileExists(".eslintrc.js") or core.utils.fileExists(".eslintrc.json") or core.utils.fileExists("eslint.config.js")) {
+        } else if (core.utils.fileExists(g_cmd_io, ".eslintrc.js") or core.utils.fileExists(g_cmd_io, ".eslintrc.json") or core.utils.fileExists(g_cmd_io, "eslint.config.js")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint", "." }, "eslint", "eslint", .{
                 .verbose = global_verbose,
                 .strategy = .grouping,
             });
-        } else if (core.utils.fileExists("ruff.toml")) {
+        } else if (core.utils.fileExists(g_cmd_io, "ruff.toml")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff check", .{
                 .verbose = global_verbose,
                 .strategy = .grouping,
             });
-        } else if (core.utils.fileExists(".prettierrc") or core.utils.fileExists(".prettierrc.json")) {
+        } else if (core.utils.fileExists(g_cmd_io, ".prettierrc") or core.utils.fileExists(g_cmd_io, ".prettierrc.json")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
                 .verbose = global_verbose,
                 .strategy = .errors_only,
@@ -1093,7 +1101,7 @@ fn dispatchLint(args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchGo(args: []const [:0]u8) !i32 {
+fn dispatchGo(args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("go: missing subcommand\n", .{});
         return 1;
@@ -1140,7 +1148,7 @@ fn dispatchGo(args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchHook(args: []const [:0]u8) !i32 {
+fn dispatchHook(args: []const [:0]const u8) !i32 {
     var install_mode = false;
     var uninstall_mode = false;
     var show_mode = false;
@@ -1162,6 +1170,19 @@ fn dispatchHook(args: []const [:0]u8) !i32 {
                 agent = args[i + 1];
                 i += 1;
             }
+        } else if (std.mem.eql(u8, args[i], "claude_code") or
+            std.mem.eql(u8, args[i], "cursor") or
+            std.mem.eql(u8, args[i], "gemini") or
+            std.mem.eql(u8, args[i], "opencode") or
+            std.mem.eql(u8, args[i], "copilot") or
+            std.mem.eql(u8, args[i], "windsurf") or
+            std.mem.eql(u8, args[i], "cline") or
+            std.mem.eql(u8, args[i], "codex") or
+            std.mem.eql(u8, args[i], "zsh") or
+            std.mem.eql(u8, args[i], "fish") or
+            std.mem.eql(u8, args[i], "kiro"))
+        {
+            agent = args[i];
         }
     }
 
@@ -1212,13 +1233,12 @@ fn dispatchHook(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchLs(args: []const [:0]u8) !i32 {
+fn dispatchLs(args: []const [:0]const u8) !i32 {
     // Default to current directory, or use first argument as path
     const path = if (args.len > 0) args[0] else ".";
 
     // Use ls -R for recursive listing
-    const result = std.process.Child.run(.{
-        .allocator = g_cmd_allocator,
+    const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
         .argv = &.{ "ls", "-R", "-l", path },
     }) catch {
         std.debug.print("ls: failed to list directory\n", .{});
@@ -1229,14 +1249,14 @@ fn dispatchLs(args: []const [:0]u8) !i32 {
     std.debug.print("{s}", .{result.stdout});
 
     return switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 }
 
-fn dispatchRead(args: []const [:0]u8) !i32 {
+fn dispatchRead(args: []const [:0]const u8) !i32 {
     // read <file> [start_line] [end_line] [-l level]
     // -l level: minimal, standard, aggressive (default: standard)
     if (args.len == 0) {
@@ -1269,14 +1289,19 @@ fn dispatchRead(args: []const [:0]u8) !i32 {
         return 1;
     }
 
-    const file = std.fs.cwd().openFile(file_path.?, .{}) catch {
+    const file = std.Io.Dir.cwd().openFile(g_cmd_io, file_path.?, .{}) catch {
         std.debug.print("read: cannot open '{s}': No such file or directory\n", .{file_path.?});
         return 1;
     };
-    defer file.close();
+    defer file.close(g_cmd_io);
 
-    var content: []const u8 = @constCast(try file.readToEndAlloc(g_cmd_allocator, 1024 * 1024));
-    defer g_cmd_allocator.free(@constCast(content));
+    var read_buf: [4096]u8 = undefined;
+    var reader = file.reader(g_cmd_io, &read_buf);
+    var content: []const u8 = reader.interface.allocRemaining(g_cmd_allocator, .limited(1024 * 1024)) catch {
+        std.debug.print("read: cannot read '{s}'\n", .{file_path.?});
+        return 1;
+    };
+    defer g_cmd_allocator.free(content);
 
     // Apply code filtering based on level
     if (std.mem.eql(u8, filter_level, "minimal") or
@@ -1310,7 +1335,7 @@ fn dispatchRead(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchFind(args: []const [:0]u8) !i32 {
+fn dispatchFind(args: []const [:0]const u8) !i32 {
     // find [path] [-name pattern] [-type f|d]
     // Compact find output inspired by RTK
     // Parse arguments to build find command
@@ -1333,8 +1358,7 @@ fn dispatchFind(args: []const [:0]u8) !i32 {
 
     // Run find with the specified arguments
     // Use find . -type f as base
-    const result = std.process.Child.run(.{
-        .allocator = g_cmd_allocator,
+    const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
         .argv = &.{ "find", path, "-type", find_type orelse "f" },
     }) catch {
         std.debug.print("find: failed to execute\n", .{});
@@ -1353,14 +1377,14 @@ fn dispatchFind(args: []const [:0]u8) !i32 {
     }
 
     return switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 }
 
-fn dispatchGrep(args: []const [:0]u8) !i32 {
+fn dispatchGrep(args: []const [:0]const u8) !i32 {
     // grep <pattern> [file/dir] [-r] [--grouped]
     // Grouped grep output inspired by RTK
     if (args.len == 0) {
@@ -1371,8 +1395,7 @@ fn dispatchGrep(args: []const [:0]u8) !i32 {
     const pattern = args[0];
     const search_path = if (args.len > 1 and args[1].len > 0 and args[1][0] != '-') args[1] else ".";
 
-    const result = std.process.Child.run(.{
-        .allocator = g_cmd_allocator,
+    const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
         .argv = &.{ "grep", "-r", "--color=never", pattern, search_path },
     }) catch {
         std.debug.print("grep: failed to execute\n", .{});
@@ -1385,21 +1408,20 @@ fn dispatchGrep(args: []const [:0]u8) !i32 {
     }
 
     return switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 }
 
-fn dispatchGh(args: []const [:0]u8) !i32 {
+fn dispatchGh(args: []const [:0]const u8) !i32 {
     // gh <command> [args] - GitHub CLI wrapper
     // Forward all arguments to gh CLI
     // For simplicity, use gh help if no args, otherwise pass args directly
     _ = args;
 
-    const result = std.process.Child.run(.{
-        .allocator = g_cmd_allocator,
+    const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
         .argv = &.{ "gh", "help" },
     }) catch {
         std.debug.print("gh: failed to execute - is GitHub CLI installed?\n", .{});
@@ -1412,14 +1434,14 @@ fn dispatchGh(args: []const [:0]u8) !i32 {
     }
 
     return switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 }
 
-fn dispatchDiff(args: []const [:0]u8) !i32 {
+fn dispatchDiff(args: []const [:0]const u8) !i32 {
     // diff <file1> <file2> - Compare two files (RTK-inspired)
     // Returns condensed diff output for LLM context
     if (args.len < 2) {
@@ -1442,7 +1464,7 @@ fn dispatchDiff(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchTree(args: []const [:0]u8) !i32 {
+fn dispatchTree(args: []const [:0]const u8) !i32 {
     // tree [path] [-L depth] - Display directory tree (RTK-inspired)
     // Compact tree output for LLM context
     var path_idx: ?usize = null;
@@ -1496,7 +1518,7 @@ fn dispatchTree(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchJson(args: []const [:0]u8) !i32 {
+fn dispatchJson(args: []const [:0]const u8) !i32 {
     // json <file> - Extract JSON structure (RTK-inspired)
     // Shows JSON keys and types without values for compact output
     if (args.len == 0) {
@@ -1506,13 +1528,15 @@ fn dispatchJson(args: []const [:0]u8) !i32 {
     }
 
     const file_path = args[0];
-    const file = std.fs.cwd().openFile(file_path, .{}) catch {
+    const file = std.Io.Dir.cwd().openFile(g_cmd_io, file_path, .{}) catch {
         std.debug.print("json: cannot open '{s}': No such file\n", .{file_path});
         return 1;
     };
-    defer file.close();
+    defer file.close(g_cmd_io);
 
-    const content = file.readToEndAlloc(g_cmd_allocator, 1024 * 1024) catch {
+    var json_read_buf: [4096]u8 = undefined;
+    var json_reader = file.reader(g_cmd_io, &json_read_buf);
+    const content = json_reader.interface.allocRemaining(g_cmd_allocator, .limited(1024 * 1024)) catch {
         std.debug.print("json: cannot read '{s}'\n", .{file_path});
         return 1;
     };
@@ -1544,11 +1568,11 @@ fn printJsonStructure(value: std.json.Value, depth: usize) void {
 
     switch (value) {
         .null => std.debug.print("null\n", .{}),
-        .bool => |_| std.debug.print("bool\n", .{}),
-        .integer => |_| std.debug.print("integer\n", .{}),
-        .float => |_| std.debug.print("float\n", .{}),
+        .bool => std.debug.print("bool\n", .{}),
+        .integer => std.debug.print("integer\n", .{}),
+        .float => std.debug.print("float\n", .{}),
         .string => std.debug.print("string\n", .{}),
-        .number_string => |_| std.debug.print("number_string\n", .{}),
+        .number_string => std.debug.print("number_string\n", .{}),
         .array => |arr| {
             std.debug.print("array[{d}]\n", .{arr.items.len});
             for (arr.items) |item| {
@@ -1570,7 +1594,7 @@ fn printJsonStructure(value: std.json.Value, depth: usize) void {
     }
 }
 
-fn dispatchEnv(args: []const [:0]u8) !i32 {
+fn dispatchEnv(args: []const [:0]const u8) !i32 {
     // env [-f filter] [-p] - Show environment variables (RTK-inspired)
     // Filters sensitive variables for LLM context
     var filter_pattern: ?[]const u8 = null;
@@ -1587,8 +1611,7 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
     }
 
     // Run env command and capture output
-    const result = std.process.Child.run(.{
-        .allocator = g_cmd_allocator,
+    const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
         .argv = &.{"env"},
     }) catch {
         std.debug.print("env: failed to get environment\n", .{});
@@ -1597,10 +1620,10 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
 
     // Tee recovery on failure - save raw output
     const env_exit = switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
     if (env_exit != 0) {
         const args_str = if (filter_pattern) |p|
@@ -1617,23 +1640,23 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
         if (line.len == 0) continue;
 
         // Find the first '='
-        if (std.mem.indexOfScalar(u8, line, '=')) |eq_idx| {
+        if (std.mem.findScalar(u8, line, '=')) |eq_idx| {
             const key = line[0..eq_idx];
             const value = line[eq_idx + 1 ..];
 
             // Apply filter if specified
             if (filter_pattern) |pattern| {
-                if (std.mem.indexOf(u8, key, pattern) == null) {
+                if (std.mem.find(u8, key, pattern) == null) {
                     continue;
                 }
             }
 
             if (show_values) {
                 // Hide sensitive patterns
-                const is_sensitive = std.mem.indexOf(u8, key, "SECRET") != null or
-                    std.mem.indexOf(u8, key, "PASSWORD") != null or
-                    std.mem.indexOf(u8, key, "KEY") != null or
-                    std.mem.indexOf(u8, key, "TOKEN") != null;
+                const is_sensitive = std.mem.find(u8, key, "SECRET") != null or
+                    std.mem.find(u8, key, "PASSWORD") != null or
+                    std.mem.find(u8, key, "KEY") != null or
+                    std.mem.find(u8, key, "TOKEN") != null;
                 if (is_sensitive) {
                     std.debug.print("{s}=***\n", .{key});
                 } else {
@@ -1645,7 +1668,7 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
         } else {
             // No '=' found, just print the line
             if (filter_pattern) |pattern| {
-                if (std.mem.indexOf(u8, line, pattern) == null) {
+                if (std.mem.find(u8, line, pattern) == null) {
                     continue;
                 }
             }
@@ -1654,10 +1677,10 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
     }
 
     return switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 }
 
@@ -1665,7 +1688,7 @@ fn dispatchEnv(args: []const [:0]u8) !i32 {
 // RTK-Inspired Additional Commands
 // ============================================================================
 
-fn dispatchSmart(args: []const [:0]u8) !i32 {
+fn dispatchSmart(args: []const [:0]const u8) !i32 {
     // smart <file> - 2-line heuristic code summary
     // Shows: function signature + first meaningful line of body
     if (args.len == 0) {
@@ -1674,13 +1697,15 @@ fn dispatchSmart(args: []const [:0]u8) !i32 {
     }
 
     const file_path = args[0];
-    const file = std.fs.cwd().openFile(file_path, .{}) catch {
+    const file = std.Io.Dir.cwd().openFile(g_cmd_io, file_path, .{}) catch {
         std.debug.print("smart: cannot open '{s}'\n", .{file_path});
         return 1;
     };
-    defer file.close();
+    defer file.close(g_cmd_io);
 
-    const content = file.readToEndAlloc(g_cmd_allocator, 1024 * 1024) catch {
+    var smart_read_buf: [4096]u8 = undefined;
+    var smart_reader = file.reader(g_cmd_io, &smart_read_buf);
+    const content = smart_reader.interface.allocRemaining(g_cmd_allocator, .limited(1024 * 1024)) catch {
         std.debug.print("smart: cannot read '{s}'\n", .{file_path});
         return 1;
     };
@@ -1701,20 +1726,20 @@ fn dispatchSmart(args: []const [:0]u8) !i32 {
         const trimmed = std.mem.trim(u8, line, " \t");
 
         // Detect function definitions (simplified heuristic)
-        const is_func = std.mem.indexOf(u8, trimmed, "fn ") != null or
-            std.mem.indexOf(u8, trimmed, "func ") != null or
-            std.mem.indexOf(u8, trimmed, "def ") != null or
-            std.mem.indexOf(u8, trimmed, "pub fn ") != null or
-            std.mem.indexOf(u8, trimmed, "function ") != null;
+        const is_func = std.mem.find(u8, trimmed, "fn ") != null or
+            std.mem.find(u8, trimmed, "func ") != null or
+            std.mem.find(u8, trimmed, "def ") != null or
+            std.mem.find(u8, trimmed, "pub fn ") != null or
+            std.mem.find(u8, trimmed, "function ") != null;
 
         if (is_func) {
-            if (result.items.len > 0) try result.writer().print("\n", .{});
-            try result.writer().print("{s}", .{trimmed});
+            if (result.items.len > 0) try result.print("\n", .{});
+            try result.print("{s}", .{trimmed});
             func_count += 1;
             found_func_body = false;
 
             // Check if function body is on same line (e.g., `fn foo() { ... }`)
-            if (std.mem.indexOf(u8, trimmed, "{") != null) {
+            if (std.mem.find(u8, trimmed, "{") != null) {
                 // Single-line function
                 found_func_body = true;
             }
@@ -1723,10 +1748,10 @@ fn dispatchSmart(args: []const [:0]u8) !i32 {
             // Skip empty lines, comments, braces, and lines containing opening brace
             if (trimmed.len > 0 and !std.mem.startsWith(u8, trimmed, "//") and
                 !std.mem.startsWith(u8, trimmed, "/*") and
-                std.mem.indexOf(u8, trimmed, "{") == null and
-                std.mem.indexOf(u8, trimmed, "}") == null)
+                std.mem.find(u8, trimmed, "{") == null and
+                std.mem.find(u8, trimmed, "}") == null)
             {
-                try result.writer().print("\n  -> {s}", .{trimmed});
+                try result.print("\n  -> {s}", .{trimmed});
                 found_func_body = true;
             }
         }
@@ -1740,8 +1765,8 @@ fn dispatchSmart(args: []const [:0]u8) !i32 {
             if (i >= 3) break;
             const trimmed = std.mem.trim(u8, line, " \t");
             if (trimmed.len == 0) continue;
-            if (result.items.len > 0) try result.writer().print("\n", .{});
-            try result.writer().print("{s}", .{trimmed});
+            if (result.items.len > 0) try result.print("\n", .{});
+            try result.print("{s}", .{trimmed});
             i += 1;
         }
     }
@@ -1750,12 +1775,12 @@ fn dispatchSmart(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchVitest(args: []const [:0]u8) !i32 {
+fn dispatchVitest(args: []const [:0]const u8) !i32 {
     // vitest [run] - Vitest compact output (failure focus + state machine)
     // Auto-detect pnpm/yarn/npm
     _ = args; // unused - vitest auto-detects
-    const is_pnpm = core.utils.fileExists("pnpm-lock.yaml");
-    const is_yarn = core.utils.fileExists("yarn.lock");
+    const is_pnpm = core.utils.fileExists(g_cmd_io, "pnpm-lock.yaml");
+    const is_yarn = core.utils.fileExists(g_cmd_io, "yarn.lock");
 
     const argv: []const []const u8 = if (is_pnpm)
         &.{ "pnpm", "vitest", "run" }
@@ -1771,7 +1796,7 @@ fn dispatchVitest(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchGolangciLint(args: []const [:0]u8) !i32 {
+fn dispatchGolangciLint(args: []const [:0]const u8) !i32 {
     // golangci-lint run - Go linting with JSON output
     _ = args; // unused
     return core.runner.runFiltered(g_cmd_allocator, &.{ "golangci-lint", "run", "--out-format=json" }, "golangci-lint", "golangci-lint run", .{
@@ -1781,7 +1806,7 @@ fn dispatchGolangciLint(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchCurl(args: []const [:0]u8) !i32 {
+fn dispatchCurl(args: []const [:0]const u8) !i32 {
     // curl <url> - Fetch URL with JSON detection and progress stripping
     if (args.len == 0) {
         std.debug.print("curl: missing URL argument\n", .{});
@@ -1800,7 +1825,7 @@ fn dispatchCurl(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchAws(args: []const [:0]u8) !i32 {
+fn dispatchAws(args: []const [:0]const u8) !i32 {
     // aws <subcommand> [args...] - AWS CLI with output filtering
     if (args.len == 0) {
         std.debug.print("aws: missing subcommand\n", .{});
@@ -1823,21 +1848,21 @@ fn dispatchAws(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchDeps(args: []const [:0]u8) !i32 {
+fn dispatchDeps(args: []const [:0]const u8) !i32 {
     // deps - Show dependencies summary (package.json, Cargo.toml, go.mod, etc.)
     // Auto-detect project type
     _ = args; // unused - deps auto-detects project type
 
     // Check for package.json
-    if (core.utils.fileExists("package.json")) {
+    if (core.utils.fileExists(g_cmd_io, "package.json")) {
         // Check for pnpm/yarn/npm
-        if (core.utils.fileExists("pnpm-lock.yaml")) {
+        if (core.utils.fileExists(g_cmd_io, "pnpm-lock.yaml")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list", "--depth=0" }, "deps", "pnpm list", .{
                 .tee_label = "deps",
                 .verbose = global_verbose,
                 .strategy = .stats,
             });
-        } else if (core.utils.fileExists("yarn.lock")) {
+        } else if (core.utils.fileExists(g_cmd_io, "yarn.lock")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "list", "--depth=0" }, "deps", "yarn list", .{
                 .tee_label = "deps",
                 .verbose = global_verbose,
@@ -1853,7 +1878,7 @@ fn dispatchDeps(args: []const [:0]u8) !i32 {
     }
 
     // Check for Cargo.toml
-    if (core.utils.fileExists("Cargo.toml")) {
+    if (core.utils.fileExists(g_cmd_io, "Cargo.toml")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "tree", "--depth=1" }, "deps", "cargo tree", .{
             .tee_label = "deps",
             .verbose = global_verbose,
@@ -1862,7 +1887,7 @@ fn dispatchDeps(args: []const [:0]u8) !i32 {
     }
 
     // Check for go.mod
-    if (core.utils.fileExists("go.mod")) {
+    if (core.utils.fileExists(g_cmd_io, "go.mod")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "list", "-m", "all" }, "deps", "go list -m all", .{
             .tee_label = "deps",
             .verbose = global_verbose,
@@ -1874,11 +1899,11 @@ fn dispatchDeps(args: []const [:0]u8) !i32 {
     return 1;
 }
 
-fn dispatchPlaywright(args: []const [:0]u8) !i32 {
+fn dispatchPlaywright(args: []const [:0]const u8) !i32 {
     // playwright test - Playwright E2E test output (failure focus)
     _ = args; // unused - playwright auto-detects
-    const is_pnpm = core.utils.fileExists("pnpm-lock.yaml");
-    const is_yarn = core.utils.fileExists("yarn.lock");
+    const is_pnpm = core.utils.fileExists(g_cmd_io, "pnpm-lock.yaml");
+    const is_yarn = core.utils.fileExists(g_cmd_io, "yarn.lock");
 
     const argv: []const []const u8 = if (is_pnpm)
         &.{ "pnpm", "playwright", "test" }
@@ -1894,7 +1919,7 @@ fn dispatchPlaywright(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchRake(args: []const [:0]u8) !i32 {
+fn dispatchRake(args: []const [:0]const u8) !i32 {
     // rake [task] - Ruby rake task runner (failure focus)
     const argv: []const []const u8 = if (args.len == 0)
         &.{"rake"}
@@ -1907,7 +1932,7 @@ fn dispatchRake(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchRspec(args: []const [:0]u8) !i32 {
+fn dispatchRspec(args: []const [:0]const u8) !i32 {
     // rspec - Ruby RSpec test runner (JSON format)
     _ = args; // args passed through bundle exec rspec
     const argv: []const []const u8 = &.{ "bundle", "exec", "rspec" };
@@ -1918,7 +1943,7 @@ fn dispatchRspec(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchRubocop(args: []const [:0]u8) !i32 {
+fn dispatchRubocop(args: []const [:0]const u8) !i32 {
     // rubocop - Ruby linting (JSON format)
     _ = args; // args passed through bundle exec rubocop
     const argv: []const []const u8 = &.{ "bundle", "exec", "rubocop" };
@@ -1929,7 +1954,7 @@ fn dispatchRubocop(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchBundle(args: []const [:0]u8) !i32 {
+fn dispatchBundle(args: []const [:0]const u8) !i32 {
     // bundle install/update - Ruby gem management
     const subcmd = if (args.len > 0) args[0] else "install";
 
@@ -1947,7 +1972,7 @@ fn dispatchBundle(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchPip(args: []const [:0]u8) !i32 {
+fn dispatchPip(args: []const [:0]const u8) !i32 {
     // pip list/outdated - Python package management
     if (args.len == 0) {
         std.debug.print("pip: missing subcommand (list, outdated)\n", .{});
@@ -1971,7 +1996,7 @@ fn dispatchPip(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchWget(args: []const [:0]u8) !i32 {
+fn dispatchWget(args: []const [:0]const u8) !i32 {
     // wget <url> - Download with progress stripping
     if (args.len == 0) {
         std.debug.print("wget: missing URL argument\n", .{});
@@ -1989,7 +2014,7 @@ fn dispatchWget(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchPrettier(args: []const [:0]u8) !i32 {
+fn dispatchPrettier(args: []const [:0]const u8) !i32 {
     // prettier [--check] [files...] - Format check with grouped output
     const has_check = for (args) |arg| {
         if (std.mem.eql(u8, arg, "--check")) break true;
@@ -2007,7 +2032,7 @@ fn dispatchPrettier(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchUv(args: []const [:0]u8) !i32 {
+fn dispatchUv(args: []const [:0]const u8) !i32 {
     // uv pip list/outdated - Modern Python package manager
     if (args.len == 0) {
         std.debug.print("uv: missing subcommand (pip list, pip outdated)\n", .{});
@@ -2034,7 +2059,7 @@ fn dispatchUv(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchSession(args: []const [:0]u8) !i32 {
+fn dispatchSession(args: []const [:0]const u8) !i32 {
     // session - Show llmlite adoption across recent sessions
     var options = core.session.SessionOptions{
         .all = false,
@@ -2076,7 +2101,7 @@ fn dispatchSessionFromProxy(format: []const u8) !i32 {
     // Query proxy for team-level session overview
     const proxy_url = "http://localhost:4000";
 
-    var client = std.http.Client{ .allocator = g_cmd_allocator };
+    var client = std.http.Client{ .allocator = g_cmd_allocator, .io = g_cmd_io };
     defer client.deinit();
 
     const uri = std.Uri.parse(proxy_url ++ "/analytics/sessions") catch {
@@ -2084,7 +2109,7 @@ fn dispatchSessionFromProxy(format: []const u8) !i32 {
         return 1;
     };
 
-    var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
+    var response_writer = std.Io.Writer.Allocating.init(g_cmd_allocator);
     defer response_writer.deinit();
 
     const response = client.fetch(.{
@@ -2158,7 +2183,7 @@ fn dispatchSessionFromProxy(format: []const u8) !i32 {
     return 0;
 }
 
-fn dispatchPrisma(args: []const [:0]u8) !i32 {
+fn dispatchPrisma(args: []const [:0]const u8) !i32 {
     // prisma [subcommand] - Prisma CLI wrapper (migrate, generate, db pull, etc.)
     if (args.len == 0) {
         std.debug.print("prisma: missing subcommand (migrate, generate, db pull, db push, studio)\n", .{});
@@ -2172,8 +2197,8 @@ fn dispatchPrisma(args: []const [:0]u8) !i32 {
     defer argv.deinit();
 
     // Auto-detect package manager
-    const is_pnpm = core.utils.fileExists("pnpm-lock.yaml");
-    const is_yarn = core.utils.fileExists("yarn.lock");
+    const is_pnpm = core.utils.fileExists(g_cmd_io, "pnpm-lock.yaml");
+    const is_yarn = core.utils.fileExists(g_cmd_io, "yarn.lock");
 
     if (is_pnpm) {
         try argv.append("pnpm");
@@ -2206,7 +2231,7 @@ fn dispatchPrisma(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchNext(args: []const [:0]u8) !i32 {
+fn dispatchNext(args: []const [:0]const u8) !i32 {
     // next [subcommand] - Next.js build/development wrapper
     if (args.len == 0) {
         std.debug.print("next: missing subcommand (build, dev, start, lint, info)\n", .{});
@@ -2220,8 +2245,8 @@ fn dispatchNext(args: []const [:0]u8) !i32 {
     defer argv.deinit();
 
     // Auto-detect package manager
-    const is_pnpm = core.utils.fileExists("pnpm-lock.yaml");
-    const is_yarn = core.utils.fileExists("yarn.lock");
+    const is_pnpm = core.utils.fileExists(g_cmd_io, "pnpm-lock.yaml");
+    const is_yarn = core.utils.fileExists(g_cmd_io, "yarn.lock");
 
     if (is_pnpm) {
         try argv.append("pnpm");
@@ -2254,7 +2279,7 @@ fn dispatchNext(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchLog(args: []const [:0]u8) !i32 {
+fn dispatchLog(args: []const [:0]const u8) !i32 {
     // log - Show llmlite command history with deduplication
     // Similar to git log but for llmlite history
     const LogEntry = struct { timestamp: i64, original: []const u8, rtk: []const u8 };
@@ -2272,7 +2297,9 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
         }
     }
 
-    const home_dir = std.process.getEnvVarOwned(g_cmd_allocator, "HOME") catch {
+    const home_dir = if (std.c.getenv("HOME")) |ptr|
+        std.mem.sliceTo(ptr, 0)
+    else {
         std.debug.print("log: HOME not set\n", .{});
         return 1;
     };
@@ -2284,18 +2311,18 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
     };
     defer g_cmd_allocator.free(history_path);
 
-    const file = std.fs.openFileAbsolute(history_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_cmd_io, history_path, .{}) catch {
         std.debug.print("No log history found. Run 'llmlite-cmd init -g' first.\n", .{});
         return 0;
     };
-    defer file.close();
+    defer file.close(g_cmd_io);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(g_cmd_allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readPositional(g_cmd_io, &.{&buf}, 0) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -2359,7 +2386,7 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
             const cmd = entry.key_ptr.*;
             const info = entry.value_ptr.*;
             const ts = info.last_ts;
-            const days_ago = @divTrunc(@as(i64, @intCast(std.time.timestamp())) - ts, 86400);
+            const days_ago = @divTrunc(@as(i64, @intCast(time_compat.timestamp(g_cmd_io))) - ts, 86400);
             std.debug.print("[{d} ago] {s} (x{d})\n", .{ days_ago, cmd, info.count });
             count += 1;
         }
@@ -2369,7 +2396,7 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
         for (entries.items) |entry| {
             if (count >= limit) break;
             const ts = entry.timestamp;
-            const days_ago = @divTrunc(@as(i64, @intCast(std.time.timestamp())) - ts, 86400);
+            const days_ago = @divTrunc(@as(i64, @intCast(time_compat.timestamp(g_cmd_io))) - ts, 86400);
             std.debug.print("[{d} ago] {s} -> {s}\n", .{ days_ago, entry.original, entry.rtk });
             count += 1;
         }
@@ -2379,16 +2406,17 @@ fn dispatchLog(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchSummary(args: []const [:0]u8) !i32 {
+fn dispatchSummary(args: []const [:0]const u8) !i32 {
     // summary - Show command usage summary (top commands, categories, etc.)
     _ = args; // Currently no options
     const CmdCount = struct { cmd: []const u8, count: u32 };
 
-    const home_dir = std.process.getEnvVarOwned(g_cmd_allocator, "HOME") catch {
+    const home_dir = if (std.c.getenv("HOME")) |ptr|
+        std.mem.sliceTo(ptr, 0)
+    else {
         std.debug.print("summary: HOME not set\n", .{});
         return 1;
     };
-    defer g_cmd_allocator.free(home_dir);
 
     const history_path = std.fs.path.join(g_cmd_allocator, &.{ home_dir, ".local/share/llmlite/history.db" }) catch {
         std.debug.print("summary: failed to build path\n", .{});
@@ -2396,18 +2424,18 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
     };
     defer g_cmd_allocator.free(history_path);
 
-    const file = std.fs.openFileAbsolute(history_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_cmd_io, history_path, .{}) catch {
         std.debug.print("No summary available. Run 'llmlite-cmd init -g' first.\n", .{});
         return 0;
     };
-    defer file.close();
+    defer file.close(g_cmd_io);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(g_cmd_allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readPositional(g_cmd_io, &.{&buf}, 0) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -2432,7 +2460,7 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
         total_saved += saved;
 
         // Extract command name (first word)
-        const first_space = std.mem.indexOfScalar(u8, original, ' ') orelse original.len;
+        const first_space = std.mem.findScalar(u8, original, ' ') orelse original.len;
         const cmd_name = original[0..first_space];
 
         if (cmd_counts.get(cmd_name)) |count| {
@@ -2477,7 +2505,7 @@ fn dispatchSummary(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchProxy(args: []const [:0]u8) !i32 {
+fn dispatchProxy(args: []const [:0]const u8) !i32 {
     // proxy [command] - Manage llmlite-proxy
     if (args.len == 0) {
         std.debug.print("proxy: missing subcommand (start, stop, status, logs, config, keys)\n", .{});
@@ -2489,9 +2517,14 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
     if (std.mem.eql(u8, subcmd, "start")) {
         // Start the proxy in background
         std.debug.print("Starting llmlite-proxy...\n", .{});
-        const result = std.process.Child.run(.{
-            .allocator = g_cmd_allocator,
-            .argv = &.{"llmlite-proxy"},
+        var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
+        defer argv.deinit();
+        try argv.append("llmlite-proxy");
+        if (args.len > 1 and std.mem.eql(u8, args[1], "--tui")) {
+            try argv.append("--tui");
+        }
+        const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
+            .argv = try argv.toOwnedSlice(),
         }) catch {
             std.debug.print("proxy: failed to start llmlite-proxy\n", .{});
             std.debug.print("Make sure llmlite-proxy is built: zig build proxy\n", .{});
@@ -2502,15 +2535,14 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
             std.debug.print("{s}", .{result.stderr});
         }
         return switch (result.term) {
-            .Exited => |code| code,
-            .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-            .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-            .Unknown => 1,
+            .exited => |code| code,
+            .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+            .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+            .unknown => 1,
         };
     } else if (std.mem.eql(u8, subcmd, "status")) {
         // Check if proxy is running
-        const result = std.process.Child.run(.{
-            .allocator = g_cmd_allocator,
+        const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
             .argv = &.{ "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "http://localhost:4000/health/live" },
         }) catch {
             std.debug.print("proxy: failed to check status (curl not available?)\n", .{});
@@ -2527,8 +2559,7 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
         }
     } else if (std.mem.eql(u8, subcmd, "logs")) {
         // Show recent logs (if journald available)
-        const result = std.process.Child.run(.{
-            .allocator = g_cmd_allocator,
+        const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
             .argv = &.{ "journalctl", "-u", "llmlite-proxy", "-n", "50", "--no-pager" },
         }) catch {
             std.debug.print("proxy logs: journalctl not available\n", .{});
@@ -2537,7 +2568,7 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
         };
         std.debug.print("{s}", .{result.stdout});
         return switch (result.term) {
-            .Exited => |exit_code| exit_code,
+            .exited => |exit_code| exit_code,
             else => 1,
         };
     } else if (std.mem.eql(u8, subcmd, "config")) {
@@ -2550,14 +2581,77 @@ fn dispatchProxy(args: []const [:0]u8) !i32 {
     } else if (std.mem.eql(u8, subcmd, "keys")) {
         // Key management subcommand
         return dispatchProxyKeys(args[1..]);
+    } else if (std.mem.eql(u8, subcmd, "health")) {
+        return proxyGet("/health/ready", "Health check");
+    } else if (std.mem.eql(u8, subcmd, "metrics")) {
+        return proxyGet("/metrics", "Metrics");
+    } else if (std.mem.eql(u8, subcmd, "providers")) {
+        return proxyGet("/api/providers", "Providers");
+    } else if (std.mem.eql(u8, subcmd, "analytics")) {
+        if (args.len < 2) {
+            std.debug.print("proxy analytics: missing subcommand (gain, team, sessions, unified)\n", .{});
+            return 1;
+        }
+        const analytic = args[1];
+        const path = if (std.mem.eql(u8, analytic, "gain"))
+            "/analytics/gain"
+        else if (std.mem.eql(u8, analytic, "team"))
+            "/analytics/team"
+        else if (std.mem.eql(u8, analytic, "sessions"))
+            "/analytics/sessions"
+        else if (std.mem.eql(u8, analytic, "unified"))
+            "/analytics/unified"
+        else {
+            std.debug.print("proxy analytics: unknown '{s}' (gain, team, sessions, unified)\n", .{analytic});
+            return 1;
+        };
+        return proxyGet(path, "Analytics");
     } else {
         std.debug.print("proxy: unknown subcommand '{s}'\n", .{subcmd});
-        std.debug.print("Supported: start, status, logs, config, keys\n", .{});
+        std.debug.print("Supported: start, status, logs, config, keys, health, metrics, providers, analytics\n", .{});
         return 1;
     }
 }
 
-fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
+fn proxyGet(path: []const u8, label: []const u8) !i32 {
+    const proxy_url = "http://localhost:4000";
+    const url = std.fmt.allocPrint(g_cmd_allocator, "{s}{s}", .{ proxy_url, path }) catch {
+        std.debug.print("proxy: failed to build URL\n", .{});
+        return 1;
+    };
+    defer g_cmd_allocator.free(url);
+
+    const uri = std.Uri.parse(url) catch {
+        std.debug.print("proxy: failed to parse URL\n", .{});
+        return 1;
+    };
+
+    var client = std.http.Client{ .allocator = g_cmd_allocator, .io = g_cmd_io };
+    defer client.deinit();
+
+    var response_writer = std.Io.Writer.Allocating.init(g_cmd_allocator);
+    defer response_writer.deinit();
+
+    const response = client.fetch(.{
+        .location = .{ .uri = uri },
+        .method = .GET,
+        .response_writer = &response_writer.writer,
+    }) catch {
+        std.debug.print("proxy {s}: failed to connect (is llmlite-proxy running?)\n", .{label});
+        return 1;
+    };
+
+    if (response.status != .ok) {
+        std.debug.print("proxy {s}: HTTP {}\n", .{ label, response.status });
+        return 1;
+    }
+
+    const body = response_writer.written();
+    std.debug.print("{s}\n", .{body});
+    return 0;
+}
+
+fn dispatchProxyKeys(args: []const [:0]const u8) !i32 {
     // proxy keys [list|create|revoke]
     const proxy_url = "http://localhost:4000";
 
@@ -2578,7 +2672,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
 
     if (std.mem.eql(u8, action, "list")) {
         // List all keys
-        var client = std.http.Client{ .allocator = g_cmd_allocator };
+        var client = std.http.Client{ .allocator = g_cmd_allocator, .io = g_cmd_io };
         defer client.deinit();
 
         const uri = std.Uri.parse(proxy_url ++ "/keys") catch {
@@ -2586,7 +2680,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
             return 1;
         };
 
-        var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
+        var response_writer = std.Io.Writer.Allocating.init(g_cmd_allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -2667,7 +2761,8 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
             body_json = try g_cmd_allocator.dupe(u8, "{}");
         }
 
-        var client = std.http.Client{ .allocator = g_cmd_allocator };
+        // HTTP Client for key creation
+        var client = std.http.Client{ .allocator = g_cmd_allocator, .io = g_cmd_io };
         defer client.deinit();
 
         const uri = std.Uri.parse(proxy_url ++ "/key/create") catch {
@@ -2675,7 +2770,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
             return 1;
         };
 
-        var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
+        var response_writer = std.Io.Writer.Allocating.init(g_cmd_allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -2708,7 +2803,8 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
 
         const key_to_revoke = args[1];
 
-        var client = std.http.Client{ .allocator = g_cmd_allocator };
+        // HTTP Client for key revocation
+        var client = std.http.Client{ .allocator = g_cmd_allocator, .io = g_cmd_io };
         defer client.deinit();
 
         const body = try std.fmt.allocPrint(g_cmd_allocator, "{{\"key\":\"{s}\"}}", .{key_to_revoke});
@@ -2719,7 +2815,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
             return 1;
         };
 
-        var response_writer = std.io.Writer.Allocating.init(g_cmd_allocator);
+        var response_writer = std.Io.Writer.Allocating.init(g_cmd_allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -2748,7 +2844,7 @@ fn dispatchProxyKeys(args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchPsql(args: []const [:0]u8) !i32 {
+fn dispatchPsql(args: []const [:0]const u8) !i32 {
     // psql - PostgreSQL client with compact output
     // Strip borders and compress tables for token savings
     var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
@@ -2764,10 +2860,10 @@ fn dispatchPsql(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchPnpm(args: []const [:0]u8) !i32 {
+fn dispatchPnpm(args: []const [:0]const u8) !i32 {
     // pnpm - pnpm package manager with ultra-compact output
     if (args.len == 0) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{"pnpm"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"pnpm"}, global_verbose, g_cmd_io);
     }
 
     const subcmd = args[0];
@@ -2820,14 +2916,14 @@ fn dispatchPnpm(args: []const [:0]u8) !i32 {
         defer argv.deinit();
         try argv.append("pnpm");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchDotnet(args: []const [:0]u8) !i32 {
+fn dispatchDotnet(args: []const [:0]const u8) !i32 {
     // dotnet - .NET CLI with compact output
     if (args.len == 0) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{"dotnet"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"dotnet"}, global_verbose, g_cmd_io);
     }
 
     const subcmd = args[0];
@@ -2874,11 +2970,11 @@ fn dispatchDotnet(args: []const [:0]u8) !i32 {
         defer argv.deinit();
         try argv.append("dotnet");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchCompose(args: []const [:0]u8) !i32 {
+fn dispatchCompose(args: []const [:0]const u8) !i32 {
     // compose - Docker Compose commands with compact output
     if (args.len == 0) {
         std.debug.print("compose: missing subcommand (ps, logs, build, up, down)\n", .{});
@@ -2943,11 +3039,11 @@ fn dispatchCompose(args: []const [:0]u8) !i32 {
         try argv.append("docker");
         try argv.append("compose");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchWc(args: []const [:0]u8) !i32 {
+fn dispatchWc(args: []const [:0]const u8) !i32 {
     // wc - Word/line/byte count with compact output
     var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
@@ -2962,7 +3058,7 @@ fn dispatchWc(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchMypy(args: []const [:0]u8) !i32 {
+fn dispatchMypy(args: []const [:0]const u8) !i32 {
     // mypy - Mypy type checker with grouped error output
     var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
     defer argv.deinit();
@@ -2977,7 +3073,7 @@ fn dispatchMypy(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchGt(args: []const [:0]u8) !i32 {
+fn dispatchGt(args: []const [:0]const u8) !i32 {
     // gt - Graphite (gt) stacked PR commands with compact output
     if (args.len == 0) {
         std.debug.print("gt: missing subcommand (log, submit, sync, restack, create, branch)\n", .{});
@@ -3043,14 +3139,14 @@ fn dispatchGt(args: []const [:0]u8) !i32 {
         defer argv.deinit();
         try argv.append("gt");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchNpx(args: []const [:0]u8) !i32 {
+fn dispatchNpx(args: []const [:0]const u8) !i32 {
     // npx - npx with intelligent routing
     if (args.len == 0) {
-        return core.runner.runPassthrough(g_cmd_allocator, &.{"npx"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"npx"}, global_verbose, g_cmd_io);
     }
 
     const cmd = args[0];
@@ -3104,11 +3200,11 @@ fn dispatchNpx(args: []const [:0]u8) !i32 {
         defer argv.deinit();
         try argv.append("npx");
         for (args) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 }
 
-fn dispatchErr(args: []const [:0]u8) !i32 {
+fn dispatchErr(args: []const [:0]const u8) !i32 {
     // err - Run command and show only errors/warnings
     if (args.len == 0) {
         std.debug.print("err: missing command to run\n", .{});
@@ -3127,7 +3223,7 @@ fn dispatchErr(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchRewrite(args: []const [:0]u8) !i32 {
+fn dispatchRewrite(args: []const [:0]const u8) !i32 {
     // rewrite - Rewrite a raw command to its llmlite equivalent
     // Used by Claude Code, Gemini CLI, and other LLM hooks
     // Exits 0 and prints the rewritten command if supported
@@ -3144,7 +3240,9 @@ fn dispatchRewrite(args: []const [:0]u8) !i32 {
     // Try to find a rewrite rule
     if (core.hook.shouldRewrite(input)) {
         if (core.hook.rewrite(input)) |rewritten| {
-            std.debug.print("{s}\n", .{rewritten});
+            const stdout = std.Io.File.stdout();
+            stdout.writeStreamingAll(g_cmd_io, rewritten) catch {};
+            stdout.writeStreamingAll(g_cmd_io, "\n") catch {};
             return 0;
         }
     }
@@ -3153,15 +3251,15 @@ fn dispatchRewrite(args: []const [:0]u8) !i32 {
     return 1;
 }
 
-fn dispatchFormat(args: []const [:0]u8) !i32 {
+fn dispatchFormat(args: []const [:0]const u8) !i32 {
     // format - Universal formatter that auto-detects project type
     // Routes to: prettier, ruff format, black, rustfmt, gofmt, etc.
 
     // Auto-detect formatter based on project files
-    const has_prettier = core.utils.fileExists("package.json") or core.utils.fileExists(".prettierrc");
-    const has_ruff = core.utils.fileExists("ruff.toml") or core.utils.fileExists("pyproject.toml");
-    const has_rustfmt = core.utils.fileExists("Cargo.toml");
-    const has_gofmt = core.utils.fileExists("go.mod");
+    const has_prettier = core.utils.fileExists(g_cmd_io, "package.json") or core.utils.fileExists(g_cmd_io, ".prettierrc");
+    const has_ruff = core.utils.fileExists(g_cmd_io, "ruff.toml") or core.utils.fileExists(g_cmd_io, "pyproject.toml");
+    const has_rustfmt = core.utils.fileExists(g_cmd_io, "Cargo.toml");
+    const has_gofmt = core.utils.fileExists(g_cmd_io, "go.mod");
 
     if (has_prettier) {
         // Use prettier for JS/TS projects
@@ -3214,7 +3312,7 @@ fn dispatchFormat(args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchAudit(args: []const [:0]u8) !i32 {
+fn dispatchAudit(args: []const [:0]const u8) !i32 {
     // audit - Show hook usage statistics
     var since_days: u32 = 30;
     var format_json = false;
@@ -3238,22 +3336,23 @@ fn dispatchAudit(args: []const [:0]u8) !i32 {
         .verbose = verbose,
     };
 
-    try core.audit.showAudit(g_cmd_allocator, options);
+    try core.audit.showAudit(g_cmd_io, g_cmd_allocator, options);
     return 0;
 }
 
-fn dispatchVerify(args: []const [:0]u8) !i32 {
+fn dispatchVerify(args: []const [:0]const u8) !i32 {
     // verify - Check hook integrity (SHA-256 verification)
     _ = args;
-    try core.integrity.showVerificationStatus(g_cmd_allocator);
+    try core.integrity.showVerificationStatus(g_cmd_io, g_cmd_allocator);
     return 0;
 }
 
-fn dispatchMemory(args: []const [:0]u8) !i32 {
-    return core.memory_cmd.dispatch(g_cmd_allocator, args);
+fn dispatchMemory(args: []const [:0]const u8) !i32 {
+    const home = std.c.getenv("HOME") orelse return 1;
+    return core.memory_cmd.dispatch(g_cmd_allocator, g_cmd_io, std.mem.sliceTo(home, 0), args);
 }
 
-fn dispatchLearn(args: []const [:0]u8) !i32 {
+fn dispatchLearn(args: []const [:0]const u8) !i32 {
     // learn - Detect CLI error patterns from history
     var min_confidence: f64 = 0.5;
     var min_occurrences: u32 = 2;
@@ -3286,7 +3385,7 @@ fn dispatchLearn(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchEconomics(args: []const [:0]u8) !i32 {
+fn dispatchEconomics(args: []const [:0]const u8) !i32 {
     // economics - Claude API spending vs llmlite savings analysis
     var period = core.cc_economics.EconomicsPeriod.daily;
     var format_json = false;
@@ -3311,7 +3410,7 @@ fn dispatchEconomics(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchTrust(args: []const [:0]u8) !i32 {
+fn dispatchTrust(args: []const [:0]const u8) !i32 {
     // trust - Trust a project-local TOML filter
     var list_only = false;
 
@@ -3351,7 +3450,7 @@ fn dispatchTrust(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchUntrust(args: []const [:0]u8) !i32 {
+fn dispatchUntrust(args: []const [:0]const u8) !i32 {
     _ = args; // args not used for now
     // untrust - Revoke trust for a project-local TOML filter
     const filter_path = ".llmlite/filters.toml";
@@ -3365,7 +3464,7 @@ fn dispatchUntrust(args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchTerraform(args: []const [:0]u8) !i32 {
+fn dispatchTerraform(args: []const [:0]const u8) !i32 {
     // terraform - Infrastructure as Code with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3379,7 +3478,7 @@ fn dispatchTerraform(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchHelm(args: []const [:0]u8) !i32 {
+fn dispatchHelm(args: []const [:0]const u8) !i32 {
     // helm - Kubernetes package manager with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3393,7 +3492,7 @@ fn dispatchHelm(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchGcloud(args: []const [:0]u8) !i32 {
+fn dispatchGcloud(args: []const [:0]const u8) !i32 {
     // gcloud - GCP CLI with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3407,7 +3506,7 @@ fn dispatchGcloud(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchAnsiblePlaybook(args: []const [:0]u8) !i32 {
+fn dispatchAnsiblePlaybook(args: []const [:0]const u8) !i32 {
     // ansible-playbook - Ansible playbook runner with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3421,7 +3520,7 @@ fn dispatchAnsiblePlaybook(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchMake(args: []const [:0]u8) !i32 {
+fn dispatchMake(args: []const [:0]const u8) !i32 {
     // make - Build tool with filtered output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3435,7 +3534,7 @@ fn dispatchMake(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchMix(args: []const [:0]u8) !i32 {
+fn dispatchMix(args: []const [:0]const u8) !i32 {
     // mix - Elixir build tool with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3449,7 +3548,7 @@ fn dispatchMix(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchPreCommit(args: []const [:0]u8) !i32 {
+fn dispatchPreCommit(args: []const [:0]const u8) !i32 {
     // pre-commit - Git hooks framework with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3463,7 +3562,7 @@ fn dispatchPreCommit(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchShellcheck(args: []const [:0]u8) !i32 {
+fn dispatchShellcheck(args: []const [:0]const u8) !i32 {
     // shellcheck - Shell script linter with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3477,7 +3576,7 @@ fn dispatchShellcheck(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchHadolint(args: []const [:0]u8) !i32 {
+fn dispatchHadolint(args: []const [:0]const u8) !i32 {
     // hadolint - Dockerfile linter with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3491,7 +3590,7 @@ fn dispatchHadolint(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchGradle(args: []const [:0]u8) !i32 {
+fn dispatchGradle(args: []const [:0]const u8) !i32 {
     // gradle - Java build tool with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3505,7 +3604,7 @@ fn dispatchGradle(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchMvn(args: []const [:0]u8) !i32 {
+fn dispatchMvn(args: []const [:0]const u8) !i32 {
     // mvn - Maven build tool with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3519,7 +3618,7 @@ fn dispatchMvn(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchSwift(args: []const [:0]u8) !i32 {
+fn dispatchSwift(args: []const [:0]const u8) !i32 {
     // swift - Swift build tool with compact output
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3533,7 +3632,7 @@ fn dispatchSwift(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchJust(args: []const [:0]u8) !i32 {
+fn dispatchJust(args: []const [:0]const u8) !i32 {
     // just - Command runner (rust)
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3547,7 +3646,7 @@ fn dispatchJust(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchMise(args: []const [:0]u8) !i32 {
+fn dispatchMise(args: []const [:0]const u8) !i32 {
     // mise - Rust version manager
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3561,7 +3660,7 @@ fn dispatchMise(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchTask(args: []const [:0]u8) !i32 {
+fn dispatchTask(args: []const [:0]const u8) !i32 {
     // task - Task runner (go-task)
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3575,7 +3674,7 @@ fn dispatchTask(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchJj(args: []const [:0]u8) !i32 {
+fn dispatchJj(args: []const [:0]const u8) !i32 {
     // jj - Jujutsu VCS (Git-compatible)
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3589,7 +3688,7 @@ fn dispatchJj(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchRuff(args: []const [:0]u8) !i32 {
+fn dispatchRuff(args: []const [:0]const u8) !i32 {
     // ruff - Python linter and formatter
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3603,7 +3702,7 @@ fn dispatchRuff(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchBiome(args: []const [:0]u8) !i32 {
+fn dispatchBiome(args: []const [:0]const u8) !i32 {
     // biome - JS/TS linter and formatter
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3617,7 +3716,7 @@ fn dispatchBiome(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchEslint(args: []const [:0]u8) !i32 {
+fn dispatchEslint(args: []const [:0]const u8) !i32 {
     // eslint - JavaScript/TypeScript linter
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3631,7 +3730,7 @@ fn dispatchEslint(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchTsc(args: []const [:0]u8) !i32 {
+fn dispatchTsc(args: []const [:0]const u8) !i32 {
     // tsc - TypeScript compiler
     const argv = try g_cmd_allocator.alloc([]const u8, args.len + 1);
     defer g_cmd_allocator.free(argv);
@@ -3645,7 +3744,7 @@ fn dispatchTsc(args: []const [:0]u8) !i32 {
     });
 }
 
-fn dispatchZig(args: []const [:0]u8) !i32 {
+fn dispatchZig(args: []const [:0]const u8) !i32 {
     // zig - Zig compiler and build system
     // Supports: build, fmt, ast, translate-c, std, build-obj, etc.
     if (args.len == 0) {
@@ -3692,7 +3791,7 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
         try argv.append("zig");
         try argv.append("fmt");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 
     // zig ast - show AST (passthrough for inspection)
@@ -3702,7 +3801,7 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
         try argv.append("zig");
         try argv.append("ast");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 
     // zig translate-c - C to Zig translation
@@ -3727,7 +3826,7 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
         try argv.append("zig");
         try argv.append("std");
         for (args[1..]) |arg| try argv.append(arg);
-        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
     }
 
     // zig build-obj - compile object file
@@ -3796,17 +3895,17 @@ fn dispatchZig(args: []const [:0]u8) !i32 {
     defer argv.deinit();
     try argv.append("zig");
     for (args) |arg| try argv.append(arg);
-    return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+    return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
 }
 
-fn dispatchKiro(args: []const [:0]u8) !i32 {
+fn dispatchKiro(args: []const [:0]const u8) !i32 {
     // kiro <subcommand> [args...] - Kiro CLI wrapper
     // Kiro is an AI-powered coding assistant (agentic IDE/CLI)
     // Output is conversational, so we use passthrough strategy
 
     if (args.len == 0) {
         // No args - just launch kiro interactive chat
-        return core.runner.runPassthrough(g_cmd_allocator, &.{"kiro"}, global_verbose);
+        return core.runner.runPassthrough(g_cmd_allocator, &.{"kiro"}, global_verbose, g_cmd_io);
     }
 
     // Build kiro-cli command
@@ -3815,5 +3914,5 @@ fn dispatchKiro(args: []const [:0]u8) !i32 {
     try argv.append("kiro");
     for (args) |arg| try argv.append(arg);
 
-    return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose);
+    return core.runner.runPassthrough(g_cmd_allocator, try argv.toOwnedSlice(), global_verbose, g_cmd_io);
 }

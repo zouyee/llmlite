@@ -11,7 +11,8 @@ const llmlite_version = @import("version.zig").version;
 // Re-export main API
 pub const OpenAI = @import("client.zig").OpenAI;
 
-pub fn main() void {
+pub fn main(init: std.process.Init) void {
+    _ = init;
     std.debug.print("LLMLite v{d}.{d}.{d} - OpenAI API Client (Zig)\n", .{
         llmlite_version.major,
         llmlite_version.minor,

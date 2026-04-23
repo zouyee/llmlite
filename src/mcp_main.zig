@@ -7,16 +7,12 @@ const mcp_server = @import("mcp_server");
 const mcp_types = @import("mcp_types");
 const mcp_tools = @import("mcp_tools");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     _ = mcp_types;
     _ = mcp_tools;
 
     // Initialize MCP server
-    var server = mcp_server.Server.init(std.heap.page_allocator, "llmlite", "0.2.0");
-
-    // Get stdin/stdout using direct POSIX I/O
-    const stdin_handle: std.posix.fd_t = std.posix.STDIN_FILENO;
-    const stdout_handle: std.posix.fd_t = std.posix.STDOUT_FILENO;
+    var server = mcp_server.Server.init(std.heap.page_allocator, init.io, "llmlite", "0.2.0");
 
     // Buffer for reading
     var read_buffer: [8192]u8 = undefined;
@@ -25,7 +21,7 @@ pub fn main() !void {
 
     while (true) {
         // Read data from stdin
-        const bytes_read = std.posix.read(stdin_handle, &read_buffer) catch break;
+        const bytes_read = std.Io.File.stdin().readStreaming(init.io, &.{&read_buffer}) catch break;
 
         if (bytes_read == 0) {
             // EOF - exit gracefully
@@ -46,16 +42,16 @@ pub fn main() !void {
                 // Handle the request
                 const response = server.handleRequest(trimmed) catch {
                     const err_resp = "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Internal error\"},\"id\":null}\n";
-                    _ = std.posix.write(stdout_handle, err_resp) catch {};
+                    std.Io.File.stdout().writeStreamingAll(init.io, err_resp) catch {};
                     continue;
                 };
 
                 // Write response
-                _ = std.posix.write(stdout_handle, response) catch {};
-                _ = std.posix.write(stdout_handle, "\n") catch {};
+                std.Io.File.stdout().writeStreamingAll(init.io, response) catch {};
+                std.Io.File.stdout().writeStreamingAll(init.io, "\n") catch {};
 
                 // Check if this was a shutdown request
-                if (std.mem.indexOf(u8, trimmed, "\"shutdown\"")) |_| {
+                if (std.mem.find(u8, trimmed, "\"shutdown\"")) |_| {
                     break;
                 }
             } else {
