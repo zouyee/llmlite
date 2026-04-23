@@ -25,11 +25,17 @@ jobs:
         with:
           version: ${{ matrix.zig_version }}
 
+      - name: Create zig-pkg directory
+        run: mkdir -p zig-pkg
+
       - name: Cache Zig build
         uses: actions/cache@v4
         with:
-          path: .zig-cache
-          key: ${{ runner.os }}-zig-${{ matrix.zig_version }}-${{ hashFiles('**/*.zig', '**/build.zig') }}
+          path: |
+            .zig-cache
+            zig-pkg
+            ~/.cache/zig
+          key: ${{ runner.os }}-zig-${{ matrix.zig_version }}-${{ hashFiles('**/build.zig.zon') }}
           restore-keys: |
             ${{ runner.os }}-zig-${{ matrix.zig_version }}-
 
