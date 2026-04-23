@@ -40,14 +40,10 @@ jobs:
             ${{ runner.os }}-zig-${{ matrix.zig_version }}-
 
       - name: Build
-        run: |
-          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
-          zig build
+        run: zig build --global-cache-dir ~/.cache/zig --cache-dir .zig-cache
 
       - name: Run tests
-        run: |
-          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
-          zig build test
+        run: zig build test --global-cache-dir ~/.cache/zig --cache-dir .zig-cache
 
   lint:
     name: Code Quality
@@ -66,9 +62,7 @@ jobs:
         run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Run build release-safe
-        run: |
-          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
-          zig build --release=safe
+        run: zig build --release=safe --global-cache-dir ~/.cache/zig --cache-dir .zig-cache
 
   security:
     name: Security Check
@@ -87,9 +81,7 @@ jobs:
         run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Run build
-        run: |
-          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
-          zig build
+        run: zig build --global-cache-dir ~/.cache/zig --cache-dir .zig-cache
 
   docker:
     name: Docker Build
@@ -134,9 +126,10 @@ jobs:
         run: mkdir -p ~/.cache/zig .zig-cache zig-pkg
 
       - name: Build with make
-        run: |
-          export ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig"
-          make build
+        run: make build
+        env:
+          ZIG_GLOBAL_CACHE_DIR: ~/.cache/zig
+          ZIG_LOCAL_CACHE_DIR: .zig-cache
 
       - name: Run tests with make
         run: make test
