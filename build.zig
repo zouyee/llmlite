@@ -736,6 +736,20 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Shared time compatibility module - wraps std.Io clock API for Zig 0.16.0
+    const time_compat_module = b.addModule("time_compat", .{
+        .root_source_file = b.path("src/shared/time_compat.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Shared compatibility module - managed StringArrayHashMap wrapper for Zig 0.16.0
+    _ = b.addModule("compat", .{
+        .root_source_file = b.path("src/shared/compat.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     const virtual_key_module = b.addModule("virtual_key", .{
         .root_source_file = b.path("src/proxy/virtual_key.zig"),
         .target = target,
@@ -747,6 +761,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/proxy/rate_limit.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "time_compat", .module = time_compat_module },
+        },
     });
 
     // Proxy Logger module
@@ -803,6 +820,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "types", .module = provider_types_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -820,6 +838,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "types", .module = provider_types_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -830,6 +849,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "types", .module = provider_types_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -840,6 +860,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "types", .module = provider_types_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -867,6 +888,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -958,6 +980,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/proxy/request_context.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "time_compat", .module = time_compat_module },
+        },
     });
 
     // Proxy Pipeline module - Request processing middleware chain
@@ -982,6 +1007,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/core/tracking.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const cmd_core_lexer_module = b.addModule("lexer", .{
         .root_source_file = b.path("src/cmd/core/lexer.zig"),
@@ -992,6 +1018,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/core/tee.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     const cmd_core_proxy_helpers_module = b.addModule("proxy_helpers", .{
         .root_source_file = b.path("src/cmd/core/proxy_helpers.zig"),
@@ -1010,6 +1037,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
             .{ .name = "shared_analytics", .module = shared_analytics_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
     const cmd_core_rules_module = b.addModule("rules", .{
@@ -1033,6 +1061,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "rules", .module = cmd_core_rules_module },
             .{ .name = "lexer", .module = cmd_core_lexer_module },
             .{ .name = "tracking", .module = cmd_core_tracking_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
     const cmd_core_session_module = b.addModule("session", .{
@@ -1043,6 +1072,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "rules", .module = cmd_core_rules_module },
             .{ .name = "lexer", .module = cmd_core_lexer_module },
             .{ .name = "proxy_helpers", .module = cmd_core_proxy_helpers_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
     const cmd_core_modes_module = b.addModule("modes", .{
@@ -1062,6 +1092,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/core/audit.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "time_compat", .module = time_compat_module },
+        },
     });
     const cmd_core_integrity_module = b.addModule("integrity", .{
         .root_source_file = b.path("src/cmd/core/integrity.zig"),
@@ -1085,6 +1118,9 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/core/trust.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "time_compat", .module = time_compat_module },
+        },
     });
     const cmd_core_pytest_module = b.addModule("pytest", .{
         .root_source_file = b.path("src/cmd/core/pytest.zig"),
@@ -1262,6 +1298,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }) },
             .{ .name = "sqlite", .module = sqlite_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1272,6 +1309,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "sqlite", .module = sqlite_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1293,7 +1331,14 @@ pub fn build(b: *std.Build) void {
             .{ .name = "memory", .module = cmd_core_memory_module },
             .{ .name = "config", .module = cmd_core_config_module },
             .{ .name = "modes", .module = cmd_core_modes_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
+    });
+
+    const cmd_core_llm_module = b.addModule("llm", .{
+        .root_source_file = b.path("src/cmd/core/llm.zig"),
+        .target = target,
+        .optimize = optimize,
     });
 
     const cmd_core_runner_module = b.addModule("runner", .{
@@ -1308,6 +1353,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "config", .module = cmd_core_config_module },
             .{ .name = "shared_analytics", .module = shared_analytics_module },
             .{ .name = "savings_reporter", .module = cmd_core_savings_reporter_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1368,6 +1414,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "modes", .module = cmd_core_modes_module },
             .{ .name = "memory", .module = cmd_core_memory_module },
             .{ .name = "memory_cmd", .module = cmd_core_memory_cmd_module },
+            .{ .name = "llm", .module = cmd_core_llm_module },
             .{ .name = "shared_analytics", .module = shared_analytics_module },
         },
     });
@@ -1378,6 +1425,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "cmd_core", .module = cmd_core_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1386,9 +1434,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cmd/cmd_main.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
         .imports = &.{
             .{ .name = "cmd", .module = cmd_module },
             .{ .name = "cmd_core", .module = cmd_core_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1399,12 +1449,63 @@ pub fn build(b: *std.Build) void {
         .version = .{ .major = 0, .minor = 1, .patch = 0 },
     });
 
-    cmd_exe.linkLibC();
     b.installArtifact(cmd_exe);
 
     const cmd_run_cmd = b.addRunArtifact(cmd_exe);
     const cmd_run_step = b.step("cmd", "Run llmlite-cmd");
     cmd_run_step.dependOn(&cmd_run_cmd.step);
+
+    // MCP Server modules
+    const mcp_types_module = b.addModule("mcp_types", .{
+        .root_source_file = b.path("src/mcp/types.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const mcp_tools_module = b.addModule("mcp_tools", .{
+        .root_source_file = b.path("src/mcp/tools.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "mcp_types", .module = mcp_types_module },
+            .{ .name = "http", .module = http_module },
+        },
+    });
+
+    const mcp_server_module = b.addModule("mcp_server", .{
+        .root_source_file = b.path("src/mcp/server.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "mcp_types", .module = mcp_types_module },
+            .{ .name = "mcp_tools", .module = mcp_tools_module },
+        },
+    });
+
+    // MCP Server executable
+    const mcp_main_module = b.addModule("mcp_main", .{
+        .root_source_file = b.path("src/mcp_main.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .imports = &.{
+            .{ .name = "mcp_server", .module = mcp_server_module },
+            .{ .name = "mcp_types", .module = mcp_types_module },
+            .{ .name = "mcp_tools", .module = mcp_tools_module },
+        },
+    });
+
+    const mcp_exe = b.addExecutable(.{
+        .name = "llmlite-mcp",
+        .root_module = mcp_main_module,
+        .version = .{ .major = 0, .minor = 2, .patch = 0 },
+    });
+
+    b.installArtifact(mcp_exe);
+
+    const mcp_run_cmd = b.addRunArtifact(mcp_exe);
+    const mcp_run_step = b.step("mcp", "Run the MCP server");
+    mcp_run_step.dependOn(&mcp_run_cmd.step);
 
     // Proxy Server module
     const proxy_module = b.addModule("proxy", .{
@@ -1434,6 +1535,21 @@ pub fn build(b: *std.Build) void {
             .{ .name = "proxy_savings_handler", .module = proxy_savings_handler_module },
             .{ .name = "proxy_unified_handler", .module = proxy_unified_handler_module },
             .{ .name = "proxy_persistence", .module = proxy_persistence_module },
+            .{ .name = "time_compat", .module = time_compat_module },
+        },
+    });
+
+    // TUI module
+    const proxy_tui_module = b.addModule("tui", .{
+        .root_source_file = b.path("src/proxy/tui.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = provider_types_module },
+            .{ .name = "latency_health", .module = proxy_latency_health_module },
+            .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
+            .{ .name = "proxy_logger", .module = proxy_logger_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1442,6 +1558,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/proxy_main.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
         .imports = &.{
             .{ .name = "proxy", .module = proxy_module },
             .{ .name = "virtual_key", .module = virtual_key_module },
@@ -1452,6 +1569,8 @@ pub fn build(b: *std.Build) void {
             .{ .name = "hot_reload", .module = proxy_hot_reload_module },
             .{ .name = "circuit_breaker", .module = proxy_circuit_breaker_module },
             .{ .name = "active_health", .module = proxy_active_health_module },
+            .{ .name = "tui", .module = proxy_tui_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1461,7 +1580,6 @@ pub fn build(b: *std.Build) void {
         .version = .{ .major = 0, .minor = 2, .patch = 0 },
     });
 
-    proxy_exe.linkLibC();
     b.installArtifact(proxy_exe);
 
     const proxy_run_cmd = b.addRunArtifact(proxy_exe);
@@ -1522,6 +1640,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "shared_analytics", .module = shared_analytics_module },
             .{ .name = "config", .module = cmd_core_config_module },
             .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1560,6 +1679,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "shared_analytics", .module = shared_analytics_module },
             .{ .name = "proxy_savings_store", .module = proxy_savings_store_module },
             .{ .name = "config", .module = cmd_core_config_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 
@@ -1589,6 +1709,7 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
             }) },
             .{ .name = "sqlite", .module = sqlite_module },
+            .{ .name = "time_compat", .module = time_compat_module },
         },
     });
 

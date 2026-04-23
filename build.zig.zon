@@ -1,6 +1,6 @@
 .{
     .name = .llmlite,
-    .version = "0.15.2",
+    .version = "0.16.0",
     .dependencies = .{
         .sqlite = .{
             .url = "https://github.com/nDimensional/zig-sqlite/archive/refs/tags/v0.3.2-3510100.tar.gz",
