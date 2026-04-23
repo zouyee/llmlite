@@ -5,6 +5,8 @@
 
 const std = @import("std");
 
+pub var g_io: std.Io = undefined;
+
 /// Permission verdict from checking a command against permission rules
 pub const PermissionVerdict = enum {
     /// An explicit allow rule matched - safe to auto-allow
@@ -143,7 +145,7 @@ pub fn commandMatchesPattern(cmd: []const u8, pattern: []const u8) bool {
         }
 
         // No other wildcards in prefix -> use word-boundary fast path
-        if (std.mem.indexOf(u8, prefix, "*") == null) {
+        if (std.mem.find(u8, prefix, "*") == null) {
             if (std.mem.eql(u8, cmd, prefix)) return true;
             // Check cmd.startsWith(prefix + " ")
             if (cmd.len > prefix.len and cmd[prefix.len] == ' ') {
@@ -158,7 +160,7 @@ pub fn commandMatchesPattern(cmd: []const u8, pattern: []const u8) bool {
     }
 
     // 3. Complex wildcards (leading, middle, multiple): glob matching
-    if (std.mem.indexOf(u8, pattern, "*") != null) {
+    if (std.mem.find(u8, pattern, "*") != null) {
         return globMatches(cmd, pattern);
     }
 
@@ -243,7 +245,7 @@ fn globMatches(cmd: []const u8, pattern: []const u8) bool {
         } else {
             // Middle segment: find next occurrence
             if (search_from >= cmd.len) return false;
-            const found = std.mem.indexOf(u8, cmd[search_from..], part);
+            const found = std.mem.find(u8, cmd[search_from..], part);
             if (found == null) {
                 return false;
             }

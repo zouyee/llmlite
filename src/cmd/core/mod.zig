@@ -39,6 +39,11 @@
 //! - aws: AWS CLI filtering
 //! - curl: HTTP client filtering
 
+const std = @import("std");
+
+/// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
 // Re-export all submodules using relative imports
 // These work because build.zig creates each as a separate module
 pub const runner = @import("runner");
@@ -87,4 +92,5 @@ pub const curl = @import("curl");
 pub const proxy_helpers = @import("proxy_helpers");
 pub const memory = @import("memory");
 pub const memory_cmd = @import("memory_cmd");
+pub const llm = @import("llm");
 pub const modes = @import("modes");

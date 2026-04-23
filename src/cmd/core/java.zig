@@ -154,7 +154,7 @@ pub fn filterMaven(output: []const u8) []const u8 {
 
     // Build output
     if (!build_success) {
-        std.fmt.format(result.writer(), "mvn: BUILD FAILURE", .{}) catch return "";
+        result.print( "mvn: BUILD FAILURE", .{}) catch return "";
         if (failure_lines.items.len > 0) {
             result.append('\n') catch {};
             for (failure_lines.items[0..@min(10, failure_lines.items.len)]) |line| {
@@ -166,17 +166,17 @@ pub fn filterMaven(output: []const u8) []const u8 {
     }
 
     if (test_failures > 0) {
-        std.fmt.format(result.writer(), "mvn: {d} passed, {d} failed", .{ test_passed, test_failures }) catch return "";
+        result.print( "mvn: {d} passed, {d} failed", .{ test_passed, test_failures }) catch return "";
         if (test_skipped > 0) {
-            std.fmt.format(result.writer(), ", {d} skipped", .{test_skipped}) catch return "";
+            result.print( ", {d} skipped", .{test_skipped}) catch return "";
         }
         return result.toOwnedSlice() catch "";
     }
 
     if (test_passed > 0) {
-        std.fmt.format(result.writer(), "mvn: {d} passed", .{test_passed}) catch return "";
+        result.print( "mvn: {d} passed", .{test_passed}) catch return "";
         if (test_skipped > 0) {
-            std.fmt.format(result.writer(), ", {d} skipped", .{test_skipped}) catch return "";
+            result.print( ", {d} skipped", .{test_skipped}) catch return "";
         }
         return result.toOwnedSlice() catch "";
     }
@@ -252,8 +252,8 @@ pub fn filterGradle(output: []const u8) []const u8 {
 
     // Build output
     if (test_failures > 0) {
-        std.fmt.format(result.writer(), "gradle: {d} passed, {d} failed\n", .{ test_passed, test_failures }) catch return "";
-        std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+        result.print( "gradle: {d} passed, {d} failed\n", .{ test_passed, test_failures }) catch return "";
+        result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
         for (failure_lines.items[0..@min(10, failure_lines.items.len)]) |line| {
             result.appendSlice(line) catch {};
@@ -261,14 +261,14 @@ pub fn filterGradle(output: []const u8) []const u8 {
         }
 
         if (failure_lines.items.len > 10) {
-            std.fmt.format(result.writer(), "... +{d} more\n", .{failure_lines.items.len - 10}) catch return "";
+            result.print( "... +{d} more\n", .{failure_lines.items.len - 10}) catch return "";
         }
 
         return result.toOwnedSlice() catch "";
     }
 
     if (test_passed > 0) {
-        std.fmt.format(result.writer(), "gradle: {d} passed", .{test_passed}) catch return "";
+        result.print( "gradle: {d} passed", .{test_passed}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 

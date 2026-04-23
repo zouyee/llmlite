@@ -14,6 +14,9 @@ const std = @import("std");
 const filter = @import("cmd_core_filter");
 const tee = @import("cmd_core_tee");
 
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
 pub const ReadOptions = struct {
     /// Filter level
     level: filter.FilterLevel = .minimal,
@@ -125,16 +128,20 @@ pub fn runStdin(allocator: std.mem.Allocator, options: ReadOptions) !void {
 }
 
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = try std.fs.openFileAbsolute(path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.openFileAbsolute(g_io, path, .{});
+    defer file.close(g_io);
 
-    const stat = try file.stat();
-    const content = try file.readToEndAlloc(allocator, stat.size);
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .unlimited);
     return content;
 }
 
 fn readStdin(allocator: std.mem.Allocator) ![]u8 {
-    return try std.io.getStdIn().readToEndAlloc(allocator, std.math.maxInt(usize));
+    var reader_buf: [8192]u8 = undefined;
+    var stdin_reader = std.Io.File.stdin().reader(g_io, &reader_buf);
+    const content = try stdin_reader.interface.allocRemaining(allocator, .unlimited);
+    return content;
 }
 
 fn detectLanguage(path: []const u8) filter.Language {
@@ -159,7 +166,7 @@ fn formatWithLineNumbers(content: []const u8) []const u8 {
     var line_num: usize = 1;
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |line| {
-        std.fmt.format(result.writer(), "{width:>width$} │ {s}\n", .{ line_num, line, width = width }) catch {};
+        result.print("{width:>width$} │ {s}\n", .{ line_num, line, width = width }) catch {};
         line_num += 1;
     }
 
@@ -238,7 +245,7 @@ fn applyLineWindow(
 
         if (line_count > n) {
             try result.appendSlice("\n// ... ");
-            try std.fmt.format(result.writer(), "{} more lines (total: {})", .{ line_count - n, line_count });
+            try result.print("{} more lines (total: {})", .{ line_count - n, line_count });
         }
 
         return result.toOwnedSlice();

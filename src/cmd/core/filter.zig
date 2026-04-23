@@ -4,6 +4,32 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
+
 pub const FilterStrategy = enum {
     none,
     stats,
@@ -96,25 +122,25 @@ fn filterStats(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
     while (line_iter.next()) |line| {
-        if (std.mem.indexOf(u8, line, "error") != null or std.mem.indexOf(u8, line, "ERROR") != null) {
+        if (std.mem.find(u8, line, "error") != null or std.mem.find(u8, line, "ERROR") != null) {
             error_count += 1;
         }
-        if (std.mem.indexOf(u8, line, "warning") != null or std.mem.indexOf(u8, line, "WARNING") != null) {
+        if (std.mem.find(u8, line, "warning") != null or std.mem.find(u8, line, "WARNING") != null) {
             warning_count += 1;
         }
-        if (std.mem.indexOf(u8, line, "PASS") != null or std.mem.indexOf(u8, line, "ok") != null) {
+        if (std.mem.find(u8, line, "PASS") != null or std.mem.find(u8, line, "ok") != null) {
             pass_count += 1;
         }
-        if (std.mem.indexOf(u8, line, "FAIL") != null or std.mem.indexOf(u8, line, "failed") != null) {
+        if (std.mem.find(u8, line, "FAIL") != null or std.mem.find(u8, line, "failed") != null) {
             fail_count += 1;
         }
     }
 
-    try result.writer().print("{} lines", .{line_count});
-    if (error_count > 0) try result.writer().print(", {d} errors", .{error_count});
-    if (warning_count > 0) try result.writer().print(", {d} warnings", .{warning_count});
-    if (pass_count > 0) try result.writer().print(", {d} passed", .{pass_count});
-    if (fail_count > 0) try result.writer().print(", {d} failed", .{fail_count});
+    try result.print("{} lines", .{line_count});
+    if (error_count > 0) try result.print(", {d} errors", .{error_count});
+    if (warning_count > 0) try result.print(", {d} warnings", .{warning_count});
+    if (pass_count > 0) try result.print(", {d} passed", .{pass_count});
+    if (fail_count > 0) try result.print(", {d} failed", .{fail_count});
 
     return result.toOwnedSlice();
 }
@@ -128,11 +154,11 @@ fn filterErrorsOnly(allocator: std.mem.Allocator, input: []const u8) ![]const u8
         const trimmed = std.mem.trim(u8, line, " \t");
         if (trimmed.len == 0) continue;
 
-        const is_error = std.mem.indexOf(u8, trimmed, "error") != null or
-            std.mem.indexOf(u8, trimmed, "Error") != null or
-            std.mem.indexOf(u8, trimmed, "ERROR") != null or
-            std.mem.indexOf(u8, trimmed, "failed") != null or
-            std.mem.indexOf(u8, trimmed, "FAILED") != null;
+        const is_error = std.mem.find(u8, trimmed, "error") != null or
+            std.mem.find(u8, trimmed, "Error") != null or
+            std.mem.find(u8, trimmed, "ERROR") != null or
+            std.mem.find(u8, trimmed, "failed") != null or
+            std.mem.find(u8, trimmed, "FAILED") != null;
 
         if (is_error) {
             if (!found_errors) {
@@ -152,7 +178,7 @@ fn filterErrorsOnly(allocator: std.mem.Allocator, input: []const u8) ![]const u8
 }
 
 fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    var groups = std.StringArrayHashMap(usize).init(allocator);
+    var groups = StringArrayHashMap(usize).init(allocator);
     defer groups.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -161,7 +187,7 @@ fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
         if (trimmed.len == 0) continue;
 
         var key = trimmed;
-        if (std.mem.indexOf(u8, trimmed, ":")) |idx| {
+        if (std.mem.find(u8, trimmed, ":")) |idx| {
             key = trimmed[0..idx];
         }
 
@@ -191,7 +217,7 @@ fn filterGrouping(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
 
     for (sorted.items[0..@min(10, sorted.items.len)], 0..) |item, i| {
         if (i > 0) try result.appendSlice(", ");
-        try result.writer().print("{s}: {d}", .{ item.key, item.count });
+        try result.print("{s}: {d}", .{ item.key, item.count });
     }
 
     return result.toOwnedSlice();
@@ -201,7 +227,7 @@ fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]const
     var lines = std.array_list.Managed(struct { text: []const u8, count: usize }).init(allocator);
     defer lines.deinit();
 
-    var seen = std.StringArrayHashMap(usize).init(allocator);
+    var seen = StringArrayHashMap(usize).init(allocator);
     defer seen.deinit();
 
     var line_iter = std.mem.splitScalar(u8, input, '\n');
@@ -221,7 +247,7 @@ fn filterDeduplication(allocator: std.mem.Allocator, input: []const u8) ![]const
     for (lines.items, 0..) |item, i| {
         if (i > 0) try result.append('\n');
         if (item.count > 1) {
-            try result.writer().print("{s} (x{d})", .{ item.text, item.count });
+            try result.print("{s} (x{d})", .{ item.text, item.count });
         } else {
             try result.appendSlice(item.text);
         }
@@ -264,7 +290,7 @@ fn extractJsonStructureInner(result: *std.array_list.Managed(u8), value: std.jso
             } else {
                 try result.appendSlice("[");
                 try extractJsonStructureInner(result, arr.items[0], 0);
-                try std.fmt.format(result.writer(), ", ... ({d} items)", .{arr.items.len});
+                try result.print(", ... ({d} items)", .{arr.items.len});
                 try result.appendSlice("]");
             }
         },
@@ -279,10 +305,10 @@ fn extractJsonStructureInner(result: *std.array_list.Managed(u8), value: std.jso
                 while (it.next()) |entry| {
                     if (first) first = false else try result.appendSlice(", ");
                     if (count >= 5) {
-                        try std.fmt.format(result.writer(), "... ({d} more)", .{obj.count() - count});
+                        try result.print("... ({d} more)", .{obj.count() - count});
                         break;
                     }
-                    try std.fmt.format(result.writer(), "\"{s}\": ", .{entry.key_ptr.*});
+                    try result.print("\"{s}\": ", .{entry.key_ptr.*});
                     try extractJsonStructureInner(result, entry.value_ptr.*, 0);
                     count += 1;
                 }
@@ -405,10 +431,10 @@ fn filterFailureFocus(allocator: std.mem.Allocator, input: []const u8) ![]const 
     while (line_iter.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t");
 
-        const is_failure = std.mem.indexOf(u8, trimmed, "FAIL") != null or
-            std.mem.indexOf(u8, trimmed, "failed") != null or
-            std.mem.indexOf(u8, trimmed, "FAILED") != null or
-            std.mem.indexOf(u8, trimmed, "Error:") != null;
+        const is_failure = std.mem.find(u8, trimmed, "FAIL") != null or
+            std.mem.find(u8, trimmed, "failed") != null or
+            std.mem.find(u8, trimmed, "FAILED") != null or
+            std.mem.find(u8, trimmed, "Error:") != null;
 
         if (is_failure) {
             if (found_failure) try result.append('\n');
@@ -443,7 +469,7 @@ fn filterTreeCompression(allocator: std.mem.Allocator, input: []const u8) ![]con
         }
     }
 
-    var dir_counts = std.StringArrayHashMap(usize).init(allocator);
+    var dir_counts = StringArrayHashMap(usize).init(allocator);
     defer dir_counts.deinit();
 
     for (lines.items) |line| {
@@ -459,7 +485,7 @@ fn filterTreeCompression(allocator: std.mem.Allocator, input: []const u8) ![]con
 
     var it = dir_counts.iterator();
     while (it.next()) |entry| {
-        try result.writer().print("{s}/ ({d} items)\n", .{ entry.key_ptr.*, entry.value_ptr.* });
+        try result.print("{s}/ ({d} items)\n", .{ entry.key_ptr.*, entry.value_ptr.* });
     }
 
     return result.toOwnedSlice();
@@ -503,7 +529,7 @@ fn filterProgressStrip(allocator: std.mem.Allocator, input: []const u8) ![]const
 }
 
 fn filterJsonDual(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
-    // In Zig 0.15, json.stringify was removed.
+    // In Zig 0.15+, json.stringify was removed.
     // For now, just validate JSON and return it as-is.
     if (std.json.parseFromSlice(std.json.Value, allocator, input, .{})) |parsed| {
         defer parsed.deinit();
@@ -524,9 +550,9 @@ fn filterStateMachine(allocator: std.mem.Allocator, input: []const u8) ![]const 
     while (line_iter.next()) |line| {
         const trimmed = std.mem.trim(u8, line, " \t");
 
-        if (std.mem.indexOf(u8, trimmed, "PASS") != null or std.mem.indexOf(u8, trimmed, "ok") != null) {
+        if (std.mem.find(u8, trimmed, "PASS") != null or std.mem.find(u8, trimmed, "ok") != null) {
             passed_count += 1;
-        } else if (std.mem.indexOf(u8, trimmed, "FAIL") != null or std.mem.indexOf(u8, trimmed, "failed") != null) {
+        } else if (std.mem.find(u8, trimmed, "FAIL") != null or std.mem.find(u8, trimmed, "failed") != null) {
             failed_count += 1;
             if (trimmed.len < 100) {
                 try failed_tests.append(trimmed);
@@ -535,12 +561,12 @@ fn filterStateMachine(allocator: std.mem.Allocator, input: []const u8) ![]const 
     }
 
     if (failed_count > 0) {
-        try result.writer().print("FAILED: {d}/{d} tests\n", .{ failed_count, passed_count + failed_count });
+        try result.print("FAILED: {d}/{d} tests\n", .{ failed_count, passed_count + failed_count });
         for (failed_tests.items) |t| {
-            try result.writer().print("  - {s}\n", .{t});
+            try result.print("  - {s}\n", .{t});
         }
     } else if (passed_count > 0) {
-        try result.writer().print("ok: {d} tests passed", .{passed_count});
+        try result.print("ok: {d} tests passed", .{passed_count});
     } else {
         return allocator.dupe(u8, input);
     }
@@ -591,12 +617,12 @@ fn filterNdjsonStream(allocator: std.mem.Allocator, input: []const u8) ![]const 
     }
 
     if (fail_count > 0) {
-        try result.writer().print("FAILED: {d} tests\n", .{fail_count});
+        try result.print("FAILED: {d} tests\n", .{fail_count});
         for (fail_list.items[0..@min(5, fail_list.items.len)]) |t| {
-            try result.writer().print("  - {s}\n", .{t});
+            try result.print("  - {s}\n", .{t});
         }
     } else {
-        try result.writer().print("ok: {d} tests passed", .{pass_count});
+        try result.print("ok: {d} tests passed", .{pass_count});
     }
 
     return result.toOwnedSlice();
@@ -611,19 +637,19 @@ fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const 
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (trimmed.len == 0) continue;
 
-        if (std.mem.indexOf(u8, trimmed, "PASS") != null or
-            std.mem.indexOf(u8, trimmed, "passed") != null or
-            std.mem.indexOf(u8, trimmed, "success") != null)
+        if (std.mem.find(u8, trimmed, "PASS") != null or
+            std.mem.find(u8, trimmed, "passed") != null or
+            std.mem.find(u8, trimmed, "success") != null)
         {
             try result.appendSlice("ok ");
             has_content = true;
             continue;
         }
 
-        if (std.mem.indexOf(u8, trimmed, "FAIL") != null or
-            std.mem.indexOf(u8, trimmed, "failed") != null or
-            std.mem.indexOf(u8, trimmed, "error") != null or
-            std.mem.indexOf(u8, trimmed, "Error") != null)
+        if (std.mem.find(u8, trimmed, "FAIL") != null or
+            std.mem.find(u8, trimmed, "failed") != null or
+            std.mem.find(u8, trimmed, "error") != null or
+            std.mem.find(u8, trimmed, "Error") != null)
         {
             try result.appendSlice("err ");
             has_content = true;
@@ -637,7 +663,7 @@ fn filterUltraCompact(allocator: std.mem.Allocator, input: []const u8) ![]const 
             continue;
         }
 
-        if (std.mem.indexOf(u8, trimmed, "warning") != null or std.mem.indexOf(u8, trimmed, "WARN") != null) {
+        if (std.mem.find(u8, trimmed, "warning") != null or std.mem.find(u8, trimmed, "WARN") != null) {
             try result.appendSlice("warn ");
             has_content = true;
             if (trimmed.len > 60) {
@@ -700,7 +726,7 @@ fn filterGitLog(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
         // This is likely a commit message line
         if (count >= max_lines) {
             if (count == max_lines) {
-                try result.writer().print("... ({d} more commits)\n", .{count});
+                try result.print("... ({d} more commits)\n", .{count});
             }
             count += 1;
             continue;
@@ -708,9 +734,9 @@ fn filterGitLog(allocator: std.mem.Allocator, input: []const u8) ![]const u8 {
 
         // Compact format: short hash + first line of message
         if (trimmed.len > 7) {
-            try result.writer().print("{s} | {s}\n", .{ trimmed[0..7], trimmed });
+            try result.print("{s} | {s}\n", .{ trimmed[0..7], trimmed });
         } else {
-            try result.writer().print("{s}\n", .{trimmed});
+            try result.print("{s}\n", .{trimmed});
         }
         count += 1;
     }
@@ -739,22 +765,22 @@ pub fn autoDetectStrategy(input: []const u8) FilterStrategy {
         return .ndjson_stream;
     }
 
-    if (std.mem.indexOf(u8, input, "error") != null or
-        std.mem.indexOf(u8, input, "Error") != null or
-        std.mem.indexOf(u8, input, "ERROR") != null or
-        std.mem.indexOf(u8, input, "failed") != null)
+    if (std.mem.find(u8, input, "error") != null or
+        std.mem.find(u8, input, "Error") != null or
+        std.mem.find(u8, input, "ERROR") != null or
+        std.mem.find(u8, input, "failed") != null)
     {
         return .errors_only;
     }
 
-    if (std.mem.indexOf(u8, input, "PASS") != null or
-        std.mem.indexOf(u8, input, "FAIL") != null or
-        std.mem.indexOf(u8, input, "test ") != null)
+    if (std.mem.find(u8, input, "PASS") != null or
+        std.mem.find(u8, input, "FAIL") != null or
+        std.mem.find(u8, input, "test ") != null)
     {
         return .failure_focus;
     }
 
-    if (std.mem.indexOf(u8, input, "=") != null and std.mem.indexOf(u8, input, "%") != null) {
+    if (std.mem.find(u8, input, "=") != null and std.mem.find(u8, input, "%") != null) {
         return .progress_strip;
     }
 

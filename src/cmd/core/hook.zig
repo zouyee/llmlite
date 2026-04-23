@@ -4,6 +4,16 @@
 //! Inspired by RTK's auto-rewrite hook system.
 
 const std = @import("std");
+
+/// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const fs = std.fs;
 const rules = @import("rules");
 
@@ -159,7 +169,7 @@ pub fn rewrite(input: []const u8) ?[]const u8 {
 }
 
 fn getHomeDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
+    const home = _getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
     return home;
 }
 
@@ -219,7 +229,7 @@ pub fn installZshHook(allocator: std.mem.Allocator, verbose: bool) !void {
     defer allocator.free(home);
     const zshrc_d = try std.fmt.allocPrint(allocator, "{s}/.zshrc.d", .{home});
     defer allocator.free(zshrc_d);
-    try fs.makeDirAbsolute(zshrc_d);
+    try std.Io.Dir.createDirAbsolute(g_io, zshrc_d, .default_dir);
 
     const hook_path = try getZshHookPath(allocator);
     defer allocator.free(hook_path);
@@ -283,9 +293,9 @@ pub fn installZshHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "alias uv='llmlite-cmd uv'\n";
 
     {
-        const file = try fs.createFileAbsolute(hook_path, .{});
-        defer file.close();
-        try file.writeAll(hook_content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hook_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, hook_content);
     }
 
     if (verbose) {
@@ -300,7 +310,7 @@ pub fn installFishHook(allocator: std.mem.Allocator, verbose: bool) !void {
     defer allocator.free(home);
     const fish_dir = try std.fmt.allocPrint(allocator, "{s}/.config/fish/functions", .{home});
     defer allocator.free(fish_dir);
-    try fs.makeDirAbsolute(fish_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, fish_dir, .default_dir);
 
     const hook_path = try getFishHookPath(allocator);
     defer allocator.free(hook_path);
@@ -335,9 +345,9 @@ pub fn installFishHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "end\n";
 
     {
-        const file = try fs.createFileAbsolute(hook_path, .{});
-        defer file.close();
-        try file.writeAll(hook_content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hook_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, hook_content);
     }
 
     if (verbose) {
@@ -350,7 +360,7 @@ pub fn installClaudeCodeHook(allocator: std.mem.Allocator, verbose: bool) !void 
     const hooks_dir = try getClaudeHooksDir(allocator);
     defer allocator.free(hooks_dir);
 
-    try fs.makeDirAbsolute(hooks_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, hooks_dir, .default_dir);
 
     const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
     defer allocator.free(hook_path);
@@ -358,7 +368,7 @@ pub fn installClaudeCodeHook(allocator: std.mem.Allocator, verbose: bool) !void 
     var content = std.array_list.Managed(u8).init(allocator);
     defer content.deinit();
 
-    try content.writer().print(
+    try content.print(
         "#!/bin/bash\n" ++
             "# llmlite Claude Code Hook\n" ++
             "LLMLITE_BIN=\"llmlite-cmd\"\n" ++
@@ -401,9 +411,9 @@ pub fn installClaudeCodeHook(allocator: std.mem.Allocator, verbose: bool) !void 
     );
 
     {
-        const file = try fs.createFileAbsolute(hook_path, .{});
-        defer file.close();
-        try file.writeAll(content.items);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hook_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, content.items);
     }
 
     if (verbose) {
@@ -426,9 +436,9 @@ pub fn installClaudeCodeHook(allocator: std.mem.Allocator, verbose: bool) !void 
     ;
 
     {
-        const file = try fs.createFileAbsolute(settings_path, .{});
-        defer file.close();
-        try file.writeAll(settings_json);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, settings_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, settings_json);
     }
 
     if (verbose) {
@@ -440,7 +450,7 @@ pub fn installCursorHook(allocator: std.mem.Allocator, verbose: bool) !void {
     const hooks_dir = try getCursorHooksDir(allocator);
     defer allocator.free(hooks_dir);
 
-    try fs.makeDirAbsolute(hooks_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, hooks_dir, .default_dir);
 
     const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
     defer allocator.free(hook_path);
@@ -459,9 +469,9 @@ pub fn installCursorHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "esac\n";
 
     {
-        const file = try fs.createFileAbsolute(hook_path, .{});
-        defer file.close();
-        try file.writeAll(hook_content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hook_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, hook_content);
     }
 
     if (verbose) {
@@ -486,9 +496,9 @@ pub fn installCursorHook(allocator: std.mem.Allocator, verbose: bool) !void {
     ;
 
     {
-        const file = try fs.createFileAbsolute(hooks_json_path, .{});
-        defer file.close();
-        try file.writeAll(hooks_json);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hooks_json_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, hooks_json);
     }
 
     if (verbose) {
@@ -500,7 +510,7 @@ pub fn installGeminiHook(allocator: std.mem.Allocator, verbose: bool) !void {
     const hooks_dir = try getGeminiHooksDir(allocator);
     defer allocator.free(hooks_dir);
 
-    try fs.makeDirAbsolute(hooks_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, hooks_dir, .default_dir);
 
     const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-hook-gemini.bash", .{hooks_dir});
     defer allocator.free(hook_path);
@@ -519,9 +529,9 @@ pub fn installGeminiHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "esac\n";
 
     {
-        const file = try fs.createFileAbsolute(hook_path, .{});
-        defer file.close();
-        try file.writeAll(hook_content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hook_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, hook_content);
     }
 
     if (verbose) {
@@ -546,9 +556,9 @@ pub fn installGeminiHook(allocator: std.mem.Allocator, verbose: bool) !void {
     ;
 
     {
-        const file = try fs.createFileAbsolute(settings_path, .{});
-        defer file.close();
-        try file.writeAll(settings_json);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, settings_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, settings_json);
     }
 
     if (verbose) {
@@ -560,7 +570,7 @@ pub fn installOpenCodeHook(allocator: std.mem.Allocator, verbose: bool) !void {
     const plugins_dir = try getOpenCodePluginsDir(allocator);
     defer allocator.free(plugins_dir);
 
-    try fs.makeDirAbsolute(plugins_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, plugins_dir, .default_dir);
 
     const plugin_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-plugin.ts", .{plugins_dir});
     defer allocator.free(plugin_path);
@@ -587,9 +597,9 @@ pub fn installOpenCodeHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "export default llmlitePlugin;\n";
 
     {
-        const file = try fs.createFileAbsolute(plugin_path, .{});
-        defer file.close();
-        try file.writeAll(plugin_content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, plugin_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, plugin_content);
     }
 
     if (verbose) {
@@ -612,9 +622,9 @@ pub fn installWindsurfHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "Supported commands: git, cargo, npm, pytest, docker, kubectl, go, lint\n";
 
     {
-        const file = try fs.createFileAbsolute(rules_path, .{});
-        defer file.close();
-        try file.writeAll(content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, rules_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, content);
     }
 
     if (verbose) {
@@ -637,9 +647,9 @@ pub fn installClineHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "Supported commands: git, cargo, npm, pytest, docker, kubectl, go, lint\n";
 
     {
-        const file = try fs.createFileAbsolute(rules_path, .{});
-        defer file.close();
-        try file.writeAll(content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, rules_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, content);
     }
 
     if (verbose) {
@@ -662,9 +672,9 @@ pub fn installCodexHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "Supported commands: git, cargo, npm, pytest, docker, kubectl, go, lint, prisma, next\n";
 
     {
-        const file = try fs.createFileAbsolute(rules_path, .{});
-        defer file.close();
-        try file.writeAll(content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, rules_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, content);
     }
 
     if (verbose) {
@@ -688,11 +698,11 @@ pub fn installCopilotHook(allocator: std.mem.Allocator, verbose: bool) !void {
     defer allocator.free(home);
     const github_dir = try std.fmt.allocPrint(allocator, "{s}/.github", .{home});
     defer allocator.free(github_dir);
-    try fs.makeDirAbsolute(github_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, github_dir, .default_dir);
 
     const hooks_dir = try std.fmt.allocPrint(allocator, "{s}/.github/hooks", .{home});
     defer allocator.free(hooks_dir);
-    try fs.makeDirAbsolute(hooks_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, hooks_dir, .default_dir);
 
     // Write copilot-instructions.md
     const instructions_path = try getCopilotInstructionsPath(allocator);
@@ -726,9 +736,9 @@ pub fn installCopilotHook(allocator: std.mem.Allocator, verbose: bool) !void {
     ;
 
     {
-        const file = try fs.createFileAbsolute(instructions_path, .{});
-        defer file.close();
-        try file.writeAll(instructions);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, instructions_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, instructions);
     }
 
     if (verbose) {
@@ -745,7 +755,7 @@ pub fn installOpenClawHook(allocator: std.mem.Allocator, verbose: bool) !void {
     defer allocator.free(home);
     const openclaw_dir = try std.fmt.allocPrint(allocator, "{s}/.openclaw", .{home});
     defer allocator.free(openclaw_dir);
-    try fs.makeDirAbsolute(openclaw_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, openclaw_dir, .default_dir);
 
     const rules_path = try getOpenClawRulesPath(allocator);
     defer allocator.free(rules_path);
@@ -760,9 +770,9 @@ pub fn installOpenClawHook(allocator: std.mem.Allocator, verbose: bool) !void {
         "git, cargo, npm, pytest, docker, kubectl, go, lint, prisma, next\n";
 
     {
-        const file = try fs.createFileAbsolute(rules_path, .{});
-        defer file.close();
-        try file.writeAll(content);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, rules_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, content);
     }
 
     if (verbose) {
@@ -777,7 +787,7 @@ pub fn installKiroHook(allocator: std.mem.Allocator, verbose: bool) !void {
     const hooks_dir = try getKiroHooksDir(allocator);
     defer allocator.free(hooks_dir);
 
-    try fs.makeDirAbsolute(hooks_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, hooks_dir, .default_dir);
 
     const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
     defer allocator.free(hook_path);
@@ -785,41 +795,19 @@ pub fn installKiroHook(allocator: std.mem.Allocator, verbose: bool) !void {
     var content = std.array_list.Managed(u8).init(allocator);
     defer content.deinit();
 
-    try content.writer().print(
+    try content.print(
         "#!/bin/bash\n" ++
-            "# llmlite Kiro Hook\n" ++
+            "# llmlite Kiro Hook (rules-engine powered)\n" ++
+            "# Auto-syncs with llmlite-cmd rule definitions\n" ++
             "LLMLITE_BIN=\"llmlite-cmd\"\n" ++
             "rewrite_command() {{\n" ++
             "    local cmd=\"$1\"\n" ++
-            "    case \"$cmd\" in\n" ++
-            "        git\\ status*|git\\ diff*|git\\ log*|git\\ add*|git\\ commit*|git\\ push*|git\\ pull*|git\\ branch*|git\\ checkout*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        gh\\ pr\\ *|gh\\ issue\\ *|gh\\ run\\ *)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        cargo\\ test*|cargo\\ build*|cargo\\ clippy*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        npm\\ test*|npm\\ run*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        pytest*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} pytest\"\n" ++
-            "            ;;\n" ++
-            "        docker\\ ps*|docker\\ images*|docker\\ logs*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        kubectl\\ get*|kubectl\\ logs*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        go\\ test*|go\\ build*|go\\ vet*)\n" ++
-            "            echo \"${{LLMLITE_BIN}} $cmd\"\n" ++
-            "            ;;\n" ++
-            "        *)\n" ++
-            "            echo \"$cmd\"\n" ++
-            "            ;;\n" ++
-            "    esac\n" ++
+            "    local rewritten=$(\"${{LLMLITE_BIN}}\" rewrite \"$cmd\" 2>/dev/null)\n" ++
+            "    if [ $? -eq 0 ] && [ -n \"$rewritten\" ]; then\n" ++
+            "        echo \"$rewritten\"\n" ++
+            "    else\n" ++
+            "        echo \"$cmd\"\n" ++
+            "    fi\n" ++
             "}}\n" ++
             "if [ -n \"$1\" ]; then\n" ++
             "    rewrite_command \"$1\"\n" ++
@@ -828,9 +816,9 @@ pub fn installKiroHook(allocator: std.mem.Allocator, verbose: bool) !void {
     );
 
     {
-        const file = try fs.createFileAbsolute(hook_path, .{});
-        defer file.close();
-        try file.writeAll(content.items);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, hook_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, content.items);
     }
 
     if (verbose) {
@@ -843,20 +831,20 @@ pub fn installKiroHook(allocator: std.mem.Allocator, verbose: bool) !void {
 
     const settings_json =
         \\{
-        \\"hooks\\": {
-        \\"PreToolUse\\": {
-        \\"bash\\": {
-        \\"command\\": \\"~/.kiro/hooks/llmlite-rewrite.bash\\"
-        \\}
-        \\}
-        \\}
+        \\  "hooks": {
+        \\    "PreToolUse": {
+        \\      "bash": {
+        \\        "command": "~/.kiro/hooks/llmlite-rewrite.bash"
+        \\      }
+        \\    }
+        \\  }
         \\}
     ;
 
     {
-        const file = try fs.createFileAbsolute(settings_path, .{});
-        defer file.close();
-        try file.writeAll(settings_json);
+        const file = try std.Io.Dir.createFileAbsolute(g_io, settings_path, .{});
+        defer file.close(g_io);
+        try file.writeStreamingAll(g_io, settings_json);
     }
 
     if (verbose) {
@@ -874,7 +862,7 @@ pub fn isHookInstalled(allocator: std.mem.Allocator, tool: HookTool) !bool {
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.accessAbsolute(hook_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, hook_path, .{}) catch return false;
             return true;
         },
         .cursor => {
@@ -882,7 +870,7 @@ pub fn isHookInstalled(allocator: std.mem.Allocator, tool: HookTool) !bool {
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.accessAbsolute(hook_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, hook_path, .{}) catch return false;
             return true;
         },
         .gemini => {
@@ -890,7 +878,7 @@ pub fn isHookInstalled(allocator: std.mem.Allocator, tool: HookTool) !bool {
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-hook-gemini.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.accessAbsolute(hook_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, hook_path, .{}) catch return false;
             return true;
         },
         .opencode => {
@@ -898,49 +886,49 @@ pub fn isHookInstalled(allocator: std.mem.Allocator, tool: HookTool) !bool {
             defer allocator.free(plugins_dir);
             const plugin_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-plugin.ts", .{plugins_dir});
             defer allocator.free(plugin_path);
-            fs.accessAbsolute(plugin_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, plugin_path, .{}) catch return false;
             return true;
         },
         .windsurf => {
             const rules_path = try getWindsurfRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.accessAbsolute(rules_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, rules_path, .{}) catch return false;
             return true;
         },
         .cline => {
             const rules_path = try getClineRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.accessAbsolute(rules_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, rules_path, .{}) catch return false;
             return true;
         },
         .zsh => {
             const hook_path = try getZshHookPath(allocator);
             defer allocator.free(hook_path);
-            fs.accessAbsolute(hook_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, hook_path, .{}) catch return false;
             return true;
         },
         .fish => {
             const hook_path = try getFishHookPath(allocator);
             defer allocator.free(hook_path);
-            fs.accessAbsolute(hook_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, hook_path, .{}) catch return false;
             return true;
         },
         .copilot => {
             const instructions_path = try getCopilotInstructionsPath(allocator);
             defer allocator.free(instructions_path);
-            fs.accessAbsolute(instructions_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, instructions_path, .{}) catch return false;
             return true;
         },
         .openclaw => {
             const rules_path = try getOpenClawRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.accessAbsolute(rules_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, rules_path, .{}) catch return false;
             return true;
         },
         .codex => {
             const rules_path = try getCodexRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.accessAbsolute(rules_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, rules_path, .{}) catch return false;
             return true;
         },
         .kiro => {
@@ -948,7 +936,7 @@ pub fn isHookInstalled(allocator: std.mem.Allocator, tool: HookTool) !bool {
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.accessAbsolute(hook_path, .{}) catch return false;
+            std.Io.Dir.accessAbsolute(g_io, hook_path, .{}) catch return false;
             return true;
         },
     }
@@ -961,79 +949,79 @@ pub fn uninstallHook(allocator: std.mem.Allocator, tool: HookTool) !void {
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.deleteFileAbsolute(hook_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hook_path) catch {};
             const settings_path = try std.fmt.allocPrint(allocator, "{s}/settings.json", .{hooks_dir});
             defer allocator.free(settings_path);
-            fs.deleteFileAbsolute(settings_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, settings_path) catch {};
         },
         .cursor => {
             const hooks_dir = try getCursorHooksDir(allocator);
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.deleteFileAbsolute(hook_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hook_path) catch {};
             const hooks_json_path = try std.fmt.allocPrint(allocator, "{s}/hooks.json", .{hooks_dir});
             defer allocator.free(hooks_json_path);
-            fs.deleteFileAbsolute(hooks_json_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hooks_json_path) catch {};
         },
         .gemini => {
             const hooks_dir = try getGeminiHooksDir(allocator);
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-hook-gemini.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.deleteFileAbsolute(hook_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hook_path) catch {};
         },
         .opencode => {
             const plugins_dir = try getOpenCodePluginsDir(allocator);
             defer allocator.free(plugins_dir);
             const plugin_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-plugin.ts", .{plugins_dir});
             defer allocator.free(plugin_path);
-            fs.deleteFileAbsolute(plugin_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, plugin_path) catch {};
         },
         .windsurf => {
             const rules_path = try getWindsurfRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.deleteFileAbsolute(rules_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, rules_path) catch {};
         },
         .cline => {
             const rules_path = try getClineRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.deleteFileAbsolute(rules_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, rules_path) catch {};
         },
         .zsh => {
             const hook_path = try getZshHookPath(allocator);
             defer allocator.free(hook_path);
-            fs.deleteFileAbsolute(hook_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hook_path) catch {};
         },
         .fish => {
             const hook_path = try getFishHookPath(allocator);
             defer allocator.free(hook_path);
-            fs.deleteFileAbsolute(hook_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hook_path) catch {};
         },
         .copilot => {
             const instructions_path = try getCopilotInstructionsPath(allocator);
             defer allocator.free(instructions_path);
-            fs.deleteFileAbsolute(instructions_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, instructions_path) catch {};
         },
         .openclaw => {
             const rules_path = try getOpenClawRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.deleteFileAbsolute(rules_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, rules_path) catch {};
         },
         .codex => {
             const rules_path = try getCodexRulesPath(allocator);
             defer allocator.free(rules_path);
-            fs.deleteFileAbsolute(rules_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, rules_path) catch {};
         },
         .kiro => {
             const hooks_dir = try getKiroHooksDir(allocator);
             defer allocator.free(hooks_dir);
             const hook_path = try std.fmt.allocPrint(allocator, "{s}/llmlite-rewrite.bash", .{hooks_dir});
             defer allocator.free(hook_path);
-            fs.deleteFileAbsolute(hook_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, hook_path) catch {};
             const settings_path = try std.fmt.allocPrint(allocator, "{s}/settings.json", .{hooks_dir});
             defer allocator.free(settings_path);
-            fs.deleteFileAbsolute(settings_path) catch {};
+            std.Io.Dir.deleteFileAbsolute(g_io, settings_path) catch {};
         },
     }
 }

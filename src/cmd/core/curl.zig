@@ -40,21 +40,21 @@ fn filterCurlJson(output: []const u8) []const u8 {
         var pos: usize = 1;
         while (pos < trimmed.len) {
             const search = "\"";
-            const idx = std.mem.indexOf(u8, trimmed[pos..], search);
+            const idx = std.mem.find(u8, trimmed[pos..], search);
             if (idx == null) break;
 
             pos += idx.? + 1;
             if (pos >= trimmed.len) break;
 
             // Check for : after key
-            const colon_idx = std.mem.indexOf(u8, trimmed[pos..], ":\"");
-            const comma_idx = std.mem.indexOf(u8, trimmed[pos..], ",\"");
+            const colon_idx = std.mem.find(u8, trimmed[pos..], ":\"");
+            const comma_idx = std.mem.find(u8, trimmed[pos..], ",\"");
 
             if (colon_idx == null and comma_idx == null) break;
 
             const after_quote = trimmed[pos..];
-            const next_colon = std.mem.indexOf(u8, after_quote, ":");
-            const next_comma = std.mem.indexOf(u8, after_quote, ",");
+            const next_colon = std.mem.find(u8, after_quote, ":");
+            const next_comma = std.mem.find(u8, after_quote, ",");
 
             if (next_colon == null) break;
 
@@ -72,16 +72,16 @@ fn filterCurlJson(output: []const u8) []const u8 {
             if (pos >= trimmed.len) break;
         }
 
-        std.fmt.format(result.writer(), "curl: JSON response with {d} fields\n", .{keys.items.len}) catch return "";
+        result.print( "curl: JSON response with {d} fields\n", .{keys.items.len}) catch return "";
         result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
         const show_count = @min(10, keys.items.len);
         for (keys.items[0..show_count]) |key| {
-            std.fmt.format(result.writer(), "  {s}\n", .{key}) catch return "";
+            result.print( "  {s}\n", .{key}) catch return "";
         }
 
         if (keys.items.len > 10) {
-            std.fmt.format(result.writer(), "  ... +{d} more\n", .{keys.items.len - 10}) catch return "";
+            result.print( "  ... +{d} more\n", .{keys.items.len - 10}) catch return "";
         }
 
         return result.toOwnedSlice() catch "";
@@ -109,7 +109,7 @@ fn filterCurlJson(output: []const u8) []const u8 {
             const first_key = json.extractString(obj_text, "id") orelse
                 json.extractString(obj_text, "name") orelse
                 json.extractString(obj_text, "key") orelse "?";
-            std.fmt.format(result.writer(), "  {s}\n", .{first_key}) catch return "";
+            result.print( "  {s}\n", .{first_key}) catch return "";
 
             count += 1;
             pos = obj_end + 1;
@@ -118,9 +118,9 @@ fn filterCurlJson(output: []const u8) []const u8 {
         // Count total items
         const total = std.mem.count(u8, trimmed, &.{'{'});
 
-        std.fmt.format(result.writer(), "curl: JSON array with {d} items\n", .{total}) catch return "";
+        result.print( "curl: JSON array with {d} items\n", .{total}) catch return "";
         if (count < total) {
-            std.fmt.format(result.writer(), "  ... showing first {d}\n", .{count}) catch return "";
+            result.print( "  ... showing first {d}\n", .{count}) catch return "";
         }
 
         return result.toOwnedSlice() catch "";

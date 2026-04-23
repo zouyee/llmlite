@@ -4,6 +4,16 @@
 //! Inspired by RTK's rtk gain command.
 
 const std = @import("std");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const proxy_helpers = @import("proxy_helpers");
 const shared = @import("shared_analytics");
 
@@ -145,7 +155,7 @@ const BaseStats = struct {
 };
 
 fn getBaseStats(allocator: std.mem.Allocator) BaseStats {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch {
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch {
         return BaseStats{ .total_commands = 0, .total_input_tokens = 0, .total_output_tokens = 0, .total_saved_tokens = 0, .avg_savings_pct = 0.0 };
     };
     defer allocator.free(home_dir);
@@ -155,17 +165,17 @@ fn getBaseStats(allocator: std.mem.Allocator) BaseStats {
     };
     defer allocator.free(db_path);
 
-    const file = std.fs.openFileAbsolute(db_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_io, db_path, .{}) catch {
         return BaseStats{ .total_commands = 0, .total_input_tokens = 0, .total_output_tokens = 0, .total_saved_tokens = 0, .avg_savings_pct = 0.0 };
     };
-    defer file.close();
+    defer file.close(g_io);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readStreaming(g_io, &.{buf[0..]}) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -202,7 +212,7 @@ fn getBaseStats(allocator: std.mem.Allocator) BaseStats {
 
 fn getTopCommands(allocator: std.mem.Allocator, days: u32) []TopCommand {
     // Read history file and aggregate by command
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch {
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch {
         return &[_]TopCommand{};
     };
     defer allocator.free(home_dir);
@@ -212,13 +222,13 @@ fn getTopCommands(allocator: std.mem.Allocator, days: u32) []TopCommand {
     };
     defer allocator.free(db_path);
 
-    const file = std.fs.openFileAbsolute(db_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_io, db_path, .{}) catch {
         return &[_]TopCommand{};
     };
-    defer file.close();
+    defer file.close(g_io);
 
     // Calculate cutoff timestamp
-    const cutoff_time = std.time.timestamp() - (@as(i64, days) * 24 * 60 * 60);
+    const cutoff_time = @import("time_compat").timestamp(g_io) - (@as(i64, days) * 24 * 60 * 60);
 
     // Track command aggregates - use fixed-size arrays since we only need top 10
     const MAX_CMDS = 50;
@@ -232,7 +242,7 @@ fn getTopCommands(allocator: std.mem.Allocator, days: u32) []TopCommand {
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readStreaming(g_io, &.{buf[0..]}) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -335,33 +345,33 @@ fn showGainText(stats: GainStats, options: GainOptions) !void {
     var output = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer output.deinit();
 
-    try output.writer().print("Token Savings Report ({d} days)\n", .{options.days});
-    try output.writer().print("========================================\n\n", .{});
+    try output.print("Token Savings Report ({d} days)\n", .{options.days});
+    try output.print("========================================\n\n", .{});
 
-    try output.writer().print("Commands executed:  {}\n", .{stats.total_commands});
-    try output.writer().print("Average savings:    {:.1}%\n", .{stats.avg_savings_pct});
-    try output.writer().print("Total tokens saved: {}\n", .{stats.total_saved_tokens});
-    try output.writer().print("Input tokens:       {}\n", .{stats.total_input_tokens});
-    try output.writer().print("Output tokens:      {}\n", .{stats.total_output_tokens});
+    try output.print("Commands executed:  {}\n", .{stats.total_commands});
+    try output.print("Average savings:    {:.1}%\n", .{stats.avg_savings_pct});
+    try output.print("Total tokens saved: {}\n", .{stats.total_saved_tokens});
+    try output.print("Input tokens:       {}\n", .{stats.total_input_tokens});
+    try output.print("Output tokens:      {}\n", .{stats.total_output_tokens});
 
     if (options.show_graph) {
-        try output.writer().print("\nSavings Graph (last 30 days):\n", .{});
+        try output.print("\nSavings Graph (last 30 days):\n", .{});
         const bars = @as(u8, @intFromFloat(stats.avg_savings_pct / 5.0)); // 5% per bar
-        try output.writer().print("[", .{});
+        try output.print("[", .{});
         for (0..20) |i| {
             if (i < bars) {
-                try output.writer().print("#", .{});
+                try output.print("#", .{});
             } else {
-                try output.writer().print("-", .{});
+                try output.print("-", .{});
             }
         }
-        try output.writer().print("] {:.1}%\n", .{stats.avg_savings_pct});
+        try output.print("] {:.1}%\n", .{stats.avg_savings_pct});
     }
 
     if (stats.top_commands.len > 0) {
-        try output.writer().print("\nTop commands:\n", .{});
+        try output.print("\nTop commands:\n", .{});
         for (stats.top_commands[0..@min(5, stats.top_commands.len)]) |cmd| {
-            try output.writer().print("  - {s}  ({} uses, {} tokens saved)\n", .{ cmd.cmd, cmd.count, cmd.total_saved });
+            try output.print("  - {s}  ({} uses, {} tokens saved)\n", .{ cmd.cmd, cmd.count, cmd.total_saved });
         }
     }
 
@@ -377,23 +387,23 @@ fn showGainText(stats: GainStats, options: GainOptions) !void {
 }
 
 fn showHistory(days: u32) !void {
-    const home_dir = std.process.getEnvVarOwned(std.heap.page_allocator, "HOME") catch return;
+    const home_dir = _getEnvVarOwned(std.heap.page_allocator, "HOME") catch return;
     defer std.heap.page_allocator.free(home_dir);
 
     const db_path = std.fmt.allocPrint(std.heap.page_allocator, "{s}/.local/share/llmlite/history.db", .{home_dir}) catch return;
     defer std.heap.page_allocator.free(db_path);
 
-    const file = std.fs.openFileAbsolute(db_path, .{ .mode = .read_only }) catch return;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, db_path, .{}) catch return;
+    defer file.close(g_io);
 
-    const cutoff_time = std.time.timestamp() - (@as(i64, days) * 24 * 60 * 60);
+    const cutoff_time = @import("time_compat").timestamp(g_io) - (@as(i64, days) * 24 * 60 * 60);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readStreaming(g_io, &.{buf[0..]}) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -422,23 +432,23 @@ fn showHistory(days: u32) !void {
 
 fn showDaily(days: u32) !void {
     // Show daily breakdown - simplified since timestamp-to-date is complex in Zig
-    const home_dir = std.process.getEnvVarOwned(std.heap.page_allocator, "HOME") catch return;
+    const home_dir = _getEnvVarOwned(std.heap.page_allocator, "HOME") catch return;
     defer std.heap.page_allocator.free(home_dir);
 
     const db_path = std.fmt.allocPrint(std.heap.page_allocator, "{s}/.local/share/llmlite/history.db", .{home_dir}) catch return;
     defer std.heap.page_allocator.free(db_path);
 
-    const file = std.fs.openFileAbsolute(db_path, .{ .mode = .read_only }) catch return;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, db_path, .{}) catch return;
+    defer file.close(g_io);
 
-    const cutoff_time = std.time.timestamp() - (@as(i64, days) * 24 * 60 * 60);
+    const cutoff_time = @import("time_compat").timestamp(g_io) - (@as(i64, days) * 24 * 60 * 60);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readStreaming(g_io, &.{buf[0..]}) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -481,13 +491,13 @@ fn showGainJson(stats: GainStats) !void {
     var output = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer output.deinit();
 
-    try output.writer().print("{{\n", .{});
-    try output.writer().print("  \"total_commands\": {},\n", .{stats.total_commands});
-    try output.writer().print("  \"avg_savings_pct\": {:.1},\n", .{stats.avg_savings_pct});
-    try output.writer().print("  \"total_saved_tokens\": {},\n", .{stats.total_saved_tokens});
-    try output.writer().print("  \"input_tokens\": {},\n", .{stats.total_input_tokens});
-    try output.writer().print("  \"output_tokens\": {}\n", .{stats.total_output_tokens});
-    try output.writer().print("}}\n", .{});
+    try output.print("{{\n", .{});
+    try output.print("  \"total_commands\": {},\n", .{stats.total_commands});
+    try output.print("  \"avg_savings_pct\": {:.1},\n", .{stats.avg_savings_pct});
+    try output.print("  \"total_saved_tokens\": {},\n", .{stats.total_saved_tokens});
+    try output.print("  \"input_tokens\": {},\n", .{stats.total_input_tokens});
+    try output.print("  \"output_tokens\": {}\n", .{stats.total_output_tokens});
+    try output.print("}}\n", .{});
 
     std.debug.print("{s}", .{output.items});
 }
@@ -497,18 +507,18 @@ fn showGainCsv(stats: GainStats) !void {
     defer output.deinit();
 
     // CSV header
-    try output.writer().print("metric,value\n", .{});
-    try output.writer().print("total_commands,{}\n", .{stats.total_commands});
-    try output.writer().print("avg_savings_pct,{:.1}\n", .{stats.avg_savings_pct});
-    try output.writer().print("total_saved_tokens,{}\n", .{stats.total_saved_tokens});
-    try output.writer().print("input_tokens,{}\n", .{stats.total_input_tokens});
-    try output.writer().print("output_tokens,{}\n", .{stats.total_output_tokens});
+    try output.print("metric,value\n", .{});
+    try output.print("total_commands,{}\n", .{stats.total_commands});
+    try output.print("avg_savings_pct,{:.1}\n", .{stats.avg_savings_pct});
+    try output.print("total_saved_tokens,{}\n", .{stats.total_saved_tokens});
+    try output.print("input_tokens,{}\n", .{stats.total_input_tokens});
+    try output.print("output_tokens,{}\n", .{stats.total_output_tokens});
 
     // Top commands
     if (stats.top_commands.len > 0) {
-        try output.writer().print("\ncommand,count,tokens_saved\n", .{});
+        try output.print("\ncommand,count,tokens_saved\n", .{});
         for (stats.top_commands) |cmd| {
-            try output.writer().print("{s},{},{}\n", .{ cmd.cmd, cmd.count, cmd.total_saved });
+            try output.print("{s},{},{}\n", .{ cmd.cmd, cmd.count, cmd.total_saved });
         }
     }
 

@@ -5,26 +5,33 @@ const sqlite = @import("sqlite");
 const types = @import("types.zig");
 const db = @import("db.zig");
 const utils = @import("utils.zig");
+const time_compat = @import("time_compat");
 
 pub const SessionManager = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     memory_db: *db.MemoryDb,
+    home_dir: []const u8,
     idle_threshold_secs: i64,
     privacy_mode: types.PrivacyMode = .normal,
 
-    pub fn init(allocator: std.mem.Allocator, memory_db: *db.MemoryDb) SessionManager {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, memory_db: *db.MemoryDb, home_dir: []const u8) SessionManager {
         return SessionManager{
             .allocator = allocator,
+            .io = io,
             .memory_db = memory_db,
+            .home_dir = home_dir,
             .idle_threshold_secs = 1800, // 30 minutes
             .privacy_mode = .normal,
         };
     }
 
-    pub fn initWithPrivacy(allocator: std.mem.Allocator, memory_db: *db.MemoryDb, privacy_mode: types.PrivacyMode) SessionManager {
+    pub fn initWithPrivacy(allocator: std.mem.Allocator, io: std.Io, memory_db: *db.MemoryDb, home_dir: []const u8, privacy_mode: types.PrivacyMode) SessionManager {
         return SessionManager{
             .allocator = allocator,
+            .io = io,
             .memory_db = memory_db,
+            .home_dir = home_dir,
             .idle_threshold_secs = 1800, // 30 minutes
             .privacy_mode = privacy_mode,
         };
@@ -42,18 +49,18 @@ pub const SessionManager = struct {
             return try self.allocator.dupe(u8, "private-session");
         }
 
-        const state = readSessionFile(self.allocator) catch null;
+        const state = readSessionFile(self.allocator, self.io, self.home_dir) catch null;
         defer if (state) |s| {
             self.allocator.free(s.session_id);
             self.allocator.free(s.project);
         };
 
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
 
         if (state) |s| {
             if (now - s.last_activity < self.idle_threshold_secs) {
                 // Update last_activity and return existing ID
-                try writeSessionFile(self.allocator, .{
+                try writeSessionFile(self.allocator, self.io, self.home_dir, .{
                     .session_id = s.session_id,
                     .last_activity = now,
                     .project = s.project,
@@ -69,7 +76,7 @@ pub const SessionManager = struct {
         const new_id = try utils.generateSessionId(self.allocator);
         errdefer self.allocator.free(new_id);
 
-        try writeSessionFile(self.allocator, .{
+        try writeSessionFile(self.allocator, self.io, self.home_dir, .{
             .session_id = new_id,
             .last_activity = now,
             .project = project,
@@ -81,7 +88,7 @@ pub const SessionManager = struct {
     /// Start an explicit session
     /// In private mode, skips writing to session.json
     pub fn startSession(self: *SessionManager) ![]const u8 {
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(self.io);
         const project = try utils.detectProject(self.allocator);
         defer self.allocator.free(project);
 
@@ -89,7 +96,7 @@ pub const SessionManager = struct {
         errdefer self.allocator.free(new_id);
 
         if (self.privacy_mode == .normal) {
-            try writeSessionFile(self.allocator, .{
+            try writeSessionFile(self.allocator, self.io, self.home_dir, .{
                 .session_id = new_id,
                 .last_activity = now,
                 .project = project,
@@ -101,7 +108,7 @@ pub const SessionManager = struct {
 
     /// End current session and generate summary
     pub fn endSession(self: *SessionManager) !?types.SessionSummary {
-        const state = readSessionFile(self.allocator) catch null;
+        const state = readSessionFile(self.allocator, self.io, self.home_dir) catch null;
         defer if (state) |s| {
             self.allocator.free(s.session_id);
             self.allocator.free(s.project);
@@ -113,16 +120,16 @@ pub const SessionManager = struct {
         const summary = try self.generateSummary(session_id);
 
         // Delete session file
-        const path = try getSessionStatePath(self.allocator);
+        const path = try getSessionStatePath(self.allocator, self.home_dir);
         defer self.allocator.free(path);
-        std.fs.deleteFileAbsolute(path) catch {};
+        std.Io.Dir.deleteFileAbsolute(self.io, path) catch {};
 
         return summary;
     }
 
     /// Get current session status
     pub fn getStatus(self: *SessionManager) SessionStatus {
-        const state = readSessionFile(self.allocator) catch return .{
+        const state = readSessionFile(self.allocator, self.io, self.home_dir) catch return .{
             .active = false,
             .session_id = "",
             .idle_secs = 0,
@@ -134,7 +141,7 @@ pub const SessionManager = struct {
         };
 
         if (state) |s| {
-            const now = std.time.timestamp();
+            const now = time_compat.timestamp(self.io);
             const idle = now - s.last_activity;
             return SessionStatus{
                 .active = idle < self.idle_threshold_secs,
@@ -260,7 +267,7 @@ pub const SessionManager = struct {
             .followups = "",
             .notes = "",
             .command_count = @intCast(rows.len),
-            .created_at = std.time.timestamp(),
+            .created_at = time_compat.timestamp(self.io),
         };
 
         // Save to database
@@ -297,36 +304,41 @@ pub const SessionStatus = struct {
 // Session State File I/O
 // =========================================================================
 
-const SessionState = struct {
+pub const SessionState = struct {
     session_id: []const u8,
     last_activity: i64,
     project: []const u8,
 };
 
-fn getSessionStatePath(allocator: std.mem.Allocator) ![]const u8 {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch {
-        return try std.fmt.allocPrint(allocator, "/tmp/llmlite_session.json", .{});
-    };
-    defer allocator.free(home_dir);
+/// Pure path construction — returns `{home_dir}/.local/share/llmlite/session.json`.
+/// Does not perform any I/O (no directory creation).
+pub fn buildSessionStatePath(allocator: std.mem.Allocator, home_dir: []const u8) ![]const u8 {
+    return try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/session.json", .{home_dir});
+}
 
+fn getSessionStatePath(allocator: std.mem.Allocator, home_dir: []const u8) ![]const u8 {
+    return try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/session.json", .{home_dir});
+}
+
+fn ensureDataDir(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8) !void {
     const data_dir = try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite", .{home_dir});
     defer allocator.free(data_dir);
 
-    std.fs.makeDirAbsolute(data_dir) catch |err| {
+    std.Io.Dir.createDirAbsolute(io, data_dir, .default_dir) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
-
-    return try std.fmt.allocPrint(allocator, "{s}/session.json", .{data_dir});
 }
 
-fn readSessionFile(allocator: std.mem.Allocator) !?SessionState {
-    const path = try getSessionStatePath(allocator);
+fn readSessionFile(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8) !?SessionState {
+    const path = try getSessionStatePath(allocator, home_dir);
     defer allocator.free(path);
 
-    const file = std.fs.openFileAbsolute(path, .{}) catch return null;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch return null;
+    defer file.close(io);
 
-    const content = file.readToEndAlloc(allocator, 4096) catch return null;
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = file.reader(io, &read_buf);
+    const content = file_reader.interface.allocRemaining(allocator, .limited(4096)) catch return null;
     defer allocator.free(content);
 
     const Parsed = struct {
@@ -347,8 +359,10 @@ fn readSessionFile(allocator: std.mem.Allocator) !?SessionState {
     };
 }
 
-fn writeSessionFile(allocator: std.mem.Allocator, state: SessionState) !void {
-    const path = try getSessionStatePath(allocator);
+pub fn writeSessionFile(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, state: SessionState) !void {
+    try ensureDataDir(allocator, io, home_dir);
+
+    const path = try getSessionStatePath(allocator, home_dir);
     defer allocator.free(path);
 
     const JsonState = struct {
@@ -364,7 +378,131 @@ fn writeSessionFile(allocator: std.mem.Allocator, state: SessionState) !void {
     }, .{});
     defer allocator.free(json_bytes);
 
-    const file = try std.fs.createFileAbsolute(path, .{});
-    defer file.close();
-    try file.writeAll(json_bytes);
+    const file = try std.Io.Dir.createFileAbsolute(io, path, .{});
+    defer file.close(io);
+    var write_buf: [4096]u8 = undefined;
+    var writer = file.writer(io, &write_buf);
+    try writer.interface.writeAll(json_bytes);
+    try writer.interface.flush();
+}
+
+// ============================================================================
+// Property-Based Tests
+// ============================================================================
+
+// **Feature: zig-016-upgrade, Property 3: 会话持久化往返一致性**
+// Verify any valid SessionState written to session.json then read back
+// produces identical deserialized values.
+//
+// **Validates: Requirements 2.8, 2.9, 3.7**
+test "Property 3: session persistence round-trip consistency" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    // Use a deterministic PRNG
+    var prng = std.Random.DefaultPrng.init(0xCAFEBABE);
+    const random = prng.random();
+
+    const iterations: usize = 100;
+
+    // Use a temp directory as home_dir for testing
+    const test_home = "/tmp/__llmlite_session_prop3_test";
+
+    // Ensure the full data directory path exists
+    const dirs = [_][]const u8{
+        "/tmp/__llmlite_session_prop3_test",
+        "/tmp/__llmlite_session_prop3_test/.local",
+        "/tmp/__llmlite_session_prop3_test/.local/share",
+        "/tmp/__llmlite_session_prop3_test/.local/share/llmlite",
+    };
+    for (dirs) |d| {
+        std.Io.Dir.createDirAbsolute(io, d, .{}) catch {};
+    }
+
+    // Clean up session file after test
+    defer {
+        const path = getSessionStatePath(allocator, test_home) catch null;
+        if (path) |p| {
+            defer allocator.free(p);
+            std.Io.Dir.deleteFileAbsolute(io, p) catch {};
+        }
+    }
+
+    for (0..iterations) |iter| {
+        // Generate random session_id (8-16 alphanumeric chars)
+        const id_len = random.intRangeAtMost(usize, 4, 16);
+        const id_buf = try allocator.alloc(u8, id_len);
+        defer allocator.free(id_buf);
+        for (id_buf) |*c| {
+            const charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+            c.* = charset[random.intRangeLessThan(usize, 0, charset.len)];
+        }
+
+        // Generate random last_activity (positive timestamp)
+        const last_activity: i64 = random.intRangeAtMost(i64, 1000000, 2000000000);
+
+        // Generate random project name (4-20 alphanumeric chars)
+        const proj_len = random.intRangeAtMost(usize, 4, 20);
+        const proj_buf = try allocator.alloc(u8, proj_len);
+        defer allocator.free(proj_buf);
+        for (proj_buf) |*c| {
+            const charset = "abcdefghijklmnopqrstuvwxyz0123456789-_";
+            c.* = charset[random.intRangeLessThan(usize, 0, charset.len)];
+        }
+
+        const original = SessionState{
+            .session_id = id_buf,
+            .last_activity = last_activity,
+            .project = proj_buf,
+        };
+
+        // Write
+        try writeSessionFile(allocator, io, test_home, original);
+
+        // Read back
+        const read_back = try readSessionFile(allocator, io, test_home);
+        try std.testing.expect(read_back != null);
+
+        const state = read_back.?;
+        defer {
+            allocator.free(state.session_id);
+            allocator.free(state.project);
+        }
+
+        // Verify round-trip consistency
+        try std.testing.expectEqualStrings(original.session_id, state.session_id);
+        try std.testing.expectEqual(original.last_activity, state.last_activity);
+        try std.testing.expectEqualStrings(original.project, state.project);
+
+        _ = iter;
+    }
+}
+
+// **Feature: zig-016-upgrade, Property 6 (session): session path construction**
+// Verify for any valid HOME path, buildSessionStatePath returns `{HOME}/.local/share/llmlite/session.json`.
+//
+// **Validates: Requirements 4.3, 4.6**
+test "Property 6: buildSessionStatePath returns correct path for any valid HOME" {
+    const allocator = std.testing.allocator;
+
+    const home_paths = [_][]const u8{
+        "/home/user",
+        "/root",
+        "/home/a",
+        "/Users/developer",
+        "/tmp",
+        "/home/user/with/deep/nesting",
+        "/opt/custom-home",
+        "/var/lib/service",
+    };
+
+    for (home_paths) |home| {
+        const path = try buildSessionStatePath(allocator, home);
+        defer allocator.free(path);
+
+        const expected = try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/session.json", .{home});
+        defer allocator.free(expected);
+
+        try std.testing.expectEqualStrings(expected, path);
+    }
 }

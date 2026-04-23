@@ -9,6 +9,8 @@
 
 const std = @import("std");
 
+pub var g_io: std.Io = undefined;
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -71,12 +73,18 @@ fn readStore(allocator: std.mem.Allocator) !TrustStore {
     defer allocator.free(path);
 
     // Try to read the file
-    const content = std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize)) catch |err| {
-        if (err == error.FileNotFound) {
-            // Return empty store if no file exists
-            return TrustStore.init(allocator);
-        }
-        return err;
+    const content = blk: {
+        const file = std.Io.Dir.cwd().openFile(g_io, path, .{}) catch |err| {
+            if (err == error.FileNotFound) {
+                // Return empty store if no file exists
+                return TrustStore.init(allocator);
+            }
+            return err;
+        };
+        defer file.close(g_io);
+        var read_buf: [4096]u8 = undefined;
+        var file_reader = file.reader(g_io, &read_buf);
+        break :blk try file_reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     };
     defer allocator.free(content);
 
@@ -89,7 +97,7 @@ fn readStore(allocator: std.mem.Allocator) !TrustStore {
     var i: usize = 0;
     while (i < content.len) {
         // Look for "trusted": {
-        const trusted_start = std.mem.indexOf(u8, content[i..], "\"trusted\":{") orelse break;
+        const trusted_start = std.mem.find(u8, content[i..], "\"trusted\":{") orelse break;
         i += trusted_start + 10; // Skip past "trusted":{
 
         // Parse each entry
@@ -155,7 +163,7 @@ fn writeStore(store: *TrustStore) !void {
     // Create parent directories
     const parent = std.fs.path.dirname(path);
     if (parent) |p| {
-        try std.fs.cwd().makeDir(p);
+        try std.Io.Dir.cwd().createDirPath(g_io, p);
     }
 
     // Build JSON string manually
@@ -191,7 +199,9 @@ fn writeStore(store: *TrustStore) !void {
     try json.appendSlice("\n  }\n");
     try json.appendSlice("}\n");
 
-    try std.fs.cwd().writeFile(path, json.items);
+    const file = try std.Io.Dir.cwd().createFile(g_io, path, .{});
+    defer file.close(g_io);
+    try file.writeStreamingAll(g_io, json.items);
 }
 
 // ============================================================================
@@ -284,13 +294,18 @@ pub fn untrustFilter(filter_path: []const u8) !bool {
 
 fn canonicalKey(filter_path: []const u8) ![]const u8 {
     // Resolve symlinks and produce absolute path
-    const resolved = try std.fs.cwd().realPath(filter_path);
-    return resolved;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const resolved = try std.Io.Dir.cwd().realPath(g_io, filter_path, &buf);
+    return std.heap.page_allocator.dupe(u8, resolved);
 }
 
 fn computeHash(path: []const u8) ![]const u8 {
     // Read file content
-    const content = try std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, std.math.maxInt(usize));
+    const file = try std.Io.Dir.cwd().openFile(g_io, path, .{});
+    defer file.close(g_io);
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = file.reader(g_io, &read_buf);
+    const content = try file_reader.interface.allocRemaining(std.heap.page_allocator, .limited(std.math.maxInt(usize)));
     defer std.heap.page_allocator.free(content);
 
     // Compute SHA-256 hash (simplified - using a basic checksum for now)
@@ -313,7 +328,7 @@ fn computeHash(path: []const u8) ![]const u8 {
 
 fn getTimestamp() []const u8 {
     // Get current time as ISO 8601 string (simplified)
-    const now = std.time.timestamp();
+    const now = time_compat.timestamp(g_io);
     const buf = std.fmt.allocPrintZ(std.heap.page_allocator, "{d}", .{@as(f64, @floatFromInt(now))}) catch return "";
     return buf;
 }

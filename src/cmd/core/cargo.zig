@@ -179,13 +179,13 @@ pub fn filterCargoTest(output: []const u8) []const u8 {
 
     // Build output
     if (fail_count == 0 and pass_count > 0) {
-        std.fmt.format(result.writer(), "cargo test: {d} passed", .{pass_count}) catch return "";
+        result.print( "cargo test: {d} passed", .{pass_count}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 
     if (fail_count > 0) {
-        std.fmt.format(result.writer(), "cargo test: {d} passed, {d} failed\n", .{ pass_count, fail_count }) catch return "";
-        std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+        result.print( "cargo test: {d} passed, {d} failed\n", .{ pass_count, fail_count }) catch return "";
+        result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
         // Show first few failures
         var shown: usize = 0;
@@ -199,7 +199,7 @@ pub fn filterCargoTest(output: []const u8) []const u8 {
         }
 
         if (failure_lines.items.len > 5) {
-            std.fmt.format(result.writer(), "... +{d} more lines\n", .{failure_lines.items.len - 5}) catch return "";
+            result.print( "... +{d} more lines\n", .{failure_lines.items.len - 5}) catch return "";
         }
 
         return result.toOwnedSlice() catch "";
@@ -248,17 +248,17 @@ fn filterCargoTestJson(output: []const u8) []const u8 {
     }
 
     if (fail_count == 0) {
-        std.fmt.format(result.writer(), "cargo test: {d} passed", .{pass_count}) catch return "";
+        result.print( "cargo test: {d} passed", .{pass_count}) catch return "";
     } else {
-        std.fmt.format(result.writer(), "cargo test: {d} passed, {d} failed\n", .{ pass_count, fail_count }) catch return "";
-        std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+        result.print( "cargo test: {d} passed, {d} failed\n", .{ pass_count, fail_count }) catch return "";
+        result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
         for (failures.items[0..@min(5, failures.items.len)]) |name| {
-            std.fmt.format(result.writer(), "  FAILED: {s}\n", .{name}) catch return "";
+            result.print( "  FAILED: {s}\n", .{name}) catch return "";
         }
 
         if (fail_count > 5) {
-            std.fmt.format(result.writer(), "  ... +{d} more\n", .{fail_count - 5}) catch return "";
+            result.print( "  ... +{d} more\n", .{fail_count - 5}) catch return "";
         }
     }
 
@@ -268,16 +268,16 @@ fn filterCargoTestJson(output: []const u8) []const u8 {
 /// Extract string field from simple JSON
 fn extractJsonString(json: []const u8, field: []const u8) ?[]const u8 {
     const search = "\"" ++ field ++ "\":\"";
-    const start = std.mem.indexOf(u8, json, search) orelse return null;
+    const start = std.mem.find(u8, json, search) orelse return null;
     const value_start = start + search.len;
-    const value_end = std.mem.indexOf(u8, json[value_start..], "\"") orelse return null;
+    const value_end = std.mem.find(u8, json[value_start..], "\"") orelse return null;
     return json[value_start .. value_start + value_end];
 }
 
 /// Extract integer field from simple JSON
 fn extractJsonInt(json: []const u8, field: []const u8) ?usize {
     const search = "\"" ++ field ++ "\":";
-    const start = std.mem.indexOf(u8, json, search) orelse return null;
+    const start = std.mem.find(u8, json, search) orelse return null;
     const value_start = start + search.len;
 
     var value_end = value_start;

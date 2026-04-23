@@ -21,7 +21,7 @@
 //! - Compound command rewriting (&&, ||, |, ;)
 
 const std = @import("std");
-//const regex = std.regex; // Zig 0.15: regex moved to separate package
+//const regex = std.regex; // Zig 0.15+: regex moved to separate package
 const lexer = @import("lexer");
 
 /// Command category for analytics
@@ -82,60 +82,73 @@ pub const RewriteStatus = enum {
 // ENV_PREFIX - Strip environment prefixes like sudo, VAR=value, VAR="value"
 // ============================================================================
 
-// Zig 0.15 removed std.regex - using simple string-based implementations instead
+// Zig 0.15+ removed std.regex - using simple string-based implementations instead
 
 /// Strip environment prefixes from command (sudo, env VAR=value, etc.)
 /// Returns the stripped command and the prefix that was removed
 pub fn stripEnvPrefix(input: []const u8) struct { prefix: []const u8, command: []const u8 } {
+    const trimmed = std.mem.trim(u8, input, " \t");
+    if (trimmed.len == 0) {
+        return .{ .prefix = "", .command = input };
+    }
+
+    // Check for "sudo " prefix
+    if (std.mem.startsWith(u8, trimmed, "sudo ")) {
+        return .{ .prefix = "sudo", .command = std.mem.trim(u8, trimmed[5..], " \t") };
+    }
+
+    // Check for "env " prefix (env with arguments)
+    if (std.mem.startsWith(u8, trimmed, "env ")) {
+        return .{ .prefix = "env", .command = std.mem.trim(u8, trimmed[4..], " \t") };
+    }
+
+    // Check for environment variable assignments like FOO=bar or FOO="bar baz"
+    var i: usize = 0;
     var prefix_end: usize = 0;
     var in_env_var = false;
 
-    // Simple state machine to strip env prefixes
-    var i: usize = 0;
-    while (i < input.len) : (i += 1) {
-        const c = input[i];
+    while (i < trimmed.len) : (i += 1) {
+        const c = trimmed[i];
 
         if (!in_env_var and (c == ' ' or c == '\t')) {
-            if (prefix_end == 0) continue; // skip leading whitespace
-            break; // end of first word
-        }
-
-        if (!in_env_var and i + 4 <= input.len) {
-            const word = input[i..][0..4];
-            if (std.mem.eql(u8, word, "sudo") or std.mem.eql(u8, word, "env ")) {
-                // skip "sudo " or "env "
-                i += 3;
-                prefix_end = i + 1;
-                continue;
-            }
+            break; // end of first word - not an env var assignment
         }
 
         if (c == '=' and !in_env_var) {
-            // Found env var assignment - skip until whitespace after value
             in_env_var = true;
             prefix_end = i + 1;
             continue;
         }
 
         if (in_env_var and (c == ' ' or c == '\t')) {
-            in_env_var = false;
+            // End of env var value, check if next word is also an assignment
+            prefix_end = i;
+            const next_start = std.mem.trimStart(u8, trimmed[i..], " \t");
+            if (next_start.len > 0 and std.mem.indexOf(u8, next_start[0..@min(next_start.len, 20)], "=") != null) {
+                // Next word also contains '=', continue scanning
+                i = trimmed.len - next_start.len;
+                in_env_var = false;
+                continue;
+            }
+            break;
         }
 
-        prefix_end = i + 1;
+        if (!in_env_var) {
+            prefix_end = i + 1;
+        } else {
+            prefix_end = i + 1;
+        }
     }
 
-    if (prefix_end == 0 or prefix_end >= input.len) {
-        return .{ .prefix = "", .command = input };
+    if (in_env_var and prefix_end > 0) {
+        const prefix_slice = std.mem.trim(u8, trimmed[0..prefix_end], " \t");
+        const command = std.mem.trim(u8, trimmed[prefix_end..], " \t");
+        if (prefix_slice.len > 0 and command.len > 0) {
+            return .{ .prefix = prefix_slice, .command = command };
+        }
     }
 
-    const prefix_slice = std.mem.trim(u8, input[0..prefix_end], " \t");
-    const command = std.mem.trim(u8, input[prefix_end..], " \t");
-
-    if (prefix_slice.len == 0) {
-        return .{ .prefix = "", .command = input };
-    }
-
-    return .{ .prefix = prefix_slice, .command = command };
+    return .{ .prefix = "", .command = input };
 }
 
 /// Strip git global options from command (git -C /tmp status -> git status)
@@ -243,14 +256,14 @@ pub const NormalizedCommand = struct {
 // Regex Pattern Compilation for Rules
 // ============================================================================
 
-// Zig 0.15 removed std.regex - stub out the compilation system
+// Zig 0.15+ removed std.regex - stub out the compilation system
 
-/// Compile all rules with their regex patterns (stub for Zig 0.15)
+/// Compile all rules with their regex patterns (stub for Zig 0.15+)
 pub fn compileRules(allocator: std.mem.Allocator) !void {
     _ = allocator; // Not used in stub
 }
 
-/// Free compiled rules (stub for Zig 0.15)
+/// Free compiled rules (stub for Zig 0.15+)
 pub fn freeCompiledRules() void {
     // Nothing to free in stub implementation
 }
@@ -1207,10 +1220,95 @@ pub const Classification = struct {
     passthrough: bool,
 };
 
+/// Extract the first token after the matched pattern as the subcommand
+fn extractSubcmd(after_pattern: []const u8) ?[]const u8 {
+    const trimmed = std.mem.trimStart(u8, after_pattern, " \t");
+    if (trimmed.len == 0) return null;
+
+    var end: usize = 0;
+    while (end < trimmed.len and trimmed[end] != ' ' and trimmed[end] != '\t') {
+        end += 1;
+    }
+
+    return trimmed[0..end];
+}
+
 /// Classify a command against all rules
-/// Note: Regex-based classification is stubbed out in Zig 0.15
+/// Uses prefix-based matching (Zig 0.15+ compatible, no regex required)
 pub fn classify(input: []const u8) Classification {
-    _ = input; // Classification stubbed - always returns not matched
+    // 1. Check exact ignores
+    for (ignored_exact) |exact| {
+        if (std.mem.eql(u8, input, exact)) {
+            return Classification{
+                .matched = false,
+                .rule = null,
+                .subcmd = null,
+                .savings_pct = 0.0,
+                .passthrough = false,
+            };
+        }
+    }
+
+    // 2. Check prefix ignores
+    for (ignored_prefixes) |prefix| {
+        if (std.mem.startsWith(u8, input, prefix)) {
+            return Classification{
+                .matched = false,
+                .rule = null,
+                .subcmd = null,
+                .savings_pct = 0.0,
+                .passthrough = false,
+            };
+        }
+    }
+
+    // 3. Normalize command (strip env prefixes and git global options)
+    const normalized = normalizeCommand(input);
+    const cmd = normalized.normalized;
+
+    // 4. Match rules using prefix-based matching
+    for (0..rules.len) |i| {
+        const rule = &rules[i];
+        if (std.mem.startsWith(u8, cmd, rule.pattern)) {
+            // Extract subcommand from text after the pattern
+            const after_pattern = cmd[rule.pattern.len..];
+            const subcmd = extractSubcmd(after_pattern);
+
+            // Check subcmd_status for passthrough/unsupported overrides
+            var passthrough = false;
+            if (subcmd != null) {
+                for (rule.subcmd_status) |sc| {
+                    if (std.mem.eql(u8, subcmd.?, sc.subcmd)) {
+                        if (sc.status == .Passthrough or sc.status == .Unsupported) {
+                            passthrough = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Determine savings_pct: use subcmd override if available
+            var savings_pct = rule.savings_pct;
+            if (subcmd != null) {
+                for (rule.subcmd_savings) |sc| {
+                    if (std.mem.eql(u8, subcmd.?, sc.subcmd)) {
+                        savings_pct = sc.savings;
+                        break;
+                    }
+                }
+            }
+
+            return Classification{
+                .matched = true,
+                .rule = rule,
+                .subcmd = subcmd,
+                .savings_pct = savings_pct,
+                .passthrough = passthrough,
+            };
+        }
+    }
+
+    // 5. No match found
     return Classification{
         .matched = false,
         .rule = null,
@@ -1381,7 +1479,7 @@ pub fn rewrite(input: []const u8) ?[]const u8 {
     // Find which prefix matches and rewrite
     for (rule.rewrite_prefixes) |prefix| {
         if (std.mem.startsWith(u8, normalized.normalized, prefix)) {
-            const suffix = normalized.normalized[prefix.len..];
+            const suffix = std.mem.trimStart(u8, normalized.normalized[prefix.len..], " \t");
             rewritten = std.fmt.allocPrint(std.heap.page_allocator, "{s} {s}", .{ rule.rtk_cmd, suffix }) catch return null;
             break;
         }
@@ -1497,13 +1595,13 @@ test "cargo passthrough fmt" {
 test "rewrite docker ps" {
     const result = rewrite("docker ps");
     try std.testing.expect(result != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "llmlite-cmd docker ps") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "llmlite-cmd docker ps") != null);
 }
 
 test "rewrite pytest" {
     const result = rewrite("pytest");
     try std.testing.expect(result != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "llmlite-cmd pytest") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "llmlite-cmd pytest") != null);
 }
 
 test "gh pr classification" {
@@ -1726,7 +1824,7 @@ test "classify with sudo prefix" {
     const cls = classify("sudo git status");
     try std.testing.expect(cls.matched);
     try std.testing.expect(cls.rule != null);
-    try std.testing.expectEqualStrings("git", cls.rule.?.category.name);
+    try std.testing.expectEqualStrings("Git", @tagName(cls.rule.?.category));
 }
 
 test "classify with VAR=value prefix" {
@@ -1745,26 +1843,26 @@ test "rewrite preserves sudo prefix" {
     const result = rewrite("sudo git status");
     try std.testing.expect(result != null);
     try std.testing.expect(std.mem.startsWith(u8, result.?, "sudo "));
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "llmlite-cmd git status") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "llmlite-cmd git status") != null);
 }
 
 test "rewrite preserves VAR=value prefix" {
     const result = rewrite("FOO=bar cargo test");
     try std.testing.expect(result != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "FOO=bar") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "llmlite-cmd cargo test") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "FOO=bar") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "llmlite-cmd cargo test") != null);
 }
 
 test "rewrite preserves git -C option" {
     const result = rewrite("git -C /tmp status");
     try std.testing.expect(result != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "-C /tmp") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "llmlite-cmd git status") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "-C /tmp") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "llmlite-cmd git status") != null);
 }
 
 test "rewrite preserves combined env and git options" {
     const result = rewrite("sudo git -C /repo status");
     try std.testing.expect(result != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "sudo git -C /repo") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result.?, "llmlite-cmd git status") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "sudo git -C /repo") != null);
+    try std.testing.expect(std.mem.find(u8, result.?, "llmlite-cmd git status") != null);
 }

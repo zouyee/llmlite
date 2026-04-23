@@ -2,6 +2,13 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
+
 pub fn commandExists(name: []const u8) bool {
     var child = std.process.Child.init(&.{ "which", name }, std.heap.page_allocator);
     child.stdout_behavior = .Ignore;
@@ -31,19 +38,19 @@ pub const PackageManager = enum {
     unknown,
 };
 
-pub fn detectPackageManager() PackageManager {
-    if (fileExists("pnpm-lock.yaml")) return .pnpm;
-    if (fileExists("yarn.lock")) return .yarn;
-    if (fileExists("bun.lockb")) return .bun;
-    if (fileExists("package-lock.json")) return .npm;
-    if (fileExists("Pipfile.lock")) return .poetry;
-    if (fileExists("requirements.txt")) return .pip;
-    if (fileExists("Cargo.lock")) return .cargo;
+pub fn detectPackageManager(io: std.Io) PackageManager {
+    if (fileExists(io, "pnpm-lock.yaml")) return .pnpm;
+    if (fileExists(io, "yarn.lock")) return .yarn;
+    if (fileExists(io, "bun.lockb")) return .bun;
+    if (fileExists(io, "package-lock.json")) return .npm;
+    if (fileExists(io, "Pipfile.lock")) return .poetry;
+    if (fileExists(io, "requirements.txt")) return .pip;
+    if (fileExists(io, "Cargo.lock")) return .cargo;
     return .unknown;
 }
 
-pub fn fileExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+pub fn fileExists(io: std.Io, path: []const u8) bool {
+    std.Io.Dir.cwd().access(io, path, .{}) catch return false;
     return true;
 }
 
@@ -101,7 +108,7 @@ pub fn formatBytes(allocator: std.mem.Allocator, bytes: u64) ![]const u8 {
 }
 
 pub fn isCI() bool {
-    _ = std.process.getEnvVarOwned(std.heap.page_allocator, "CI") catch return false;
+    _ = _getEnvVarOwned(std.heap.page_allocator, "CI") catch return false;
     return true;
 }
 

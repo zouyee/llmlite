@@ -7,6 +7,14 @@
 //! - Time-based analysis
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const tracking = @import("cmd_core_tracking");
 
 pub const AuditOptions = struct {
@@ -37,22 +45,22 @@ pub const RewrittenCommand = struct {
     saved_tokens: usize,
 };
 
-pub fn showAudit(allocator: std.mem.Allocator, options: AuditOptions) !void {
+pub fn showAudit(io: std.Io, allocator: std.mem.Allocator, options: AuditOptions) !void {
     const db_path = try getHistoryPath(allocator);
     defer allocator.free(db_path);
 
-    const file = std.fs.openFileAbsolute(db_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(io, db_path, .{}) catch {
         std.debug.print("No history found. Run 'llmlite-cmd init -g' first.\n", .{});
         return;
     };
-    defer file.close();
+    defer file.close(io);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readStreaming(io, &.{buf[0..]}) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }
@@ -67,7 +75,7 @@ pub fn showAudit(allocator: std.mem.Allocator, options: AuditOptions) !void {
     var rewritten_counts = std.StringHashMap(struct { count: u32, saved: usize }).init(allocator);
     defer rewritten_counts.deinit();
 
-    const cutoff = @as(i64, @intCast(std.time.timestamp())) - (@as(i64, @intCast(options.since_days)) * 86400);
+    const cutoff = @as(i64, @intCast(time_compat.timestamp(io))) - (@as(i64, @intCast(options.since_days)) * 86400);
 
     var line_iter = std.mem.splitScalar(u8, file_buffer.items, '\n');
     while (line_iter.next()) |line| {
@@ -160,7 +168,7 @@ fn showAuditJson(stats: AuditStats) !void {
 }
 
 fn getHistoryPath(allocator: std.mem.Allocator) ![]u8 {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
+    const home = _getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
     defer allocator.free(home);
     return std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/history.db", .{home});
 }

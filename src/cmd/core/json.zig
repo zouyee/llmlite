@@ -226,16 +226,16 @@ pub fn parseSimpleObject(input: []const u8) !std.json.ObjectMap {
 /// Extract a string from JSON without full parsing
 pub fn extractString(input: []const u8, field: []const u8) ?[]const u8 {
     const search = "\"" ++ field ++ "\":\"";
-    const start = std.mem.indexOf(u8, input, search) orelse return null;
+    const start = std.mem.find(u8, input, search) orelse return null;
     const value_start = start + search.len;
-    const value_end = std.mem.indexOf(u8, input[value_start..], "\"") orelse return null;
+    const value_end = std.mem.find(u8, input[value_start..], "\"") orelse return null;
     return input[value_start .. value_start + value_end];
 }
 
 /// Extract an integer from JSON without full parsing
 pub fn extractInteger(input: []const u8, field: []const u8) ?i64 {
     const search = "\"" ++ field ++ "\":";
-    const start = std.mem.indexOf(u8, input, search) orelse return null;
+    const start = std.mem.find(u8, input, search) orelse return null;
     const value_start = start + search.len;
 
     // Skip whitespace
@@ -268,7 +268,7 @@ pub fn extractInteger(input: []const u8, field: []const u8) ?i64 {
 /// Extract a float from JSON without full parsing
 pub fn extractFloat(input: []const u8, field: []const u8) ?f64 {
     const search = "\"" ++ field ++ "\":";
-    const start = std.mem.indexOf(u8, input, search) orelse return null;
+    const start = std.mem.find(u8, input, search) orelse return null;
     const value_start = start + search.len;
 
     // Skip whitespace
@@ -305,6 +305,6 @@ pub fn extractFloat(input: []const u8, field: []const u8) ?f64 {
 }
 
 // ============================================================================
-// Tests - Disabled due to Zig 0.15 syntax incompatibility
+// Tests - Disabled due to Zig 0.15+ syntax incompatibility
 // ============================================================================
-// Inline tests removed - they used backtick string literals which are not valid in Zig 0.15
+// Inline tests removed - they used backtick string literals which are not valid in Zig 0.15+

@@ -64,7 +64,7 @@ fn filterKubectlPods(output: []const u8) []const u8 {
         }
 
         if (count >= 15) {
-            std.fmt.format(result.writer(), "\n... +{d} more pods", .{count - 15}) catch return "";
+            result.print( "\n... +{d} more pods", .{count - 15}) catch return "";
             break;
         }
 
@@ -84,7 +84,7 @@ fn filterKubectlPods(output: []const u8) []const u8 {
 
         // Show: NAME, READY, STATUS, RESTARTS, AGE
         if (col_count >= 5) {
-            std.fmt.format(result.writer(), "{s} {s} {s} {s} {s}\n", .{
+            result.print( "{s} {s} {s} {s} {s}\n", .{
                 cols_array[0][0..@min(24, cols_array[0].len)],
                 cols_array[1][0..@min(6, cols_array[1].len)],
                 cols_array[2][0..@min(12, cols_array[2].len)],
@@ -141,7 +141,7 @@ fn filterKubectlSvc(output: []const u8) []const u8 {
         }
 
         if (col_count >= 4) {
-            std.fmt.format(result.writer(), "{s} {s} {s} {s}\n", .{
+            result.print( "{s} {s} {s} {s}\n", .{
                 cols_array[0][0..@min(16, cols_array[0].len)],
                 cols_array[1][0..@min(14, cols_array[1].len)],
                 cols_array[2][0..@min(14, cols_array[2].len)],
@@ -194,7 +194,7 @@ fn filterKubectlDeployments(output: []const u8) []const u8 {
         }
 
         if (col_count >= 4) {
-            std.fmt.format(result.writer(), "{s} {s} {s} {s} {s}\n", .{
+            result.print( "{s} {s} {s} {s} {s}\n", .{
                 cols_array[0][0..@min(20, cols_array[0].len)],
                 cols_array[1][0..@min(6, cols_array[1].len)],
                 cols_array[2][0..@min(12, cols_array[2].len)],
@@ -251,7 +251,7 @@ fn filterKubectlLogs(output: []const u8) []const u8 {
 
     while (lines.next()) |line| {
         if (count >= 50) {
-            std.fmt.format(result.writer(), "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 50)}) catch return "";
+            result.print( "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 50)}) catch return "";
             break;
         }
 
@@ -265,7 +265,7 @@ fn filterKubectlLogs(output: []const u8) []const u8 {
         }
 
         if (repeat_count > 1) {
-            std.fmt.format(result.writer(), "... repeated {d} times\n", .{repeat_count}) catch return "";
+            result.print( "... repeated {d} times\n", .{repeat_count}) catch return "";
         }
 
         result.appendSlice(trimmed[0..@min(150, trimmed.len)]) catch {};
@@ -276,7 +276,7 @@ fn filterKubectlLogs(output: []const u8) []const u8 {
     }
 
     if (repeat_count > 1) {
-        std.fmt.format(result.writer(), "... repeated {d} times\n", .{repeat_count}) catch return "";
+        result.print( "... repeated {d} times\n", .{repeat_count}) catch return "";
     }
 
     if (result.items.len == 0) {

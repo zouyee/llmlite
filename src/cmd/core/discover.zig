@@ -17,6 +17,17 @@
 //! - Track RTK_DISABLED prefix usage
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const rules = @import("rules");
 const lexer = @import("lexer");
 const tracking = @import("tracking");
@@ -210,7 +221,7 @@ pub fn discover(allocator: std.mem.Allocator, options: DiscoverOptions) !void {
 
 /// Scan Claude Code session history for commands (RTK-style)
 fn scanClaudeSessions(allocator: std.mem.Allocator, report: *DiscoverReport, days: u32, verbose: u8) !void {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch return;
+    const home = _getEnvVarOwned(allocator, "HOME") catch return;
     defer allocator.free(home);
 
     // Look for Claude Code sessions in .claude/sessions/
@@ -239,11 +250,11 @@ fn scanClaudeSessions(allocator: std.mem.Allocator, report: *DiscoverReport, day
 fn scanDirectory(allocator: std.mem.Allocator, dir_path: []const u8, report: *DiscoverReport, days: u32, verbose: u8) !void {
     _ = days; // Date filtering handled at higher level for simplicity
 
-    var dir = std.fs.openDirAbsolute(dir_path, .{}) catch return;
-    defer dir.close();
+    var dir = std.Io.Dir.openDirAbsolute(g_io, dir_path, .{}) catch return;
+    defer dir.close(g_io);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry_fn| {
+    while (try iter.next(g_io)) |entry_fn| {
         if (entry_fn.kind != .file) continue;
 
         const name = entry_fn.name;
@@ -264,10 +275,12 @@ fn scanDirectory(allocator: std.mem.Allocator, dir_path: []const u8, report: *Di
 /// Scan a single Claude Code session file (JSONL format)
 /// Extracts commands with full metadata: output length, error status, sequence
 fn scanSessionFile(allocator: std.mem.Allocator, path: []const u8, report: *DiscoverReport) !void {
-    const file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch return;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, path, .{}) catch return;
+    defer file.close(g_io);
 
-    const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch return; // 10MB max
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = file_reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024)) catch return; // 10MB max
     defer allocator.free(content);
 
     _ = std.fs.path.basename(path); // session_id for future use
@@ -293,7 +306,7 @@ fn scanSessionFile(allocator: std.mem.Allocator, path: []const u8, report: *Disc
         const entry_type = getJsonString(entry.data, "type") catch "";
 
         if (std.mem.eql(u8, entry_type, "assistant")) {
-            // Note: JSON parsing for tool_use blocks is complex due to Zig 0.15 type changes
+            // Note: JSON parsing for tool_use blocks is complex due to Zig 0.15+ type changes
             // This functionality is stubbed out for now
         } else if (std.mem.eql(u8, entry_type, "user")) {
             // Look for tool_result blocks
@@ -617,7 +630,7 @@ fn extractCommandFromJsonLine(line: []const u8) !?[]const u8 {
     const patterns = [_][]const u8{ "\"command\":", "\"input\":" };
 
     for (patterns) |pattern| {
-        const idx = std.mem.indexOf(u8, line, pattern);
+        const idx = std.mem.find(u8, line, pattern);
         if (idx) |start| {
             const value_start = start + pattern.len;
             if (value_start >= line.len) continue;
@@ -648,15 +661,15 @@ fn extractCommandFromJsonLine(line: []const u8) !?[]const u8 {
 
 /// Check if command has RTK_DISABLED or LLMLITE_DISABLED prefix
 fn hasDisabledPrefix(cmd: []const u8) bool {
-    return std.mem.indexOf(u8, cmd, "LLMLITE_DISABLED=1") != null or
-        std.mem.indexOf(u8, cmd, "RTK_DISABLED=1") != null;
+    return std.mem.find(u8, cmd, "LLMLITE_DISABLED=1") != null or
+        std.mem.find(u8, cmd, "RTK_DISABLED=1") != null;
 }
 
 /// Strip the disabled prefix from command
 fn stripDisabledPrefix(cmd: []const u8) []const u8 {
     const prefixes = [_][]const u8{ "LLMLITE_DISABLED=1 ", "RTK_DISABLED=1 " };
     for (prefixes) |prefix| {
-        if (std.mem.indexOf(u8, cmd, prefix)) |idx| {
+        if (std.mem.find(u8, cmd, prefix)) |idx| {
             if (idx == 0) {
                 return std.mem.trim(u8, cmd[prefix.len..], " \t");
             }
@@ -668,7 +681,7 @@ fn stripDisabledPrefix(cmd: []const u8) []const u8 {
 /// Get base command (first word) from command string
 fn getBaseCommand(cmd: []const u8) []const u8 {
     const trimmed = std.mem.trim(u8, cmd, " \t");
-    const space_idx = std.mem.indexOfScalar(u8, trimmed, ' ') orelse trimmed.len;
+    const space_idx = std.mem.findScalar(u8, trimmed, ' ') orelse trimmed.len;
     return trimmed[0..space_idx];
 }
 
@@ -700,12 +713,11 @@ fn estimateOutputTokens(category: rules.Category, subcmd: ?[]const u8) usize {
 
 fn scanGitHistory(allocator: std.mem.Allocator, report: *DiscoverReport, days: u32, verbose: u8) !void {
     // Run git log to get recent commands
-    const cutoff = std.time.timestamp() - (@as(i64, days) * 24 * 60 * 60);
+    const cutoff = time_compat.timestamp(g_io) - (@as(i64, days) * 24 * 60 * 60);
     const cutoff_str = try std.fmt.allocPrint(allocator, "--since={d}", .{cutoff});
     defer allocator.free(cutoff_str);
 
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const result = std.process.run(allocator, g_io, .{
         .argv = &.{ "git", "log", "--oneline", cutoff_str },
     }) catch return; // No git repo or git not available
 
@@ -724,7 +736,7 @@ fn scanGitHistory(allocator: std.mem.Allocator, report: *DiscoverReport, days: u
     var line_iter = std.mem.splitScalar(u8, result.stdout, '\n');
     while (line_iter.next()) |line| {
         for (cmd_patterns) |p| {
-            if (std.mem.indexOf(u8, line, p.pattern) != null) {
+            if (std.mem.find(u8, line, p.pattern) != null) {
                 report.total_commands += 1;
                 // Add to supported map
                 const bucket = report.supported_map.getOrPut(p.pattern) catch continue;
@@ -792,7 +804,7 @@ fn addSupported(report: *DiscoverReport, cmd: []const u8, rtk_equiv: []const u8,
 }
 
 fn fileExists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    std.Io.Dir.cwd().access(g_io, path, .{}) catch return false;
     return true;
 }
 
@@ -809,15 +821,15 @@ fn commonCommands() []const struct { pattern: []const u8, savings: f64 } {
 pub fn getDiscoveryReport(allocator: std.mem.Allocator) ![]const u8 {
     var result = std.array_list.Managed(u8).init(allocator);
 
-    try result.writer().print("Missed Savings Discovery\n", .{});
-    try result.writer().print("======================\n\n", .{});
+    try result.print("Missed Savings Discovery\n", .{});
+    try result.print("======================\n\n", .{});
 
-    try result.writer().print("Commands to wrap with llmlite:\n", .{});
-    try result.writer().print("  - git status, diff, log\n", .{});
-    try result.writer().print("  - cargo test, build\n", .{});
-    try result.writer().print("  - npm test, run\n", .{});
-    try result.writer().print("  - pytest\n", .{});
-    try result.writer().print("  - eslint, tsc\n", .{});
+    try result.print("Commands to wrap with llmlite:\n", .{});
+    try result.print("  - git status, diff, log\n", .{});
+    try result.print("  - cargo test, build\n", .{});
+    try result.print("  - npm test, run\n", .{});
+    try result.print("  - pytest\n", .{});
+    try result.print("  - eslint, tsc\n", .{});
 
     return result.toOwnedSlice();
 }

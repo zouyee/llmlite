@@ -33,14 +33,14 @@ fn filterPlaywrightJson(output: []const u8) []const u8 {
         const failed = json.extractInteger(s, "failed") orelse 0;
         const skipped = json.extractInteger(s, "skipped") orelse 0;
 
-        std.fmt.format(result.writer(), "playwright: {d} passed", .{passed}) catch return "";
+        result.print( "playwright: {d} passed", .{passed}) catch return "";
         if (failed > 0) {
-            std.fmt.format(result.writer(), ", {d} failed", .{failed}) catch return "";
+            result.print( ", {d} failed", .{failed}) catch return "";
         }
         if (skipped > 0) {
-            std.fmt.format(result.writer(), ", {d} skipped", .{skipped}) catch return "";
+            result.print( ", {d} skipped", .{skipped}) catch return "";
         }
-        std.fmt.format(result.writer(), " ({d:.1f}s)\n", .{@as(f64, @floatFromInt(duration)) / 1000.0}) catch return "";
+        result.print( " ({d:.1f}s)\n", .{@as(f64, @floatFromInt(duration)) / 1000.0}) catch return "";
 
         if (failed > 0) {
             result.appendSlice("═══════════════════════════════════════\n") catch return "";
@@ -56,7 +56,7 @@ fn filterPlaywrightJson(output: []const u8) []const u8 {
         var pos: usize = 0;
         while (pos < suites_text.len and shown_failures < 10) {
             const search = "\"status\":\"failed\"";
-            const idx = std.mem.indexOf(u8, suites_text[pos..], search);
+            const idx = std.mem.find(u8, suites_text[pos..], search);
             if (idx == null) break;
 
             pos += idx.? + search.len;
@@ -64,20 +64,20 @@ fn filterPlaywrightJson(output: []const u8) []const u8 {
             // Try to find test name before this position
             const before = suites_text[0..pos];
             const name_search = "\"title\":\"";
-            const name_idx = std.mem.lastIndexOf(u8, before, name_search);
+            const name_idx = std.mem.findLast(u8, before, name_search);
 
             if (name_idx) |ns| {
                 const name_start = ns + name_search.len;
-                const name_end = std.mem.indexOf(u8, suites_text[name_start..], "\"") orelse continue;
+                const name_end = std.mem.find(u8, suites_text[name_start..], "\"") orelse continue;
                 const test_name = suites_text[name_start .. name_start + name_end];
 
-                std.fmt.format(result.writer(), "FAIL: {s}\n", .{test_name}) catch return "";
+                result.print( "FAIL: {s}\n", .{test_name}) catch return "";
                 shown_failures += 1;
             }
         }
 
         if (shown_failures > 0) {
-            std.fmt.format(result.writer(), "... +{d} more failures\n", .{shown_failures}) catch return "";
+            result.print( "... +{d} more failures\n", .{shown_failures}) catch return "";
         }
     }
 

@@ -11,6 +11,16 @@
 //!   - cache read = 0.1x input weight
 
 const std = @import("std");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const proxy_helpers = @import("proxy_helpers");
 
 /// Token weighting constants based on Claude API pricing
@@ -148,17 +158,17 @@ const CcusageData = struct {
 };
 
 fn readCcusageData(allocator: std.mem.Allocator) !CcusageData {
-    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    const home = try _getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);
 
     const path = try std.fs.path.join(allocator, &.{ home, ".claude/ccusage/summary.json" });
     defer allocator.free(path);
 
-    const file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch return error.FileNotFound;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, path, .{}) catch return error.FileNotFound;
+    defer file.close(g_io);
 
     var content: [4096]u8 = undefined;
-    _ = file.readAll(&content) catch return error.ReadError;
+    _ = file.readPositionalAll(g_io, &content, 0) catch return error.ReadError;
 
     // Simple JSON parsing - just extract what we need
     // In production, use a proper JSON parser
@@ -179,13 +189,13 @@ const LlmliteStats = struct {
 };
 
 fn readLlmliteStats(allocator: std.mem.Allocator) !LlmliteStats {
-    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    const home = try _getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);
 
     const path = try std.fs.path.join(allocator, &.{ home, ".local/share/llmlite/history.db" });
     defer allocator.free(path);
 
-    const file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_io, path, .{}) catch {
         return LlmliteStats{
             .commands = 0,
             .saved_tokens = 0,
@@ -193,14 +203,14 @@ fn readLlmliteStats(allocator: std.mem.Allocator) !LlmliteStats {
             .top_commands = &.{},
         };
     };
-    defer file.close();
+    defer file.close(g_io);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = std.array_list.Managed(u8).init(allocator);
     defer file_buffer.deinit();
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readPositional(g_io, &.{&buf}, 0) catch break;
         if (bytes_read == 0) break;
         file_buffer.appendSlice(buf[0..bytes_read]) catch break;
     }

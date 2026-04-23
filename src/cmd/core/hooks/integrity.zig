@@ -5,6 +5,8 @@
 
 const std = @import("std");
 
+pub var g_io: std.Io = undefined;
+
 /// Result of hook integrity verification
 pub const IntegrityStatus = enum {
     /// Hash matches - hook is unmodified since last install/update
@@ -22,7 +24,11 @@ pub const IntegrityStatus = enum {
 /// Compute SHA-256 hash of a file, returned as lowercase hex
 pub fn computeHash(path: []const u8) ![]const u8 {
     const allocator = std.heap.page_allocator;
-    const content = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+    const file = try std.Io.Dir.cwd().openFile(g_io, path, .{});
+    defer file.close(g_io);
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = file.reader(g_io, &read_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(content);
 
     // Use simple hash approach - XOR each byte with index for a quick checksum
@@ -69,11 +75,13 @@ pub fn storeHash(hook_path: []const u8) !void {
     const content = try std.fmt.allocPrint(allocator, "{}  {s}\n", .{ hash, hook_name });
     defer allocator.free(content);
 
-    try std.fs.cwd().writeFile(hash_file, content);
+    const file = try std.Io.Dir.cwd().createFile(g_io, hash_file, .{});
+    defer file.close(g_io);
+    try file.writeStreamingAll(g_io, content);
 
     // Set read-only permissions on Unix
     if (@import("std").os.tag == .unix) {
-        // Note: In Zig 0.15, setting file permissions is done via filesystem operations
+        // Note: In Zig 0.15+, setting file permissions is done via filesystem operations
         // For simplicity, we skip the permission change here
     }
 }
@@ -85,17 +93,21 @@ pub fn verifyHookAt(hook_path: []const u8) !IntegrityStatus {
     defer allocator.free(hash_file);
 
     // Check if hook exists
-    const hook_exists = std.fs.cwd().access(hook_path, .{}) catch return .not_installed;
+    const hook_exists = std.Io.Dir.cwd().access(g_io, hook_path, .{}) catch return .not_installed;
     _ = hook_exists;
 
     // Check if hash file exists
-    const hash_exists = std.fs.cwd().access(hash_file, .{}) catch {
+    const hash_exists = std.Io.Dir.cwd().access(g_io, hash_file, .{}) catch {
         return .no_baseline;
     };
     _ = hash_exists;
 
     // Read stored hash
-    const stored = try std.fs.cwd().readFileAlloc(allocator, hash_file, std.math.maxInt(usize));
+    const stored_file = try std.Io.Dir.cwd().openFile(g_io, hash_file, .{});
+    defer stored_file.close(g_io);
+    var stored_buf: [4096]u8 = undefined;
+    var stored_reader = stored_file.reader(g_io, &stored_buf);
+    const stored = try stored_reader.interface.allocRemaining(allocator, .limited(std.math.maxInt(usize)));
     defer allocator.free(stored);
 
     // Parse stored hash (format: "<hex>\n")
@@ -149,5 +161,5 @@ test "integrity status enum values" {
 
 test "hash path derivation" {
     const result = hashPath("/home/user/.claude/hooks/llmlite-rewrite.sh");
-    try std.testing.expect(std.mem.indexOf(u8, result, ".sha256") != null);
+    try std.testing.expect(std.mem.find(u8, result, ".sha256") != null);
 }

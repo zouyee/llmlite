@@ -8,6 +8,32 @@
 //! vitest run: ~500 lines → ~30 lines (94% reduction)
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const json = @import("cmd_core_json");
 
 /// Vitest test result
@@ -48,7 +74,7 @@ fn filterVitestJson(output: []const u8) []const u8 {
         failed_tests: std.array_list.Managed(struct { name: []const u8, @"error": ?[]const u8 }),
     };
 
-    var suites = std.StringArrayHashMap(SuiteAccumulator).init(std.heap.page_allocator);
+    var suites = StringArrayHashMap(SuiteAccumulator).init(std.heap.page_allocator);
     defer suites.deinit();
 
     // Parse each line as JSON object
@@ -116,15 +142,15 @@ fn filterVitestJson(output: []const u8) []const u8 {
 
     // Build output
     if (total_fail == 0) {
-        std.fmt.format(result.writer(), "vitest: {d} passed", .{total_pass}) catch return "";
+        result.print( "vitest: {d} passed", .{total_pass}) catch return "";
         if (total_skip > 0) {
-            std.fmt.format(result.writer(), ", {d} skipped", .{total_skip}) catch return "";
+            result.print( ", {d} skipped", .{total_skip}) catch return "";
         }
-        std.fmt.format(result.writer(), " ({d:.1f}s)", .{total_duration / 1000.0}) catch return "";
+        result.print( " ({d:.1f}s)", .{total_duration / 1000.0}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 
-    std.fmt.format(result.writer(), "vitest: {d} passed, {d} failed ({d:.1f}s)\n", .{
+    result.print( "vitest: {d} passed, {d} failed ({d:.1f}s)\n", .{
         total_pass, total_fail, total_duration / 1000.0,
     }) catch return "";
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
@@ -137,21 +163,21 @@ fn filterVitestJson(output: []const u8) []const u8 {
         const acc = entry.value_ptr.*;
 
         if (acc.fail > 0) {
-            std.fmt.format(result.writer(), "FAIL {s}\n", .{entry.key_ptr.*}) catch return "";
+            result.print( "FAIL {s}\n", .{entry.key_ptr.*}) catch return "";
 
             const show_count = @min(3, acc.failed_tests.items.len);
             for (acc.failed_tests.items[0..show_count]) |failed| {
-                std.fmt.format(result.writer(), "  {s}", .{failed.name}) catch return "";
+                result.print( "  {s}", .{failed.name}) catch return "";
                 if (failed.@"error") |err| {
                     // Truncate error message
                     const err_trim = if (err.len > 100) err[0..100] else err;
-                    std.fmt.format(result.writer(), ": {s}...", .{err_trim}) catch return "";
+                    result.print( ": {s}...", .{err_trim}) catch return "";
                 }
                 result.append('\n') catch return "";
             }
 
             if (acc.failed_tests.items.len > 3) {
-                std.fmt.format(result.writer(), "  ... +{d} more\n", .{acc.failed_tests.items.len - 3}) catch return "";
+                result.print( "  ... +{d} more\n", .{acc.failed_tests.items.len - 3}) catch return "";
             }
 
             shown_files += 1;

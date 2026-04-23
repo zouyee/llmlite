@@ -116,16 +116,16 @@ fn filterPipListJson(output: []const u8) []const u8 {
         return "pip list: No packages";
     }
 
-    std.fmt.format(result.writer(), "pip list: {d} packages\n", .{packages.items.len}) catch return "";
+    result.print( "pip list: {d} packages\n", .{packages.items.len}) catch return "";
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
     const show_count = @min(20, packages.items.len);
     for (packages.items[0..show_count]) |pkg| {
-        std.fmt.format(result.writer(), "{s} {s}\n", .{ pkg.name, pkg.version }) catch return {};
+        result.print( "{s} {s}\n", .{ pkg.name, pkg.version }) catch return {};
     }
 
     if (packages.items.len > 20) {
-        std.fmt.format(result.writer(), "... +{d} more\n", .{packages.items.len - 20}) catch return "";
+        result.print( "... +{d} more\n", .{packages.items.len - 20}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";

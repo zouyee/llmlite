@@ -71,7 +71,7 @@ fn filterPrettierCheck(output: []const u8) []const u8 {
         }
 
         if (needs_formatting) {
-            std.fmt.format(result.writer(), "Prettier: {d} files need formatting\n", .{file_count}) catch return "";
+            result.print( "Prettier: {d} files need formatting\n", .{file_count}) catch return "";
             result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
             const show_count = @min(10, files.items.len);
@@ -81,7 +81,7 @@ fn filterPrettierCheck(output: []const u8) []const u8 {
             }
 
             if (files.items.len > 10) {
-                std.fmt.format(result.writer(), "... +{d} more files\n", .{files.items.len - 10}) catch return "";
+                result.print( "... +{d} more files\n", .{files.items.len - 10}) catch return "";
             }
 
             return result.toOwnedSlice() catch "";
@@ -119,11 +119,11 @@ fn filterPrettierJson(output: []const u8) []const u8 {
     while (pos < output.len) {
         // Look for "filePath" field
         const search = "\"filePath\":\"";
-        const start = std.mem.indexOf(u8, output[pos..], search);
+        const start = std.mem.find(u8, output[pos..], search);
         if (start == null) break;
 
         const file_start = pos + start.? + search.len;
-        const file_end = std.mem.indexOf(u8, output[file_start..], "\"") orelse break;
+        const file_end = std.mem.find(u8, output[file_start..], "\"") orelse break;
         const file = output[file_start .. file_start + file_end];
 
         files.append(file) catch {};
@@ -134,7 +134,7 @@ fn filterPrettierJson(output: []const u8) []const u8 {
         return "Prettier: No formatting issues";
     }
 
-    std.fmt.format(result.writer(), "Prettier: {d} files need formatting\n", .{files.items.len}) catch return "";
+    result.print( "Prettier: {d} files need formatting\n", .{files.items.len}) catch return "";
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
     const show_count = @min(10, files.items.len);
@@ -144,7 +144,7 @@ fn filterPrettierJson(output: []const u8) []const u8 {
     }
 
     if (files.items.len > 10) {
-        std.fmt.format(result.writer(), "... +{d} more files\n", .{files.items.len - 10}) catch return "";
+        result.print( "... +{d} more files\n", .{files.items.len - 10}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";

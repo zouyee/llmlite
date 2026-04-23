@@ -4,6 +4,8 @@
 //! Handles VS Code Copilot Chat, Copilot CLI, and Gemini CLI formats.
 
 const std = @import("std");
+
+pub var g_io: std.Io = undefined;
 const hook = @import("cmd_core_hook");
 
 // ============================================================================
@@ -79,7 +81,7 @@ pub fn extractCopilotCliCommand(input: []const u8) ?[]const u8 {
 /// Returns null if no rewrite is needed (heredoc present, already rewritten, etc.).
 pub fn getRewritten(cmd: []const u8) ?[]const u8 {
     // Don't rewrite heredocs
-    if (std.mem.indexOf(u8, cmd, "<<") != null) {
+    if (std.mem.find(u8, cmd, "<<") != null) {
         return null;
     }
 
@@ -135,7 +137,7 @@ fn parseJsonField(json: []const u8, field: []const u8) ?[]const u8 {
     const search = std.fmt.allocPrint(std.heap.page_allocator, "\"{s}\":", .{field}) catch return null;
     defer std.heap.page_allocator.free(search);
 
-    const start = std.mem.indexOf(u8, json, search) orelse return null;
+    const start = std.mem.find(u8, json, search) orelse return null;
     const value_start = start + search.len;
 
     // Skip whitespace
@@ -166,7 +168,7 @@ fn parseJsonNestedField(json: []const u8, parent: []const u8, field: []const u8)
     const parent_search = std.fmt.allocPrint(std.heap.page_allocator, "\"{s}\":{{", .{parent}) catch return null;
     defer std.heap.page_allocator.free(parent_search);
 
-    const parent_start = std.mem.indexOf(u8, json, parent_search) orelse return null;
+    const parent_start = std.mem.find(u8, json, parent_search) orelse return null;
     const obj_start = parent_start + parent_search.len - 1;
 
     // Find matching closing brace
@@ -194,7 +196,7 @@ fn extractCommandFromToolArgs(tool_args_str: []const u8) ?[]const u8 {
     // But quotes are escaped: {\"command\":\"git status\"}
     // We need to find the \"command\":\" pattern and extract the value
     const search = "\\\"command\\\":\\\"";
-    const start = std.mem.indexOf(u8, tool_args_str, search) orelse return null;
+    const start = std.mem.find(u8, tool_args_str, search) orelse return null;
     const value_start = start + search.len;
 
     // Find the closing escaped quote
@@ -253,14 +255,14 @@ test "extract Copilot CLI command" {
 
 test "vscode output format" {
     const output = buildVsCodeOutput("llmlite-cmd git status", "ask");
-    try std.testing.expect(std.mem.indexOf(u8, output, "llmlite-cmd git status") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "PreToolUse") != null);
+    try std.testing.expect(std.mem.find(u8, output, "llmlite-cmd git status") != null);
+    try std.testing.expect(std.mem.find(u8, output, "PreToolUse") != null);
 }
 
 test "copilot cli output format" {
     const output = buildCopilotCliOutput("llmlite-cmd git status");
-    try std.testing.expect(std.mem.indexOf(u8, output, "llmlite-cmd git status") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "deny") != null);
+    try std.testing.expect(std.mem.find(u8, output, "llmlite-cmd git status") != null);
+    try std.testing.expect(std.mem.find(u8, output, "deny") != null);
 }
 
 test "gemini allow output format" {
@@ -270,5 +272,5 @@ test "gemini allow output format" {
 
 test "gemini deny output format" {
     const output = buildGeminiDenyOutput();
-    try std.testing.expect(std.mem.indexOf(u8, output, "deny") != null);
+    try std.testing.expect(std.mem.find(u8, output, "deny") != null);
 }

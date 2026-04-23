@@ -16,6 +16,13 @@
 //! ```
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const filter = @import("filter");
 const tracking = @import("tracking");
 const tee = @import("tee");
@@ -23,6 +30,7 @@ const memory = @import("memory");
 const config_mod = @import("config");
 const shared = @import("shared_analytics");
 const savings_reporter = @import("savings_reporter");
+const time_compat = @import("time_compat");
 
 pub const RunOptions = struct {
     /// Combine stdout and stderr for filtering
@@ -35,6 +43,8 @@ pub const RunOptions = struct {
     strategy: filter.FilterStrategy = .none,
     /// Filter level
     level: filter.FilterLevel = .standard,
+    /// I/O handle for process spawning (Zig 0.16.0)
+    io: ?std.Io = null,
 };
 
 pub const RunError = error{
@@ -58,10 +68,9 @@ pub fn runFiltered(
         std.log.info("executing: {s}", .{cmd_name});
     }
 
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const io = options.io orelse return RunError.ExecutionFailed;
+    const result = std.process.run(allocator, io, .{
         .argv = argv,
-        .max_output_bytes = 10 * 1024 * 1024, // 10MB for large diffs
     }) catch {
         if (options.verbose > 0) {
             std.log.err("command execution failed: {s}", .{cmd_name});
@@ -70,10 +79,10 @@ pub fn runFiltered(
     };
 
     const exit_code: i32 = switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 
     // Combine stdout and stderr if needed
@@ -164,13 +173,13 @@ pub fn runFiltered(
             else
                 0.0;
 
-            const hostname = std.process.getEnvVarOwned(allocator, "HOSTNAME") catch
-                std.process.getEnvVarOwned(allocator, "COMPUTERNAME") catch
+            const hostname = _getEnvVarOwned(allocator, "HOSTNAME") catch
+                _getEnvVarOwned(allocator, "COMPUTERNAME") catch
                 allocator.dupe(u8, "unknown") catch "unknown";
             defer allocator.free(hostname);
 
             const report = shared.SavingsReport{
-                .timestamp = std.time.timestamp(),
+                .timestamp = time_compat.timestamp(io),
                 .original_cmd = raw_args,
                 .raw_output_tokens = raw_tokens,
                 .filtered_output_tokens = filtered_tokens,
@@ -182,6 +191,7 @@ pub fn runFiltered(
 
             var reporter = savings_reporter.SavingsReporter.init(
                 allocator,
+                io,
                 c.analytics_proxy.host,
                 c.analytics_proxy.port,
             ) catch |err| blk: {
@@ -196,10 +206,15 @@ pub fn runFiltered(
     }
 
     // Phase 5.5: MEMORY (claude-mem migration)
-    var mem_db: ?memory.MemoryDb = memory.MemoryDb.init(allocator) catch |err| blk: {
-        if (options.verbose > 0) std.log.warn("memory init failed: {}", .{err});
-        break :blk null;
-    };
+    const mem_home_dir = _getEnvVarOwned(allocator, "HOME") catch null;
+    defer if (mem_home_dir) |h| allocator.free(h);
+
+    var mem_db: ?memory.MemoryDb = if (mem_home_dir) |home_dir|
+        memory.MemoryDb.init(allocator, io, home_dir) catch |err| blk: {
+            if (options.verbose > 0) std.log.warn("memory init failed: {}", .{err});
+            break :blk null;
+        }
+    else null;
 
     if (mem_db) |*mdb| {
         defer mdb.deinit();
@@ -225,7 +240,7 @@ pub fn runFiltered(
         };
 
         // Initialize SessionManager with privacy mode so it skips writing session.json in private mode
-        var session_mgr = memory.SessionManager.initWithPrivacy(allocator, @constCast(mdb), recorder_config.privacy_mode);
+        var session_mgr = memory.SessionManager.initWithPrivacy(allocator, io, @constCast(mdb), mem_home_dir.?, recorder_config.privacy_mode);
         defer session_mgr.deinit();
 
         var session_id: []const u8 = "unknown";
@@ -238,7 +253,7 @@ pub fn runFiltered(
         }
         defer if (session_id_owned) allocator.free(session_id);
 
-        var rec = memory.Recorder.init(allocator, mdb, recorder_config);
+        var rec = memory.Recorder.init(allocator, io, mdb, recorder_config);
         _ = rec.record(raw_args, filtered, exit_code, session_id) catch |err| {
             std.log.warn("memory record failed: {}", .{err});
         };
@@ -253,15 +268,15 @@ pub fn runPassthrough(
     allocator: std.mem.Allocator,
     argv: []const []const u8,
     verbose: u8,
+    io: ?std.Io,
 ) RunError!i32 {
     if (verbose > 1) {
         std.log.info("executing (passthrough)", .{});
     }
 
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const io_val = io orelse return RunError.ExecutionFailed;
+    const result = std.process.run(allocator, io_val, .{
         .argv = argv,
-        .max_output_bytes = 10 * 1024 * 1024, // 10MB for large outputs
     }) catch {
         return RunError.ExecutionFailed;
     };
@@ -270,10 +285,10 @@ pub fn runPassthrough(
     std.debug.print("{s}", .{result.stdout});
 
     return switch (result.term) {
-        .Exited => |code| code,
-        .Signal => |sig| 128 + @as(i32, @intCast(sig)),
-        .Stopped => |sig| 128 + @as(i32, @intCast(sig)),
-        .Unknown => 1,
+        .exited => |code| code,
+        .signal => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| 128 + @as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => 1,
     };
 }
 

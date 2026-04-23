@@ -6,10 +6,20 @@
 //! - On demand: 'llmlite verify' command shows verification status
 
 const std = @import("std");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const fs = std.fs;
 
-fn fileExists(path: []const u8) bool {
-    fs.accessAbsolute(path, .{}) catch return false;
+fn fileExists(io: std.Io, path: []const u8) bool {
+    std.Io.Dir.accessAbsolute(io, path, .{}) catch return false;
     return true;
 }
 
@@ -28,7 +38,7 @@ pub const IntegrityResult = struct {
     hook_path: []const u8,
 };
 
-pub fn verifyHook(allocator: std.mem.Allocator, tool: []const u8) !IntegrityResult {
+pub fn verifyHook(io: std.Io, allocator: std.mem.Allocator, tool: []const u8) !IntegrityResult {
     const hook_path = try getHookPath(allocator, tool);
     defer allocator.free(hook_path);
 
@@ -36,8 +46,8 @@ pub fn verifyHook(allocator: std.mem.Allocator, tool: []const u8) !IntegrityResu
     defer allocator.free(hash_path);
 
     // Check if hook exists
-    const hook_exists = fileExists(hook_path);
-    const hash_exists = fileExists(hash_path);
+    const hook_exists = fileExists(io, hook_path);
+    const hash_exists = fileExists(io, hash_path);
 
     if (!hook_exists and !hash_exists) {
         return IntegrityResult{
@@ -51,14 +61,14 @@ pub fn verifyHook(allocator: std.mem.Allocator, tool: []const u8) !IntegrityResu
     if (!hook_exists and hash_exists) {
         return IntegrityResult{
             .status = .orphaned_hash,
-            .expected_hash = try readHashFile(allocator, hash_path),
+            .expected_hash = try readHashFile(g_io, allocator, hash_path),
             .actual_hash = null,
             .hook_path = hook_path,
         };
     }
 
     // Hook exists, compute hash
-    const actual_hash = try computeFileHash(allocator, hook_path);
+    const actual_hash = try computeFileHash(io, allocator, hook_path);
     errdefer allocator.free(actual_hash);
 
     if (!hash_exists) {
@@ -70,7 +80,7 @@ pub fn verifyHook(allocator: std.mem.Allocator, tool: []const u8) !IntegrityResu
         };
     }
 
-    const expected_hash = try readHashFile(allocator, hash_path);
+    const expected_hash = try readHashFile(io, allocator, hash_path);
     errdefer allocator.free(expected_hash);
 
     const is_match = std.mem.eql(u8, expected_hash, actual_hash);
@@ -83,7 +93,7 @@ pub fn verifyHook(allocator: std.mem.Allocator, tool: []const u8) !IntegrityResu
     };
 }
 
-pub fn storeHookHash(allocator: std.mem.Allocator, tool: []const u8) !void {
+pub fn storeHookHash(io: std.Io, allocator: std.mem.Allocator, tool: []const u8) !void {
     const hook_path = try getHookPath(allocator, tool);
     defer allocator.free(hook_path);
 
@@ -91,21 +101,21 @@ pub fn storeHookHash(allocator: std.mem.Allocator, tool: []const u8) !void {
     defer allocator.free(hash_path);
 
     // Compute hash
-    const hash = try computeFileHash(allocator, hook_path);
+    const hash = try computeFileHash(io, allocator, hook_path);
     errdefer allocator.free(hash);
 
     // Create hash file (read-only for security)
     const hash_dir = std.fs.path.dirname(hash_path) orelse return error.InvalidPath;
-    try fs.makeDirAbsolute(hash_dir);
+    try std.Io.Dir.createDirAbsolute(io, hash_dir, .{});
 
-    const file = try fs.createFileAbsolute(hash_path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.createFileAbsolute(io, hash_path, .{});
+    defer file.close(io);
 
-    try file.writeAll(hash);
+    try file.writeStreamingAll(g_io, io, hash);
     // Note: In production, set permissions to 0o444 (read-only)
 }
 
-pub fn showVerificationStatus(allocator: std.mem.Allocator) !void {
+pub fn showVerificationStatus(io: std.Io, allocator: std.mem.Allocator) !void {
     std.debug.print("\n=== llmlite Hook Integrity Verification ===\n\n", .{});
 
     const tools = &[_][]const u8{
@@ -123,7 +133,7 @@ pub fn showVerificationStatus(allocator: std.mem.Allocator) !void {
     var all_verified = true;
 
     for (tools) |tool| {
-        const result = verifyHook(allocator, tool) catch continue;
+        const result = verifyHook(io, allocator, tool) catch continue;
 
         const status_str = switch (result.status) {
             .verified => "✓ VERIFIED",
@@ -154,7 +164,7 @@ pub fn showVerificationStatus(allocator: std.mem.Allocator) !void {
 }
 
 fn getHookPath(allocator: std.mem.Allocator, tool: []const u8) ![]u8 {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
+    const home = _getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
     defer allocator.free(home);
 
     if (std.mem.eql(u8, tool, "claude_code")) {
@@ -181,15 +191,15 @@ fn getHookPath(allocator: std.mem.Allocator, tool: []const u8) ![]u8 {
 }
 
 fn getHashPath(allocator: std.mem.Allocator, tool: []const u8) ![]u8 {
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
+    const home = _getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
     defer allocator.free(home);
 
     return std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/hooks/{s}.sha256", .{ home, tool });
 }
 
-fn computeFileHash(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = try fs.openFileAbsolute(path, .{ .mode = .read_only });
-    defer file.close();
+fn computeFileHash(io: std.Io, allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const file = try std.Io.Dir.openFileAbsolute(io, path, .{});
+    defer file.close(io);
 
     const Sha256 = std.crypto.hash.sha2.Sha256;
     var hasher = Sha256.init(.{});
@@ -197,7 +207,7 @@ fn computeFileHash(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var buffer: [buffer_size]u8 = undefined;
 
     while (true) {
-        const bytes_read = try file.read(&buffer);
+        const bytes_read = try file.readPositional(g_io, &.{&buffer}, 0);
         if (bytes_read == 0) break;
         hasher.update(buffer[0..bytes_read]);
     }
@@ -208,13 +218,13 @@ fn computeFileHash(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return std.fmt.allocPrint(allocator, "{s}", .{hex});
 }
 
-fn readHashFile(_allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+fn readHashFile(io: std.Io, _allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     _ = _allocator; // Not needed for simple file read
-    const file = try fs.openFileAbsolute(path, .{ .mode = .read_only });
-    defer file.close();
+    const file = try std.Io.Dir.openFileAbsolute(io, path, .{});
+    defer file.close(io);
 
     var content: [64]u8 = undefined;
-    const bytes_read = try file.readAll(&content);
+    const bytes_read = try file.readPositionalAll(g_io, &content, 0);
     const trimmed = std.mem.trim(u8, content[0..bytes_read], " \n\r");
     return @constCast(trimmed);
 }

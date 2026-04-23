@@ -67,14 +67,14 @@ fn extractNpmListSummary(obj: *std.json.ObjectMap) []const u8 {
     if (obj.get("dependencies")) |deps| {
         if (deps == .object) {
             const count = deps.object.count();
-            std.fmt.format(result.writer(), "npm: {d} dependencies", .{count}) catch return "";
+            result.print( "npm: {d} dependencies", .{count}) catch return "";
             return result.toOwnedSlice() catch "";
         }
     }
 
     // Check for extraneous
     if (obj.get("extraneous")) |_| {
-        std.fmt.format(result.writer(), "npm: extraneous packages found", .{}) catch return "";
+        result.print( "npm: extraneous packages found", .{}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 

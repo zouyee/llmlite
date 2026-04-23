@@ -15,6 +15,17 @@
 //! - Detect LLMLITE_DISABLED/RTK_DISABLED bypasses
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const rules = @import("rules");
 const lexer = @import("lexer");
 const proxy_helpers = @import("proxy_helpers");
@@ -138,7 +149,7 @@ pub fn encodeProjectPath(path: []const u8) []const u8 {
 
 /// Get the Claude Code projects directory
 fn getProjectsDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = try std.process.getEnvVarOwned(allocator, "HOME");
+    const home = try _getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home);
 
     return std.fmt.allocPrint(allocator, "{s}/.claude/projects", .{home});
@@ -156,14 +167,14 @@ fn discoverSessions(allocator: std.mem.Allocator, project_filter: ?[]const u8, s
     defer allocator.free(projects_dir);
 
     // Check if projects directory exists
-    var dir = fs.openDirAbsolute(projects_dir, .{}) catch return sessions.toOwnedSlice(allocator);
-    defer dir.close();
+    var dir = std.Io.Dir.openDirAbsolute(g_io, projects_dir, .{}) catch return sessions.toOwnedSlice(allocator);
+    defer dir.close(g_io);
 
     // Calculate cutoff time
-    const cutoff = std.time.timestamp() - (@as(i64, since_days) * 86400);
+    const cutoff = time_compat.timestamp(g_io) - (@as(i64, since_days) * 86400);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry_fn| {
+    while (try iter.next(g_io)) |entry_fn| {
         if (entry_fn.kind != .directory) continue;
 
         const dir_name = entry_fn.name;
@@ -179,11 +190,11 @@ fn discoverSessions(allocator: std.mem.Allocator, project_filter: ?[]const u8, s
         const sessions_path = try std.fs.path.join(allocator, &.{ projects_dir, dir_name, "sessions" });
         defer allocator.free(sessions_path);
 
-        var sessions_dir = fs.openDirAbsolute(sessions_path, .{}) catch continue;
-        defer sessions_dir.close();
+        var sessions_dir = std.Io.Dir.openDirAbsolute(g_io, sessions_path, .{}) catch continue;
+        defer sessions_dir.close(g_io);
 
         var session_iter = sessions_dir.iterate();
-        while (try session_iter.next()) |session_entry_fn| {
+        while (try session_iter.next(g_io)) |session_entry_fn| {
             if (session_entry_fn.kind != .file) continue;
 
             const filename = session_entry_fn.name;
@@ -193,13 +204,13 @@ fn discoverSessions(allocator: std.mem.Allocator, project_filter: ?[]const u8, s
             errdefer allocator.free(full_path);
 
             // Check mtime
-            const file = fs.openFileAbsolute(full_path, .{}) catch continue;
-            defer file.close();
+            const file = std.Io.Dir.openFileAbsolute(g_io, full_path, .{}) catch continue;
+            defer file.close(g_io);
 
-            const stat = file.stat() catch continue;
+            const stat = file.stat(g_io) catch continue;
             const mtime = stat.mtime;
-            if (mtime != 0) {
-                const mtime_secs = @divTrunc(mtime, std.time.ns_per_s);
+            if (mtime.nanoseconds != 0) {
+                const mtime_secs = @divTrunc(mtime.nanoseconds, std.time.ns_per_s);
                 if (mtime_secs < cutoff) continue;
             }
 
@@ -215,10 +226,12 @@ pub fn extractCommands(allocator: std.mem.Allocator, path: []const u8) ![]Extrac
     var commands = try std.ArrayList(ExtractedCommand).initCapacity(allocator, 256);
     errdefer commands.deinit(allocator);
 
-    const file = fs.openFileAbsolute(path, .{}) catch return commands.toOwnedSlice(allocator);
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, path, .{}) catch return commands.toOwnedSlice(allocator);
+    defer file.close(g_io);
 
-    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024)); // 10MB max
     defer allocator.free(content);
 
     // Get session ID from filename
@@ -492,7 +505,7 @@ pub fn runSessionAnalysis(allocator: std.mem.Allocator, options: SessionOptions)
     // Fallback: local file scanning logic
     // Discover session files
     const project_filter: ?[]const u8 = if (options.all) null else blk: {
-        const cwd_str = try std.process.getCwdAlloc(allocator);
+        const cwd_str = try std.process.currentPathAlloc(g_io, allocator);
         defer allocator.free(cwd_str);
         break :blk encodeProjectPath(cwd_str);
     };
@@ -544,13 +557,13 @@ pub fn runSessionAnalysis(allocator: std.mem.Allocator, options: SessionOptions)
         const short_id = if (session_id.len > 8) session_id[0..8] else session_id;
 
         // Get date from mtime
-        const file = fs.openFileAbsolute(session_path, .{}) catch continue;
-        defer file.close();
-        const stat = file.stat() catch continue;
+        const file = std.Io.Dir.openFileAbsolute(g_io, session_path, .{}) catch continue;
+        defer file.close(g_io);
+        const stat = file.stat(g_io) catch continue;
 
         const mtime = stat.mtime;
-        const mtime_secs = @divTrunc(mtime, std.time.ns_per_s);
-        const now = std.time.timestamp();
+        const mtime_secs = @divTrunc(mtime.nanoseconds, std.time.ns_per_s);
+        const now = time_compat.timestamp(g_io);
         const days = @divTrunc((now - mtime_secs), 86400);
         const date_str = if (days == 0) "Today" else if (days == 1) "Yesterday" else (std.fmt.allocPrint(allocator, "{d}d ago", .{days}) catch "?");
 

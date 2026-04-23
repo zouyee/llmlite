@@ -2,6 +2,9 @@
 
 const std = @import("std");
 
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
 /// Compute SHA256 content hash for deduplication
 pub fn computeContentHash(session_id: []const u8, summary: []const u8, commands: [][]const u8) [32]u8 {
     var hasher = std.crypto.hash.sha2.Sha256.init(.{});
@@ -26,7 +29,7 @@ pub fn detectProject(allocator: std.mem.Allocator) ![]const u8 {
     }
 
     // Priority 2: Current working directory name
-    const cwd = std.process.getCwdAlloc(allocator) catch {
+    const cwd = std.process.currentPathAlloc(g_io, allocator) catch {
         return try allocator.dupe(u8, "unknown");
     };
     defer allocator.free(cwd);
@@ -35,15 +38,13 @@ pub fn detectProject(allocator: std.mem.Allocator) ![]const u8 {
 }
 
 fn getGitRoot(allocator: std.mem.Allocator) ![]const u8 {
-    const result = std.process.Child.run(.{
-        .allocator = allocator,
+    const result = std.process.run(allocator, g_io, .{
         .argv = &.{ "git", "rev-parse", "--show-toplevel" },
-        .max_output_bytes = 4096,
     }) catch return error.NoGit;
     defer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
-    if (result.term.Exited != 0) return error.NoGit;
+    if (result.term != .exited or result.term.exited != 0) return error.NoGit;
 
     const trimmed = std.mem.trim(u8, result.stdout, " \t\r\n");
     return try allocator.dupe(u8, trimmed);
@@ -66,7 +67,7 @@ pub fn extractTags(allocator: std.mem.Allocator, command: []const u8, _: []const
     // Extract file extensions from command args
     var iter = std.mem.tokenizeScalar(u8, command, ' ');
     while (iter.next()) |token| {
-        if (std.mem.indexOfScalar(u8, token, '.')) |dot| {
+        if (std.mem.findScalar(u8, token, '.')) |dot| {
             const ext = token[dot + 1 ..];
             if (ext.len > 0 and ext.len < 10) {
                 const ext_tag = try std.fmt.allocPrint(allocator, "ext:{s}", .{ext});
@@ -84,7 +85,7 @@ pub fn extractTags(allocator: std.mem.Allocator, command: []const u8, _: []const
         .{ .needle = "git", .tag = "git" },
     };
     for (patterns) |p| {
-        if (std.mem.indexOf(u8, command, p.needle) != null) {
+        if (std.mem.find(u8, command, p.needle) != null) {
             // Check if already in tags
             var found = false;
             for (tags.items) |existing| {
@@ -114,7 +115,8 @@ fn extractBaseCommand(cmd: []const u8) []const u8 {
 
 /// Generate a unique session ID
 pub fn generateSessionId(allocator: std.mem.Allocator) ![]const u8 {
-    const timestamp = std.time.timestamp();
-    const random = std.crypto.random.int(u32);
+    const timestamp = @import("time_compat").timestamp(g_io);
+    var rng_source = std.Random.IoSource{ .io = g_io };
+    const random = rng_source.interface().int(u32);
     return try std.fmt.allocPrint(allocator, "session-{d}-{d}", .{ timestamp, random });
 }

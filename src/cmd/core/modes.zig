@@ -9,6 +9,16 @@
 
 const std = @import("std");
 
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
+
 /// Category enum matching MemoryCategory in memory/types.zig.
 /// Defined locally to avoid module circular dependencies.
 pub const Category = enum {
@@ -117,7 +127,7 @@ pub fn filterCategory(mode: WorkMode, category: Category) Category {
 // ------------------------------------------------------------------
 
 fn getConfigPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
     defer allocator.free(home_dir);
     return std.fmt.allocPrint(allocator, "{s}/.config/llmlite/config.toml", .{home_dir});
 }
@@ -128,10 +138,12 @@ pub fn getCurrentMode(allocator: std.mem.Allocator) !WorkMode {
     const path = getConfigPath(allocator) catch return .code;
     defer allocator.free(path);
 
-    const file = std.fs.openFileAbsolute(path, .{}) catch return .code;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, path, .{}) catch return .code;
+    defer file.close(g_io);
 
-    const content = file.readToEndAlloc(allocator, 8192) catch return .code;
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = file_reader.interface.allocRemaining(allocator, .limited(8192)) catch return .code;
     defer allocator.free(content);
 
     return parseModeFromToml(content);
@@ -152,7 +164,7 @@ fn parseModeFromToml(content: []const u8) WorkMode {
 
         if (in_memory_section) {
             if (std.mem.startsWith(u8, trimmed, "mode")) {
-                const eq = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+                const eq = std.mem.findScalar(u8, trimmed, '=') orelse continue;
                 var value = std.mem.trim(u8, trimmed[eq + 1 ..], " \t");
                 // Remove quotes
                 if (value.len >= 2 and ((value[0] == '"' and value[value.len - 1] == '"') or
@@ -177,9 +189,11 @@ pub fn setCurrentMode(allocator: std.mem.Allocator, mode: WorkMode) !void {
 
     // Try to read existing file
     var content_buf: ?[]const u8 = null;
-    if (std.fs.openFileAbsolute(path, .{})) |file| {
-        defer file.close();
-        content_buf = file.readToEndAlloc(allocator, 8192) catch null;
+    if (std.Io.Dir.openFileAbsolute(g_io, path, .{})) |file| {
+        defer file.close(g_io);
+        var reader_buf: [8192]u8 = undefined;
+        var file_reader = file.reader(g_io, &reader_buf);
+        content_buf = file_reader.interface.allocRemaining(allocator, .limited(8192)) catch null;
     } else |_| {}
     defer if (content_buf) |c| allocator.free(c);
 
@@ -189,13 +203,13 @@ pub fn setCurrentMode(allocator: std.mem.Allocator, mode: WorkMode) !void {
 
     // Ensure directory exists
     const dir = std.fs.path.dirname(path) orelse return error.InvalidPath;
-    std.fs.makeDirAbsolute(dir) catch |err| {
+    std.Io.Dir.createDirAbsolute(g_io, dir, .default_dir) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
-    const file = try std.fs.createFileAbsolute(path, .{});
-    defer file.close();
-    try file.writeAll(new_content);
+    const file = try std.Io.Dir.createFileAbsolute(g_io, path, .{});
+    defer file.close(g_io);
+    try file.writeStreamingAll(g_io, new_content);
 }
 
 fn updateModeInToml(allocator: std.mem.Allocator, content: []const u8, mode: WorkMode) ![]const u8 {
@@ -356,8 +370,8 @@ test "updateModeInToml add section" {
     const allocator = std.testing.allocator;
     const result = try updateModeInToml(allocator, "[tracking]\n", .infra);
     defer allocator.free(result);
-    try std.testing.expect(std.mem.indexOf(u8, result, "[memory]") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "mode = \"infra\"") != null);
+    try std.testing.expect(std.mem.find(u8, result, "[memory]") != null);
+    try std.testing.expect(std.mem.find(u8, result, "mode = \"infra\"") != null);
 }
 
 test "updateModeInToml replace existing" {
@@ -365,9 +379,9 @@ test "updateModeInToml replace existing" {
     const content = "[memory]\nmode = \"code\"\nenabled = true\n";
     const result = try updateModeInToml(allocator, content, .data);
     defer allocator.free(result);
-    try std.testing.expect(std.mem.indexOf(u8, result, "mode = \"data\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "enabled = true") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "mode = \"code\"") == null);
+    try std.testing.expect(std.mem.find(u8, result, "mode = \"data\"") != null);
+    try std.testing.expect(std.mem.find(u8, result, "enabled = true") != null);
+    try std.testing.expect(std.mem.find(u8, result, "mode = \"code\"") == null);
 }
 
 test "updateModeInToml insert into existing section" {
@@ -375,6 +389,6 @@ test "updateModeInToml insert into existing section" {
     const content = "[memory]\nenabled = true\n";
     const result = try updateModeInToml(allocator, content, .writing);
     defer allocator.free(result);
-    try std.testing.expect(std.mem.indexOf(u8, result, "mode = \"writing\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "enabled = true") != null);
+    try std.testing.expect(std.mem.find(u8, result, "mode = \"writing\"") != null);
+    try std.testing.expect(std.mem.find(u8, result, "enabled = true") != null);
 }

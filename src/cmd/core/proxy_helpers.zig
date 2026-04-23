@@ -5,8 +5,23 @@
 
 const std = @import("std");
 
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
+
 /// Default proxy port if LLMLITE_PROXY_PORT is not set
 const DEFAULT_PROXY_PORT: u16 = 4001;
+
+/// Global io handle set by cmd_main
+var g_io: ?std.Io = null;
+
+/// Set the global io handle (called from cmd_main)
+pub fn setIo(io: std.Io) void {
+    g_io = io;
+}
 
 /// Query the llmlite-proxy analytics API.
 ///
@@ -19,6 +34,8 @@ const DEFAULT_PROXY_PORT: u16 = 4001;
 pub fn queryProxyApi(allocator: std.mem.Allocator, path: []const u8, timeout_ms: u32) !?[]const u8 {
     _ = timeout_ms; // timeout handled by client defaults
 
+    const io = g_io orelse return null;
+
     // Read proxy port from environment
     const port = getProxyPort();
 
@@ -29,11 +46,11 @@ pub fn queryProxyApi(allocator: std.mem.Allocator, path: []const u8, timeout_ms:
     const uri = std.Uri.parse(url_str) catch return null;
 
     // Create HTTP client
-    var client = std.http.Client{ .allocator = allocator };
+    var client = std.http.Client{ .allocator = allocator, .io = io };
     defer client.deinit();
 
     // Prepare response body storage
-    var response_writer = std.io.Writer.Allocating.init(allocator);
+    var response_writer = std.Io.Writer.Allocating.init(allocator);
     defer response_writer.deinit();
 
     const response = client.fetch(.{
@@ -53,7 +70,7 @@ pub fn queryProxyApi(allocator: std.mem.Allocator, path: []const u8, timeout_ms:
 
 /// Read the proxy port from LLMLITE_PROXY_PORT env var, defaulting to 4001.
 fn getProxyPort() u16 {
-    const port_str = std.process.getEnvVarOwned(std.heap.page_allocator, "LLMLITE_PROXY_PORT") catch return DEFAULT_PROXY_PORT;
+    const port_str = _getEnvVarOwned(std.heap.page_allocator, "LLMLITE_PROXY_PORT") catch return DEFAULT_PROXY_PORT;
     defer std.heap.page_allocator.free(port_str);
     return std.fmt.parseInt(u16, port_str, 10) catch DEFAULT_PROXY_PORT;
 }

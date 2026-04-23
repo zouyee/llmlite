@@ -4,9 +4,11 @@ const std = @import("std");
 const types = @import("types.zig");
 const db = @import("db.zig");
 const utils = @import("utils.zig");
+const time_compat = @import("time_compat");
 
 pub const Recorder = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     memory_db: *db.MemoryDb,
     config: RecorderConfig,
 
@@ -18,11 +20,13 @@ pub const Recorder = struct {
         excluded_patterns: []const []const u8 = &.{},
         privacy_mode: types.PrivacyMode = .normal,
         mode: []const u8 = "code",
+        memory_disabled: bool = false,
     };
 
-    pub fn init(allocator: std.mem.Allocator, memory_db: *db.MemoryDb, config: RecorderConfig) Recorder {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, memory_db: *db.MemoryDb, config: RecorderConfig) Recorder {
         return Recorder{
             .allocator = allocator,
+            .io = io,
             .memory_db = memory_db,
             .config = config,
         };
@@ -32,8 +36,8 @@ pub const Recorder = struct {
     pub fn shouldRecord(self: *Recorder, original_cmd: []const u8, exit_code: i32) bool {
         _ = exit_code;
 
-        // 1. Environment variable check (highest priority)
-        if (isMemoryDisabledByEnv()) return false;
+        // 1. Memory disabled check (highest priority)
+        if (isMemoryDisabled(self.config.memory_disabled)) return false;
 
         // 2. Global switches
         if (!self.config.enabled or !self.config.auto_record) return false;
@@ -103,7 +107,7 @@ pub const Recorder = struct {
             .commands = commands,
             .project = try self.allocator.dupe(u8, project),
             .session_id = try self.allocator.dupe(u8, session_id),
-            .created_at = std.time.timestamp(),
+            .created_at = time_compat.timestamp(self.io),
             .exit_code = exit_code,
             .content_hash = hash,
         };
@@ -173,7 +177,7 @@ pub const Recorder = struct {
 
         // Extract first line of output if available
         if (output.len > 0) {
-            const first_line = if (std.mem.indexOfScalar(u8, output, '\n')) |idx|
+            const first_line = if (std.mem.findScalar(u8, output, '\n')) |idx|
                 std.mem.trim(u8, output[0..idx], " \t\r")
             else
                 std.mem.trim(u8, output, " \t\r");
@@ -188,10 +192,8 @@ pub const Recorder = struct {
     }
 };
 
-fn isMemoryDisabledByEnv() bool {
-    const env_val = std.process.getEnvVarOwned(std.heap.page_allocator, "LLMLITE_MEMORY_DISABLED") catch return false;
-    defer std.heap.page_allocator.free(env_val);
-    return std.mem.eql(u8, env_val, "1") or std.mem.eql(u8, env_val, "true");
+fn isMemoryDisabled(disabled_flag: bool) bool {
+    return disabled_flag;
 }
 
 fn matchesPattern(text: []const u8, pattern: []const u8) bool {
@@ -199,7 +201,7 @@ fn matchesPattern(text: []const u8, pattern: []const u8) bool {
     if (std.mem.eql(u8, pattern, "*")) return true;
     if (std.mem.startsWith(u8, pattern, "*") and std.mem.endsWith(u8, pattern, "*")) {
         const middle = pattern[1 .. pattern.len - 1];
-        return std.mem.indexOf(u8, text, middle) != null;
+        return std.mem.find(u8, text, middle) != null;
     }
     if (std.mem.startsWith(u8, pattern, "*")) {
         return std.mem.endsWith(u8, text, pattern[1..]);
@@ -246,21 +248,21 @@ fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
 
 fn isGitFeat(cmd: []const u8) bool {
     return std.mem.startsWith(u8, cmd, "git commit") and
-        (std.mem.indexOf(u8, cmd, "feat:") != null or std.mem.indexOf(u8, cmd, "feat(") != null);
+        (std.mem.find(u8, cmd, "feat:") != null or std.mem.find(u8, cmd, "feat(") != null);
 }
 
 fn isGitFix(cmd: []const u8) bool {
     return std.mem.startsWith(u8, cmd, "git commit") and
-        (std.mem.indexOf(u8, cmd, "fix:") != null or std.mem.indexOf(u8, cmd, "fix(") != null);
+        (std.mem.find(u8, cmd, "fix:") != null or std.mem.find(u8, cmd, "fix(") != null);
 }
 
 fn isTestOrBuildCommand(cmd: []const u8) bool {
-    return std.mem.indexOf(u8, cmd, "test") != null or
-        std.mem.indexOf(u8, cmd, "build") != null;
+    return std.mem.find(u8, cmd, "test") != null or
+        std.mem.find(u8, cmd, "build") != null;
 }
 
 fn isBuildCommand(cmd: []const u8) bool {
-    return std.mem.indexOf(u8, cmd, "build") != null;
+    return std.mem.find(u8, cmd, "build") != null;
 }
 
 /// Downgrade categories ignored by the current work mode.
@@ -278,7 +280,7 @@ fn applyWorkMode(category: types.MemoryCategory, mode: []const u8) types.MemoryC
 fn isLearningCommand(cmd: []const u8) bool {
     const learning_cmds = [_][]const u8{ "help", "--help", "-h", "man ", "info " };
     for (learning_cmds) |lc| {
-        if (std.mem.indexOf(u8, cmd, lc) != null) return true;
+        if (std.mem.find(u8, cmd, lc) != null) return true;
     }
     return false;
 }
@@ -289,7 +291,7 @@ fn containsErrorPattern(output: []const u8) bool {
         "not found", "permission denied", "invalid", "unknown",
     };
     for (patterns) |p| {
-        if (std.mem.indexOf(u8, output, p) != null) return true;
+        if (std.mem.find(u8, output, p) != null) return true;
     }
     return false;
 }

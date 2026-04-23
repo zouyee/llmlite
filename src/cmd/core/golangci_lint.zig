@@ -8,6 +8,32 @@
 //! golangci-lint run: ~500 lines → ~30 lines (94% reduction)
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const json = @import("cmd_core_json");
 
 /// Golangci-lint diagnostic from JSON
@@ -67,7 +93,7 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
     }
 
     // Group by file
-    var files = std.StringArrayHashMap(std.array_list.Managed(usize)).init(std.heap.page_allocator);
+    var files = StringArrayHashMap(std.array_list.Managed(usize)).init(std.heap.page_allocator);
     defer {
         var it = files.iterator();
         while (it.next()) |entry| {
@@ -91,7 +117,7 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
     const total = diagnostics.items.len;
     const file_count = files.count();
 
-    std.fmt.format(result.writer(), "golangci-lint: {d} issues in {d} files\n", .{ total, file_count }) catch return "";
+    result.print( "golangci-lint: {d} issues in {d} files\n", .{ total, file_count }) catch return "";
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
     // Show top 5 files
@@ -100,13 +126,13 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
     while (file_it.next()) |entry| {
         if (shown_files >= 5) break;
 
-        std.fmt.format(result.writer(), "{d}: {s}\n", .{ entry.value_ptr.items.len, entry.key_ptr.* }) catch return "";
+        result.print( "{d}: {s}\n", .{ entry.value_ptr.items.len, entry.key_ptr.* }) catch return "";
 
         // Show up to 3 issues per file
         const show_count = @min(3, entry.value_ptr.items.len);
         for (entry.value_ptr.items[0..show_count]) |diag_idx| {
             const d = diagnostics.items[diag_idx];
-            std.fmt.format(result.writer(), "  {s}:{d}:{d} {s} [{s}]\n", .{
+            result.print( "  {s}:{d}:{d} {s} [{s}]\n", .{
                 d.file,
                 d.line,
                 d.column,
@@ -116,14 +142,14 @@ fn filterGolangciLintJson(output: []const u8) []const u8 {
         }
 
         if (entry.value_ptr.items.len > 3) {
-            std.fmt.format(result.writer(), "  ... +{d} more\n", .{entry.value_ptr.items.len - 3}) catch return "";
+            result.print( "  ... +{d} more\n", .{entry.value_ptr.items.len - 3}) catch return "";
         }
 
         shown_files += 1;
     }
 
     if (file_count > 5) {
-        std.fmt.format(result.writer(), "... +{d} more files\n", .{file_count - 5}) catch return "";
+        result.print( "... +{d} more files\n", .{file_count - 5}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";
@@ -139,7 +165,7 @@ fn filterGolangciLintText(output: []const u8) []const u8 {
 
     while (lines.next()) |line| {
         if (count >= 20) {
-            std.fmt.format(result.writer(), "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 20)}) catch return "";
+            result.print( "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 20)}) catch return "";
             break;
         }
 

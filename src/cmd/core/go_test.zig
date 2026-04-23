@@ -15,6 +15,32 @@
 //! go test: ~500 lines → ~15 lines (97% reduction)
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const json = @import("cmd_core_json");
 
 /// Go test event from NDJSON (matches RTK's GoTestEvent)
@@ -51,10 +77,10 @@ fn filterGoTestJson(output: []const u8) []const u8 {
     var result = std.array_list.Managed(u8).init(std.heap.page_allocator);
     defer result.deinit();
 
-    var packages = std.StringArrayHashMap(PackageResult).init(std.heap.page_allocator);
+    var packages = StringArrayHashMap(PackageResult).init(std.heap.page_allocator);
     defer packages.deinit();
 
-    var current_test_output = std.StringArrayHashMap(std.array_list.Managed([]const u8)).init(std.heap.page_allocator);
+    var current_test_output = StringArrayHashMap(std.array_list.Managed([]const u8)).init(std.heap.page_allocator);
     defer {
         var it = current_test_output.iterator();
         while (it.next()) |entry| {
@@ -137,16 +163,16 @@ fn filterGoTestJson(output: []const u8) []const u8 {
     }
 
     if (total_fail == 0) {
-        std.fmt.format(result.writer(), "go test: {d} passed", .{total_pass}) catch return "";
+        result.print( "go test: {d} passed", .{total_pass}) catch return "";
         if (total_skip > 0) {
-            std.fmt.format(result.writer(), ", {d} skipped", .{total_skip}) catch return "";
+            result.print( ", {d} skipped", .{total_skip}) catch return "";
         }
         return result.toOwnedSlice() catch "";
     }
 
     // Show failures
-    std.fmt.format(result.writer(), "go test: {d} passed, {d} failed\n", .{ total_pass, total_fail }) catch return "";
-    std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+    result.print( "go test: {d} passed, {d} failed\n", .{ total_pass, total_fail }) catch return "";
+    result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
     var shown_packages: usize = 0;
     it = packages.iterator();
@@ -155,21 +181,21 @@ fn filterGoTestJson(output: []const u8) []const u8 {
         const pkg_result = entry.value_ptr;
 
         if (pkg_result.fail > 0) {
-            std.fmt.format(result.writer(), "FAIL {s}\n", .{entry.key_ptr.*}) catch return "";
+            result.print( "FAIL {s}\n", .{entry.key_ptr.*}) catch return "";
 
             for (pkg_result.failed_tests[0..@min(3, pkg_result.failed_tests.len)]) |test_name| {
-                std.fmt.format(result.writer(), "    {s}\n", .{test_name}) catch return "";
+                result.print( "    {s}\n", .{test_name}) catch return "";
             }
 
             if (pkg_result.failed_tests.len > 3) {
-                std.fmt.format(result.writer(), "    ... +{d} more\n", .{pkg_result.failed_tests.len - 3}) catch return "";
+                result.print( "    ... +{d} more\n", .{pkg_result.failed_tests.len - 3}) catch return "";
             }
             shown_packages += 1;
         }
     }
 
     if (packages.count() > 3) {
-        std.fmt.format(result.writer(), "... +{d} more packages\n", .{packages.count() - 3}) catch return "";
+        result.print( "... +{d} more packages\n", .{packages.count() - 3}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";
@@ -195,16 +221,16 @@ fn parseGoTestEvent(line: []const u8) !GoTestEvent {
 /// Extract string field from JSON
 fn extractJsonString(input: []const u8, field: []const u8) ?[]const u8 {
     const search = "\"" ++ field ++ "\":\"";
-    const start = std.mem.indexOf(u8, input, search) orelse return null;
+    const start = std.mem.find(u8, input, search) orelse return null;
     const value_start = start + search.len;
-    const value_end = std.mem.indexOf(u8, input[value_start..], "\"") orelse return null;
+    const value_end = std.mem.find(u8, input[value_start..], "\"") orelse return null;
     return input[value_start .. value_start + value_end];
 }
 
 /// Extract float field from JSON
 fn extractJsonFloat(input: []const u8, field: []const u8) ?f64 {
     const search = "\"" ++ field ++ "\":";
-    const start = std.mem.indexOf(u8, input, search) orelse return null;
+    const start = std.mem.find(u8, input, search) orelse return null;
     const value_start = start + search.len;
 
     var value_end = value_start;
@@ -256,12 +282,12 @@ fn filterGoTestText(output: []const u8) []const u8 {
     }
 
     if (fail_count == 0) {
-        std.fmt.format(result.writer(), "go test: {d} passed", .{pass_count}) catch return "";
+        result.print( "go test: {d} passed", .{pass_count}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 
-    std.fmt.format(result.writer(), "go test: {d} passed, {d} failed\n", .{ pass_count, fail_count }) catch return "";
-    std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+    result.print( "go test: {d} passed, {d} failed\n", .{ pass_count, fail_count }) catch return "";
+    result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
     for (failure_lines.items[0..@min(10, failure_lines.items.len)]) |line| {
         result.appendSlice(line) catch {};

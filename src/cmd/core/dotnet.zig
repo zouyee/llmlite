@@ -130,11 +130,11 @@ fn filterDotnetTestText(output: []const u8) []const u8 {
     }
 
     if (failed_count == 0) {
-        std.fmt.format(result.writer(), "dotnet test: {d} passed\n", .{passed_count}) catch return "";
+        result.print( "dotnet test: {d} passed\n", .{passed_count}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 
-    std.fmt.format(result.writer(), "dotnet test: {d} passed, {d} failed\n", .{ passed_count, failed_count }) catch return "";
+    result.print( "dotnet test: {d} passed, {d} failed\n", .{ passed_count, failed_count }) catch return "";
     return result.toOwnedSlice() catch "";
 }
 
@@ -153,9 +153,9 @@ fn filterDotnetTestTrx(output: []const u8) []const u8 {
     }
 
     if (failed_tests == 0) {
-        std.fmt.format(result.writer(), "dotnet test: {d} passed\n", .{passed_tests}) catch return "";
+        result.print( "dotnet test: {d} passed\n", .{passed_tests}) catch return "";
     } else {
-        std.fmt.format(result.writer(), "dotnet test: {d} passed, {d} failed\n", .{ passed_tests, failed_tests }) catch return "";
+        result.print( "dotnet test: {d} passed, {d} failed\n", .{ passed_tests, failed_tests }) catch return "";
     }
 
     return result.toOwnedSlice() catch "";

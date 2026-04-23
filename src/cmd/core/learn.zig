@@ -14,6 +14,16 @@
 //! - Deduplication by (base_command, error_type, diff_token)
 
 const std = @import("std");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const fs = std.fs;
 
 // ===== Constants =====
@@ -92,7 +102,7 @@ pub fn extractBaseCommand(cmd: []const u8) []const u8 {
     var stripped = trimmed;
     while (stripped.len > 0) {
         // Check if starts with an env var pattern: WORD=VALUE followed by space
-        const eq_pos = std.mem.indexOfScalar(u8, stripped, '=') orelse break;
+        const eq_pos = std.mem.findScalar(u8, stripped, '=') orelse break;
         const space_after_val = blk: {
             // Find space after the value part
             var i: usize = eq_pos + 1;
@@ -114,7 +124,7 @@ pub fn extractBaseCommand(cmd: []const u8) []const u8 {
         if (!is_env_var) break;
 
         if (space_after_val < stripped.len) {
-            stripped = std.mem.trimLeft(u8, stripped[space_after_val..], " ");
+            stripped = std.mem.trim(u8, stripped[space_after_val..], " ");
         } else {
             // Entire string is just an env var assignment
             return stripped;
@@ -320,8 +330,8 @@ pub fn classifyError(output: []const u8) ErrorType {
 /// These should be filtered out to avoid false positives.
 pub fn isTddCycleError(error_type: ErrorType, output: []const u8) bool {
     // Rust compilation errors
-    if (std.mem.indexOf(u8, output, "error[E") != null or
-        std.mem.indexOf(u8, output, "aborting due to") != null)
+    if (std.mem.find(u8, output, "error[E") != null or
+        std.mem.find(u8, output, "aborting due to") != null)
     {
         return true;
     }
@@ -333,7 +343,7 @@ pub fn isTddCycleError(error_type: ErrorType, output: []const u8) bool {
     }
 
     // Test failure patterns
-    if (std.mem.indexOf(u8, output, "test result: FAILED") != null or
+    if (std.mem.find(u8, output, "test result: FAILED") != null or
         containsCI(output, "tests failed") or
         containsCI(output, "test failed"))
     {
@@ -343,8 +353,8 @@ pub fn isTddCycleError(error_type: ErrorType, output: []const u8) bool {
     // Only certain error types combined with compilation/test output
     switch (error_type) {
         .command_not_found, .other => {
-            if (std.mem.indexOf(u8, output, "error[E") != null or
-                std.mem.indexOf(u8, output, "FAILED") != null)
+            if (std.mem.find(u8, output, "error[E") != null or
+                std.mem.find(u8, output, "FAILED") != null)
             {
                 return true;
             }
@@ -631,7 +641,7 @@ pub fn deduplicateCorrections(allocator: std.mem.Allocator, pairs: []const Corre
 /// Main analysis function. Reads history, runs findCorrections + deduplicateCorrections pipeline.
 pub fn analyzeCorrections(allocator: std.mem.Allocator, options: LearnOptions) !void {
     // Get session history path
-    const home = std.process.getEnvVarOwned(allocator, "HOME") catch {
+    const home = _getEnvVarOwned(allocator, "HOME") catch {
         std.debug.print("Learn: HOME not set\n", .{});
         return;
     };
@@ -643,18 +653,18 @@ pub fn analyzeCorrections(allocator: std.mem.Allocator, options: LearnOptions) !
     });
     defer allocator.free(history_path);
 
-    const file = std.fs.openFileAbsolute(history_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_io, history_path, .{}) catch {
         std.debug.print("No history found. Run 'llmlite-cmd' commands first.\n", .{});
         return;
     };
-    defer file.close();
+    defer file.close(g_io);
 
     var buf: [8192]u8 = undefined;
     var file_buffer = try std.ArrayList(u8).initCapacity(allocator, 0);
     defer file_buffer.deinit(allocator);
 
     while (true) {
-        const bytes_read = file.read(&buf) catch break;
+        const bytes_read = file.readPositional(g_io, &.{&buf}, 0) catch break;
         if (bytes_read == 0) break;
         try file_buffer.appendSlice(allocator, buf[0..bytes_read]);
     }
@@ -758,16 +768,16 @@ fn showLearnJson(corrections: []const CorrectionRule) void {
 fn writeRulesFile(allocator: std.mem.Allocator, corrections: []const CorrectionRule) !void {
     const rules_dir = ".llmlite/rules";
 
-    fs.cwd().makePath(rules_dir) catch {};
+    std.Io.Dir.cwd().createDirPath(g_io, rules_dir) catch {};
 
     const rules_path = try std.fs.path.join(allocator, &.{ rules_dir, "cli-corrections.md" });
     defer allocator.free(rules_path);
 
-    const file = try fs.cwd().createFile(rules_path, .{});
-    defer file.close();
+    const file = try std.Io.Dir.cwd().createFile(g_io, rules_path, .{});
+    defer file.close(g_io);
 
-    try file.writeAll("# CLI Corrections\n\n");
-    try file.writeAll("Auto-generated by llmlite-cmd learn\n\n");
+    try file.writeStreamingAll(g_io, "# CLI Corrections\n\n");
+    try file.writeStreamingAll(g_io, "Auto-generated by llmlite-cmd learn\n\n");
 
     for (corrections) |c| {
         const section = try std.fmt.allocPrint(allocator, "## {s} (x{d})\n\n- Don't run: `{s}`\n- Run instead: `{s}`\n\n", .{
@@ -777,7 +787,7 @@ fn writeRulesFile(allocator: std.mem.Allocator, corrections: []const CorrectionR
             c.right_pattern,
         });
         defer allocator.free(section);
-        try file.writeAll(section);
+        try file.writeStreamingAll(g_io, section);
     }
 
     std.debug.print("Written: {s}\n", .{rules_path});
@@ -808,12 +818,12 @@ fn containsCI(haystack: []const u8, needle: []const u8) bool {
 fn hasErrorWithLineNumber(output: []const u8) bool {
     const marker = "error:";
     var pos: usize = 0;
-    while (std.mem.indexOfPos(u8, output, pos, marker)) |idx| {
+    while (std.mem.findPos(u8, output, pos, marker)) |idx| {
         // Check if there's a colon + digits pattern nearby (file:line:col pattern)
         const before_start = if (idx > 40) idx - 40 else 0;
         const before = output[before_start..idx];
         // Look for "filename.zig:NN:NN:" pattern before "error:"
-        if (std.mem.indexOf(u8, before, ".zig:") != null) {
+        if (std.mem.find(u8, before, ".zig:") != null) {
             return true;
         }
         pos = idx + marker.len;

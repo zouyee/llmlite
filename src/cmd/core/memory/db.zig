@@ -2,15 +2,18 @@
 
 const std = @import("std");
 const sqlite = @import("sqlite");
+const time_compat = @import("time_compat");
 const types = @import("types.zig");
 
 pub const MemoryDb = struct {
     db: sqlite.Database,
     allocator: std.mem.Allocator,
+    io: std.Io,
+    home_dir: []const u8,
     has_fts5: bool,
 
-    pub fn init(allocator: std.mem.Allocator) !MemoryDb {
-        const path = try getMemoryDbPath(allocator);
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8) !MemoryDb {
+        const path = try getMemoryDbPath(allocator, io, home_dir);
         defer allocator.free(path);
 
         const path_z = try allocator.dupeZ(u8, path);
@@ -26,6 +29,8 @@ pub const MemoryDb = struct {
         var self = MemoryDb{
             .db = db,
             .allocator = allocator,
+            .io = io,
+            .home_dir = home_dir,
             .has_fts5 = false,
         };
 
@@ -38,20 +43,21 @@ pub const MemoryDb = struct {
         self.db.close();
     }
 
-    pub fn getDbPath(allocator: std.mem.Allocator) ![]const u8 {
-        return getMemoryDbPath(allocator);
+    pub fn getDbPath(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8) ![]const u8 {
+        return getMemoryDbPath(allocator, io, home_dir);
     }
 
-    fn getMemoryDbPath(allocator: std.mem.Allocator) ![]const u8 {
-        const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch {
-            return try std.fmt.allocPrint(allocator, "/tmp/llmlite_memory.db", .{});
-        };
-        defer allocator.free(home_dir);
+    /// Pure path construction — returns `{home_dir}/.local/share/llmlite/memory.db`.
+    /// Does not perform any I/O (no directory creation).
+    pub fn buildMemoryDbPath(allocator: std.mem.Allocator, home_dir: []const u8) ![]const u8 {
+        return try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/memory.db", .{home_dir});
+    }
 
+    fn getMemoryDbPath(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8) ![]const u8 {
         const data_dir = try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite", .{home_dir});
         defer allocator.free(data_dir);
 
-        std.fs.makeDirAbsolute(data_dir) catch |err| {
+        std.Io.Dir.createDirAbsolute(io, data_dir, .default_dir) catch |err| {
             if (err != error.PathAlreadyExists) return err;
         };
 
@@ -93,7 +99,7 @@ pub const MemoryDb = struct {
     fn recordMigration(self: *MemoryDb, version: u32) !void {
         try self.db.exec(
             "INSERT INTO schema_versions (version, applied_at) VALUES (:version, :applied_at)",
-            .{ .version = version, .applied_at = std.time.timestamp() },
+            .{ .version = version, .applied_at = time_compat.timestamp(self.io) },
         );
     }
 
@@ -242,7 +248,7 @@ pub const MemoryDb = struct {
     }
 
     pub fn findDuplicate(self: *MemoryDb, hash: [32]u8, window_secs: i64) !?u64 {
-        const cutoff = std.time.timestamp() - window_secs;
+        const cutoff = time_compat.timestamp(self.io) - window_secs;
         const hash_hex = try std.fmt.allocPrint(self.allocator, "{x}", .{&hash});
         defer self.allocator.free(hash_hex);
 
@@ -487,3 +493,37 @@ pub const SessionMemoryRow = struct {
     category: []const u8,
     exit_code: i32,
 };
+
+// ============================================================================
+// Property-Based Tests
+// ============================================================================
+
+// **Feature: zig-016-upgrade, Property 6: 路径构造正确性**
+// Verify for any valid HOME path, getMemoryDbPath returns `{HOME}/.local/share/llmlite/memory.db`.
+//
+// **Validates: Requirements 4.1, 4.2, 4.3, 4.5, 4.6**
+test "Property 6: getMemoryDbPath returns correct path for any valid HOME" {
+    const allocator = std.testing.allocator;
+
+    // Test with a variety of HOME path patterns
+    const home_paths = [_][]const u8{
+        "/home/user",
+        "/root",
+        "/home/a",
+        "/Users/developer",
+        "/tmp",
+        "/home/user/with/deep/nesting",
+        "/opt/custom-home",
+        "/var/lib/service",
+    };
+
+    for (home_paths) |home| {
+        const path = try MemoryDb.buildMemoryDbPath(allocator, home);
+        defer allocator.free(path);
+
+        const expected = try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite/memory.db", .{home});
+        defer allocator.free(expected);
+
+        try std.testing.expectEqualStrings(expected, path);
+    }
+}

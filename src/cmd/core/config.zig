@@ -4,6 +4,16 @@
 //! Inspired by RTK's config.toml
 
 const std = @import("std");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const fs = std.fs;
 const modes = @import("modes");
 
@@ -56,7 +66,7 @@ pub const PrivacyConfig = struct {
 };
 
 pub fn loadConfig(allocator: std.mem.Allocator) !?Config {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch return null;
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch return null;
     defer allocator.free(home_dir);
 
     const config_dir = try std.fmt.allocPrint(allocator, "{s}/.config/llmlite", .{home_dir});
@@ -65,10 +75,12 @@ pub fn loadConfig(allocator: std.mem.Allocator) !?Config {
     const config_path = try std.fmt.allocPrint(allocator, "{s}/config.toml", .{config_dir});
     defer allocator.free(config_path);
 
-    const file = std.fs.openFileAbsolute(config_path, .{}) catch return null;
-    defer file.close();
+    const file = std.Io.Dir.openFileAbsolute(g_io, config_path, .{}) catch return null;
+    defer file.close(g_io);
 
-    const content = try file.readToEndAlloc(allocator, 8192);
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .limited(8192));
     defer allocator.free(content);
 
     return try parseConfig(allocator, content);
@@ -90,13 +102,13 @@ pub fn parseConfig(allocator: std.mem.Allocator, content: []const u8) !Config {
 
         // Check for section headers
         if (trimmed[0] == '[') {
-            const end = std.mem.indexOfScalar(u8, trimmed, ']') orelse continue;
+            const end = std.mem.findScalar(u8, trimmed, ']') orelse continue;
             current_section = trimmed[1..end];
             continue;
         }
 
         // Parse key = value
-        if (std.mem.indexOfScalar(u8, trimmed, '=')) |eq_idx| {
+        if (std.mem.findScalar(u8, trimmed, '=')) |eq_idx| {
             const key = std.mem.trim(u8, trimmed[0..eq_idx], " \t");
             const value = std.mem.trim(u8, trimmed[eq_idx + 1 ..], " \t");
 
@@ -164,11 +176,11 @@ pub fn parseConfig(allocator: std.mem.Allocator, content: []const u8) !Config {
     }
 
     // Environment variable overrides
-    if (std.process.getEnvVarOwned(allocator, "LLMLITE_PROXY_HOST")) |env_host| {
+    if (_getEnvVarOwned(allocator, "LLMLITE_PROXY_HOST")) |env_host| {
         allocator.free(config.analytics_proxy.host);
         config.analytics_proxy.host = env_host;
     } else |_| {}
-    if (std.process.getEnvVarOwned(allocator, "LLMLITE_PROXY_PORT")) |env_port_str| {
+    if (_getEnvVarOwned(allocator, "LLMLITE_PROXY_PORT")) |env_port_str| {
         defer allocator.free(env_port_str);
         if (std.fmt.parseInt(u16, env_port_str, 10)) |env_port| {
             config.analytics_proxy.port = env_port;
@@ -212,24 +224,24 @@ fn parseStringArray(allocator: std.mem.Allocator, value: []const u8) ![]const []
 }
 
 pub fn getConfigPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch return error.HomeNotFound;
     defer allocator.free(home_dir);
     return std.fmt.allocPrint(allocator, "{s}/.config/llmlite/config.toml", .{home_dir});
 }
 
-pub fn createDefaultConfig(allocator: std.mem.Allocator) !void {
+pub fn createDefaultConfig(io: std.Io, allocator: std.mem.Allocator) !void {
     const config_path = try getConfigPath(allocator);
     defer allocator.free(config_path);
 
     // Check if already exists
-    if (fs.openFileAbsolute(config_path, .{ .mode = .read_only })) |_| {
+    if (std.Io.Dir.openFileAbsolute(io, config_path, .{})) |_| {
         std.debug.print("Config already exists: {s}\n", .{config_path});
         return;
     } else |_| {}
 
     // Create directory if needed
     const dir = std.fs.path.dirname(config_path) orelse return error.InvalidPath;
-    try fs.makeDirAbsolute(dir);
+    try std.Io.Dir.createDirAbsolute(g_io, dir, .default_dir);
 
     const default_config =
         \\# llmlite-cmd Configuration
@@ -280,9 +292,9 @@ pub fn createDefaultConfig(allocator: std.mem.Allocator) !void {
         \\# excluded_patterns = ["*password*", "*secret*", "*token*"]
     ;
 
-    const file = try fs.createFileAbsolute(config_path, .{});
-    defer file.close();
-    try file.writeAll(default_config);
+    const file = try std.Io.Dir.createFileAbsolute(g_io, config_path, .{});
+    defer file.close(g_io);
+    try file.writeStreamingAll(g_io, default_config);
 
     std.debug.print("Created config: {s}\n", .{config_path});
 }

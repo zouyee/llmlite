@@ -8,6 +8,32 @@
 //! eslint: ~500 lines → ~50 lines (90% reduction)
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const json = @import("cmd_core_json");
 
 /// Filter ESLint output
@@ -42,7 +68,7 @@ fn filterEslintJson(output: []const u8) []const u8 {
         }
     }
 
-    var files = std.StringArrayHashMap(usize).init(std.heap.page_allocator);
+    var files = StringArrayHashMap(usize).init(std.heap.page_allocator);
     defer files.deinit();
 
     var errors = std.array_list.Managed(struct {
@@ -106,7 +132,7 @@ fn filterEslintJson(output: []const u8) []const u8 {
         total_issues += entry.value_ptr.*;
     }
 
-    std.fmt.format(result.writer(), "eslint: {d} issues in {d} files\n", .{ total_issues, files.count() }) catch return "";
+    result.print( "eslint: {d} issues in {d} files\n", .{ total_issues, files.count() }) catch return "";
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
     // Show top files
@@ -114,7 +140,7 @@ fn filterEslintJson(output: []const u8) []const u8 {
     it = files.iterator();
     while (it.next()) |entry| {
         if (shown >= 10) break;
-        std.fmt.format(result.writer(), "{d}: {s}\n", .{ entry.value_ptr.*, entry.key_ptr.* }) catch return {};
+        result.print( "{d}: {s}\n", .{ entry.value_ptr.*, entry.key_ptr.* }) catch return {};
         shown += 1;
     }
 

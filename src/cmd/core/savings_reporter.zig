@@ -3,6 +3,16 @@
 //! Fire-and-forget HTTP POST with local file fallback queue.
 
 const std = @import("std");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const shared = @import("shared_analytics");
 
 pub const SavingsReporter = struct {
@@ -11,8 +21,9 @@ pub const SavingsReporter = struct {
     proxy_port: u16,
     proxy_online: bool,
     queue_path: []const u8,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator, host: []const u8, port: u16) !SavingsReporter {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, host: []const u8, port: u16) !SavingsReporter {
         const queue_path = try getQueuePath(allocator);
         errdefer allocator.free(queue_path);
 
@@ -22,6 +33,7 @@ pub const SavingsReporter = struct {
             .proxy_port = port,
             .proxy_online = false,
             .queue_path = queue_path,
+            .io = io,
         };
 
         // Initial probe
@@ -36,25 +48,7 @@ pub const SavingsReporter = struct {
 
     /// Probe proxy health with 50ms timeout (best-effort, non-blocking)
     pub fn probe(self: *SavingsReporter) bool {
-        const Ctx = struct {
-            event: std.Thread.ResetEvent = .{},
-            result: bool = false,
-        };
-        var ctx: Ctx = .{};
-
-        const thread = std.Thread.spawn(.{}, struct {
-            fn f(c: *Ctx, reporter: *SavingsReporter) void {
-                c.result = reporter.probeImpl();
-                c.event.set();
-            }
-        }.f, .{ &ctx, self }) catch return false;
-
-        ctx.event.timedWait(50_000_000) catch {
-            thread.detach();
-            return false;
-        };
-        thread.join();
-        return ctx.result;
+        return self.probeImpl();
     }
 
     fn probeImpl(self: *SavingsReporter) bool {
@@ -62,10 +56,10 @@ pub const SavingsReporter = struct {
         defer self.allocator.free(url_str);
 
         const uri = std.Uri.parse(url_str) catch return false;
-        var client = std.http.Client{ .allocator = self.allocator };
+        var client = std.http.Client{ .allocator = self.allocator, .io = self.io };
         defer client.deinit();
 
-        var response_writer = std.io.Writer.Allocating.init(self.allocator);
+        var response_writer = std.Io.Writer.Allocating.init(self.allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -117,10 +111,10 @@ pub const SavingsReporter = struct {
         defer self.allocator.free(url_str);
 
         const uri = std.Uri.parse(url_str) catch return error.ConnectionRefused;
-        var client = std.http.Client{ .allocator = self.allocator };
+        var client = std.http.Client{ .allocator = self.allocator, .io = self.io };
         defer client.deinit();
 
-        var response_writer = std.io.Writer.Allocating.init(self.allocator);
+        var response_writer = std.Io.Writer.Allocating.init(self.allocator);
         defer response_writer.deinit();
 
         const response = client.fetch(.{
@@ -140,35 +134,43 @@ pub const SavingsReporter = struct {
         const json_body = try shared.serializeSavingsReport(self.allocator, report);
         defer self.allocator.free(json_body);
 
-        var file = std.fs.openFileAbsolute(self.queue_path, .{ .mode = .write_only }) catch |err| {
-            if (err == error.FileNotFound) {
-                const new_file = try std.fs.createFileAbsolute(self.queue_path, .{});
-                defer new_file.close();
-                try new_file.writeAll(json_body);
-                try new_file.writeAll("\n");
-                return;
+        // Try to read existing content if file exists
+        var existing = std.array_list.Managed(u8).init(self.allocator);
+        defer existing.deinit();
+
+        if (std.Io.Dir.openFileAbsolute(self.io, self.queue_path, .{})) |file| {
+            defer file.close(self.io);
+            var read_buf: [4096]u8 = undefined;
+            while (true) {
+                const bytes_read = file.readStreaming(self.io, &.{read_buf[0..]}) catch break;
+                if (bytes_read == 0) break;
+                existing.appendSlice(read_buf[0..bytes_read]) catch break;
             }
-            return err;
-        };
-        defer file.close();
-        try file.seekFromEnd(0);
-        try file.writeAll(json_body);
-        try file.writeAll("\n");
+        } else |_| {}
+
+        // Write old + new content
+        const new_file = try std.Io.Dir.createFileAbsolute(self.io, self.queue_path, .{});
+        defer new_file.close(self.io);
+        if (existing.items.len > 0) {
+            try new_file.writeStreamingAll(self.io, existing.items);
+        }
+        try new_file.writeStreamingAll(self.io, json_body);
+        try new_file.writeStreamingAll(self.io, "\n");
     }
 
     fn retryPending(self: *SavingsReporter) !void {
-        const file = std.fs.openFileAbsolute(self.queue_path, .{ .mode = .read_only }) catch |err| {
+        const file = std.Io.Dir.openFileAbsolute(self.io, self.queue_path, .{}) catch |err| {
             if (err == error.FileNotFound) return;
             return err;
         };
-        defer file.close();
+        defer file.close(self.io);
 
         var buf: [4096]u8 = undefined;
         var content = std.array_list.Managed(u8).init(self.allocator);
         defer content.deinit();
 
         while (true) {
-            const bytes_read = try file.read(&buf);
+            const bytes_read = try file.readStreaming(self.io, &.{buf[0..]});
             if (bytes_read == 0) break;
             try content.appendSlice(buf[0..bytes_read]);
         }
@@ -199,17 +201,17 @@ pub const SavingsReporter = struct {
         }
 
         // Rewrite queue with only failed items
-        var out_file = try std.fs.createFileAbsolute(self.queue_path, .{});
-        defer out_file.close();
+        var out_file = try std.Io.Dir.createFileAbsolute(self.io, self.queue_path, .{});
+        defer out_file.close(self.io);
         for (failed.items) |line| {
-            try out_file.writeAll(line);
-            try out_file.writeAll("\n");
+            try out_file.writeStreamingAll(self.io, line);
+            try out_file.writeStreamingAll(self.io, "\n");
         }
     }
 };
 
 fn getQueuePath(allocator: std.mem.Allocator) ![]const u8 {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch {
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch {
         return try allocator.dupe(u8, "/tmp/llmlite_pending_reports.jsonl");
     };
     defer allocator.free(home_dir);
@@ -217,7 +219,7 @@ fn getQueuePath(allocator: std.mem.Allocator) ![]const u8 {
     const data_dir = try std.fmt.allocPrint(allocator, "{s}/.local/share/llmlite", .{home_dir});
     defer allocator.free(data_dir);
 
-    std.fs.makeDirAbsolute(data_dir) catch |err| {
+    std.Io.Dir.createDirAbsolute(g_io, data_dir, .default_dir) catch |err| {
         if (err != error.PathAlreadyExists) return err;
     };
 
@@ -238,6 +240,7 @@ test "SavingsReporter probe returns false when no proxy" {
         .proxy_port = 1, // Invalid port
         .proxy_online = false,
         .queue_path = try allocator.dupe(u8, "/tmp/test_probe_queue.jsonl"),
+        .io = g_io,
     };
     defer {
         allocator.free(reporter.proxy_host);
@@ -254,7 +257,7 @@ test "SavingsReporter enqueueLocal writes valid JSON" {
 
     const tmp_path = "/tmp/test_enqueue_queue.jsonl";
     // Clean up any leftover
-    std.fs.deleteFileAbsolute(tmp_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(g_io, tmp_path) catch {};
 
     var reporter = SavingsReporter{
         .allocator = allocator,
@@ -262,11 +265,12 @@ test "SavingsReporter enqueueLocal writes valid JSON" {
         .proxy_port = 4001,
         .proxy_online = false,
         .queue_path = try allocator.dupe(u8, tmp_path),
+        .io = g_io,
     };
     defer {
         allocator.free(reporter.proxy_host);
         allocator.free(reporter.queue_path);
-        std.fs.deleteFileAbsolute(tmp_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(g_io, tmp_path) catch {};
     }
 
     const report = shared.SavingsReport{
@@ -287,10 +291,12 @@ test "SavingsReporter enqueueLocal writes valid JSON" {
     try reporter.enqueueLocal(report);
 
     // Read back and verify
-    const file = try std.fs.openFileAbsolute(tmp_path, .{ .mode = .read_only });
-    defer file.close();
+    const file = try std.Io.Dir.openFileAbsolute(g_io, tmp_path, .{});
+    defer file.close(g_io);
 
-    const content = try file.readToEndAlloc(allocator, 4096);
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .limited(4096));
     defer allocator.free(content);
 
     // Should have 2 lines
@@ -318,7 +324,7 @@ test "SavingsReporter retryPending with empty queue is no-op" {
 
     const tmp_path = "/tmp/test_retry_empty_queue.jsonl";
     // Ensure file does not exist
-    std.fs.deleteFileAbsolute(tmp_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(g_io, tmp_path) catch {};
 
     var reporter = SavingsReporter{
         .allocator = allocator,
@@ -326,6 +332,7 @@ test "SavingsReporter retryPending with empty queue is no-op" {
         .proxy_port = 4001,
         .proxy_online = false,
         .queue_path = try allocator.dupe(u8, tmp_path),
+        .io = g_io,
     };
     defer {
         allocator.free(reporter.proxy_host);
@@ -340,7 +347,7 @@ test "SavingsReporter retryPending rewrites failed items" {
     const allocator = std.testing.allocator;
 
     const tmp_path = "/tmp/test_retry_rewrite_queue.jsonl";
-    std.fs.deleteFileAbsolute(tmp_path) catch {};
+    std.Io.Dir.deleteFileAbsolute(g_io, tmp_path) catch {};
 
     var reporter = SavingsReporter{
         .allocator = allocator,
@@ -348,11 +355,12 @@ test "SavingsReporter retryPending rewrites failed items" {
         .proxy_port = 1, // Invalid port so sendReport always fails
         .proxy_online = false,
         .queue_path = try allocator.dupe(u8, tmp_path),
+        .io = g_io,
     };
     defer {
         allocator.free(reporter.proxy_host);
         allocator.free(reporter.queue_path);
-        std.fs.deleteFileAbsolute(tmp_path) catch {};
+        std.Io.Dir.deleteFileAbsolute(g_io, tmp_path) catch {};
     }
 
     const report = shared.SavingsReport{
@@ -373,10 +381,12 @@ test "SavingsReporter retryPending rewrites failed items" {
     try reporter.retryPending();
 
     // Verify queue still has the report (since send fails)
-    const file = try std.fs.openFileAbsolute(tmp_path, .{ .mode = .read_only });
-    defer file.close();
+    const file = try std.Io.Dir.openFileAbsolute(g_io, tmp_path, .{});
+    defer file.close(g_io);
 
-    const content = try file.readToEndAlloc(allocator, 4096);
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .limited(4096));
     defer allocator.free(content);
 
     var line_count: usize = 0;

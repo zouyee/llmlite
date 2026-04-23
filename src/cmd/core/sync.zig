@@ -4,7 +4,11 @@
 //! Supports offline queuing and multiple sync strategies.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
 const tracking = @import("cmd_core_tracking");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
 
 pub const SyncConfig = struct {
     /// Proxy URL to sync to
@@ -85,7 +89,7 @@ pub fn recordAndSync(record: tracking.TrackingRecord) !void {
 
     // Convert to sync record
     const sync_record = SyncRecord{
-        .timestamp = std.time.timestamp(),
+        .timestamp = time_compat.timestamp(g_io),
         .original_cmd = record.original_cmd,
         .rtk_cmd = record.rtk_cmd,
         .raw_output_len = record.raw_output.len,
@@ -244,7 +248,7 @@ const Sync = struct {
             };
         }
 
-        self.last_sync = std.time.timestamp();
+        self.last_sync = time_compat.timestamp(g_io);
         self.last_error = null;
 
         std.log.info("synced {} records to proxy", .{parsed.value.synced});
@@ -252,13 +256,15 @@ const Sync = struct {
 
     /// Load pending records from persistent queue file
     fn loadQueue(self: *Sync, path: []const u8) !void {
-        const file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch {
+        const file = std.Io.Dir.openFileAbsolute(g_io, path, .{}) catch {
             // File doesn't exist yet - that's OK
             return;
         };
-        defer file.close();
+        defer file.close(g_io);
 
-        const content = try file.readToEndAlloc(self.allocator, 10_000_000);
+        var reader_buf: [8192]u8 = undefined;
+        var file_reader = file.reader(g_io, &reader_buf);
+        const content = try file_reader.interface.allocRemaining(self.allocator, .limited(10_000_000));
         defer self.allocator.free(content);
 
         if (content.len == 0) return;
@@ -354,29 +360,28 @@ const Sync = struct {
         // Ensure parent directory exists
         const parent = std.fs.path.dirname(path);
         if (parent) |p| {
-            try std.fs.makePathAbsolute(p);
-            std.fs.cwd().makeDir(p) catch {};
+            try std.Io.Dir.cwd().createDirPath(g_io, p);
         }
 
         // Write to file atomically (write to temp then rename)
         const tmp_path = try std.mem.concat(self.allocator, u8, &.{ path, ".tmp" });
         defer self.allocator.free(tmp_path);
 
-        const file = try std.fs.createFileAbsolute(tmp_path, .{});
-        defer file.close();
+        const file = try std.Io.Dir.createFileAbsolute(g_io, tmp_path, .{});
+        defer file.close(g_io);
 
-        try file.writeAll(json.items);
-        try file.sync();
+        try file.writeStreamingAll(g_io, json.items);
+        try file.sync(g_io);
 
         // Rename temp to actual path
-        try std.fs.rename(tmp_path, path);
+        try std.Io.Dir.renameAbsolute(tmp_path, path, g_io);
 
         std.log.debug("saved {} records to queue file", .{self.pending.items.len});
     }
 
     /// Clear the queue file
     fn clearQueue(_: *Sync, path: []const u8) !void {
-        std.fs.deleteFileAbsolute(path) catch {};
+        std.Io.Dir.deleteFileAbsolute(g_io, path) catch {};
     }
 
     fn checkProxyReachable(self: *Sync) bool {

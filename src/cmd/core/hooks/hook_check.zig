@@ -3,6 +3,9 @@
 //! Detects whether llmlite hooks are installed and warns if they are outdated.
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+pub var g_io: std.Io = undefined;
 
 // ============================================================================
 // Constants
@@ -97,9 +100,9 @@ fn checkAndWarn() !void {
     // Rate limit: warn once per day
     const marker = warnMarkerPath() orelse return;
     if (try fileExists(marker)) {
-        const meta = std.fs.cwd().statFile(marker) catch return;
+        const meta = std.Io.Dir.cwd().statFile(g_io, marker) catch return;
         const modified = meta.mtime();
-        const now = std.time.timestamp();
+        const now = time_compat.timestamp(g_io);
         if (now - @as(i64, @intCast(modified)) < @as(i64, @intCast(WARN_INTERVAL_SECS))) {
             return;
         }
@@ -110,9 +113,10 @@ fn checkAndWarn() !void {
     // Touch marker after warning is printed
     const marker_dir = std.fs.path.dirname(marker);
     if (marker_dir) |dir| {
-        std.fs.cwd().makeDir(dir) catch {};
+        std.Io.Dir.cwd().createDirPath(g_io, dir) catch {};
     }
-    std.fs.cwd().writeFile(marker, "") catch return;
+    const marker_file = std.Io.Dir.cwd().createFile(g_io, marker, .{}) catch return;
+    marker_file.close(g_io);
 }
 
 fn hookInstalledPath() ?[]const u8 {
@@ -143,16 +147,20 @@ fn warnMarkerPath() ?[]const u8 {
 // ============================================================================
 
 fn exists(path: []const u8) bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    std.Io.Dir.cwd().access(g_io, path, .{}) catch return false;
     return true;
 }
 
 fn readFileString(path: []const u8) ![]const u8 {
-    return std.fs.cwd().readFileAlloc(std.heap.page_allocator, path, std.math.maxInt(usize));
+    const file = try std.Io.Dir.cwd().openFile(g_io, path, .{});
+    defer file.close(g_io);
+    var read_buf: [4096]u8 = undefined;
+    var file_reader = file.reader(g_io, &read_buf);
+    return file_reader.interface.allocRemaining(std.heap.page_allocator, .limited(std.math.maxInt(usize)));
 }
 
 fn fileExists(path: []const u8) !bool {
-    std.fs.cwd().access(path, .{}) catch return false;
+    std.Io.Dir.cwd().access(g_io, path, .{}) catch return false;
     return true;
 }
 

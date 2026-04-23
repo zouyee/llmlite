@@ -15,6 +15,32 @@
 //! tsc: ~500 lines → ~30 lines (94% reduction)
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: managed StringArrayHashMap wrapper
+fn StringArrayHashMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+        unmanaged: std.StringArrayHashMapUnmanaged(V),
+        allocator: std.mem.Allocator,
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .unmanaged = .empty, .allocator = allocator };
+        }
+        pub fn deinit(self: *Self) void { self.unmanaged.deinit(self.allocator); }
+        pub fn put(self: *Self, key: []const u8, value: V) !void { return self.unmanaged.put(self.allocator, key, value); }
+        pub fn get(self: Self, key: []const u8) ?V { return self.unmanaged.get(key); }
+        pub fn getPtr(self: Self, key: []const u8) ?*V { return self.unmanaged.getPtr(key); }
+        pub fn getOrPut(self: *Self, key: []const u8) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPut(self.allocator, key); }
+        pub fn getOrPutValue(self: *Self, key: []const u8, value: V) !std.StringArrayHashMapUnmanaged(V).GetOrPutResult { return self.unmanaged.getOrPutValue(self.allocator, key, value); }
+        pub fn contains(self: Self, key: []const u8) bool { return self.unmanaged.contains(key); }
+        pub fn count(self: Self) usize { return self.unmanaged.count(); }
+        pub fn iterator(self: Self) std.StringArrayHashMapUnmanaged(V).Iterator { return self.unmanaged.iterator(); }
+        pub fn fetchSwapRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn fetchRemove(self: *Self, key: []const u8) ?std.StringArrayHashMapUnmanaged(V).KV { return self.unmanaged.fetchSwapRemove(key); }
+        pub fn swapRemove(self: *Self, key: []const u8) bool { return self.unmanaged.swapRemove(key); }
+        pub fn keys(self: Self) [][]const u8 { return self.unmanaged.keys(); }
+        pub fn values(self: Self) []V { return self.unmanaged.values(); }
+    };
+}
 const json = @import("cmd_core_json");
 
 /// TypeScript error
@@ -55,7 +81,7 @@ fn filterTscJson(output: []const u8) []const u8 {
     }
 
     // Count errors by file
-    var files = std.StringArrayHashMap(usize).init(std.heap.page_allocator);
+    var files = StringArrayHashMap(usize).init(std.heap.page_allocator);
     defer files.deinit();
 
     for (arr) |item| {
@@ -78,20 +104,20 @@ fn filterTscJson(output: []const u8) []const u8 {
         return "TypeScript: No errors found";
     }
 
-    std.fmt.format(result.writer(), "TypeScript: errors in {d} files\n", .{total_errors}) catch return "";
-    std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+    result.print( "TypeScript: errors in {d} files\n", .{total_errors}) catch return "";
+    result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
     // Show top 5 files
     var shown: usize = 0;
     var it = files.iterator();
     while (it.next()) |entry| {
         if (shown >= 5) break;
-        std.fmt.format(result.writer(), "  {d}: {s}\n", .{ entry.value_ptr.*, entry.key_ptr.* }) catch return "";
+        result.print( "  {d}: {s}\n", .{ entry.value_ptr.*, entry.key_ptr.* }) catch return "";
         shown += 1;
     }
 
     if (files.count() > 5) {
-        std.fmt.format(result.writer(), "  ... +{d} more files", .{files.count() - 5}) catch return "";
+        result.print( "  ... +{d} more files", .{files.count() - 5}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";
@@ -145,7 +171,7 @@ fn filterTscText(output: []const u8) []const u8 {
     }
 
     // Group by file
-    var files = std.StringArrayHashMap(std.array_list.Managed([]const u8)).init(std.heap.page_allocator);
+    var files = StringArrayHashMap(std.array_list.Managed([]const u8)).init(std.heap.page_allocator);
     defer {
         var it = files.iterator();
         while (it.next()) |entry| {
@@ -156,7 +182,7 @@ fn filterTscText(output: []const u8) []const u8 {
 
     for (errors.items) |err| {
         var key = std.array_list.Managed(u8).init(std.heap.page_allocator);
-        std.fmt.format(key.writer(), "{s}:{d}", .{ err.file, err.line }) catch {};
+        key.print( "{s}:{d}", .{ err.file, err.line }) catch {};
 
         const entry = files.getOrPut(key.toOwnedSlice() catch "") catch continue;
         if (entry.found_existing) {
@@ -168,20 +194,20 @@ fn filterTscText(output: []const u8) []const u8 {
         }
     }
 
-    std.fmt.format(result.writer(), "TypeScript: {d} errors\n", .{errors.items.len}) catch return "";
-    std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+    result.print( "TypeScript: {d} errors\n", .{errors.items.len}) catch return "";
+    result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
     // Show top 5
     var shown: usize = 0;
     var it = files.iterator();
     while (it.next()) |entry| {
         if (shown >= 5) break;
-        std.fmt.format(result.writer(), "  {s}\n", .{entry.key_ptr.*}) catch return "";
+        result.print( "  {s}\n", .{entry.key_ptr.*}) catch return "";
         shown += 1;
     }
 
     if (files.count() > 5) {
-        std.fmt.format(result.writer(), "  ... +{d} more", .{files.count() - 5}) catch return "";
+        result.print( "  ... +{d} more", .{files.count() - 5}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";
@@ -193,12 +219,12 @@ fn parseTscErrorLine(line: []const u8) ?TsError {
     // or: src/file.ts(12,5): warning TS2322: message
 
     // Find the opening paren for line:column
-    const paren_open = std.mem.indexOfScalar(u8, line, '(') orelse return null;
-    const paren_close = std.mem.indexOfScalar(u8, line[paren_open..], ')') orelse return null;
+    const paren_open = std.mem.findScalar(u8, line, '(') orelse return null;
+    const paren_close = std.mem.findScalar(u8, line[paren_open..], ')') orelse return null;
     const coords = line[paren_open + 1 .. paren_open + paren_close];
 
     // Parse line:column
-    const colon = std.mem.indexOfScalar(u8, coords, ',') orelse return null;
+    const colon = std.mem.findScalar(u8, coords, ',') orelse return null;
     const line_str = coords[0..colon];
     const col_str = coords[colon + 1 ..];
 
@@ -207,7 +233,7 @@ fn parseTscErrorLine(line: []const u8) ?TsError {
 
     // Find severity and code
     const after_coords = line[paren_open + paren_close + 1 ..];
-    const colon2 = std.mem.indexOfScalar(u8, after_coords, ':') orelse return null;
+    const colon2 = std.mem.findScalar(u8, after_coords, ':') orelse return null;
     const severity_msg = std.mem.trim(u8, after_coords[0..colon2], " \t");
 
     if (!std.mem.containsAtLeast(u8, severity_msg, 1, "error") and
@@ -218,14 +244,14 @@ fn parseTscErrorLine(line: []const u8) ?TsError {
 
     // Extract code (e.g., TS2322)
     const code_search = "TS";
-    const ts_pos = std.mem.indexOf(u8, severity_msg, code_search) orelse return null;
+    const ts_pos = std.mem.find(u8, severity_msg, code_search) orelse return null;
     const code_end = ts_pos + 5; // TS + 4 digits
     if (code_end > severity_msg.len) return null;
     const code = severity_msg[ts_pos..code_end];
 
     // Find the message after the code
     const after_code = severity_msg[code_end..];
-    const msg_colon = std.mem.indexOfScalar(u8, after_code, ':') orelse return null;
+    const msg_colon = std.mem.findScalar(u8, after_code, ':') orelse return null;
     const message = std.mem.trim(u8, after_code[msg_colon + 1 ..], " \t");
 
     // Get file (before the paren)

@@ -199,7 +199,7 @@ fn buildPytestSummary(stats: *const TestStats, failures: *const []Failure) []con
     defer result.deinit();
 
     if (stats.failed == 0 and stats.passed > 0) {
-        std.fmt.format(result.writer(), "Pytest: {d} passed", .{stats.passed}) catch return "";
+        result.print( "Pytest: {d} passed", .{stats.passed}) catch return "";
         return result.toOwnedSlice() catch "";
     }
 
@@ -208,12 +208,12 @@ fn buildPytestSummary(stats: *const TestStats, failures: *const []Failure) []con
     }
 
     // Main summary line
-    std.fmt.format(result.writer(), "Pytest: {d} passed", .{stats.passed}) catch return "";
+    result.print( "Pytest: {d} passed", .{stats.passed}) catch return "";
     if (stats.failed > 0) {
-        std.fmt.format(result.writer(), ", {d} failed", .{stats.failed}) catch return "";
+        result.print( ", {d} failed", .{stats.failed}) catch return "";
     }
     if (stats.skipped > 0) {
-        std.fmt.format(result.writer(), ", {d} skipped", .{stats.skipped}) catch return "";
+        result.print( ", {d} skipped", .{stats.skipped}) catch return "";
     }
     result.append('\n') catch return "";
 
@@ -226,10 +226,10 @@ fn buildPytestSummary(stats: *const TestStats, failures: *const []Failure) []con
 
     // Show failures (limit to 5)
     const max_failures = @min(5, failures.len);
-    std.fmt.format(result.writer(), "\nFailures:\n", .{}) catch return "";
+    result.print( "\nFailures:\n", .{}) catch return "";
 
     for (failures[0..max_failures], 0..) |failure, i| {
-        std.fmt.format(result.writer(), "{d}. [FAIL] {s}\n", .{ i + 1, failure.test_name }) catch return "";
+        result.print( "{d}. [FAIL] {s}\n", .{ i + 1, failure.test_name }) catch return "";
 
         // Show relevant error lines (assertions, errors, file locations)
         var relevant_shown: usize = 0;
@@ -248,7 +248,7 @@ fn buildPytestSummary(stats: *const TestStats, failures: *const []Failure) []con
 
             if (is_relevant) {
                 const truncated = if (trimmed.len > 100) trimmed[0..100] else trimmed;
-                std.fmt.format(result.writer(), "     {s}\n", .{truncated}) catch return "";
+                result.print( "     {s}\n", .{truncated}) catch return "";
                 relevant_shown += 1;
             }
         }
@@ -259,7 +259,7 @@ fn buildPytestSummary(stats: *const TestStats, failures: *const []Failure) []con
     }
 
     if (failures.len > max_failures) {
-        std.fmt.format(result.writer(), "\n... +{d} more failures\n", .{failures.len - max_failures}) catch return "";
+        result.print( "\n... +{d} more failures\n", .{failures.len - max_failures}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";

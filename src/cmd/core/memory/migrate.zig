@@ -1,6 +1,13 @@
 //! History migration - convert text-based history.db to SQLite memory.db
 
 const std = @import("std");
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const types = @import("types.zig");
 const db = @import("db.zig");
 const utils = @import("utils.zig");
@@ -8,11 +15,13 @@ const utils = @import("utils.zig");
 pub const Migrator = struct {
     allocator: std.mem.Allocator,
     memory_db: *db.MemoryDb,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator, memory_db: *db.MemoryDb) Migrator {
+    pub fn init(allocator: std.mem.Allocator, memory_db: *db.MemoryDb, io: std.Io) Migrator {
         return Migrator{
             .allocator = allocator,
             .memory_db = memory_db,
+            .io = io,
         };
     }
 
@@ -22,16 +31,18 @@ pub const Migrator = struct {
         const history_path = try self.getHistoryDbPath();
         defer self.allocator.free(history_path);
 
-        const file = std.fs.openFileAbsolute(history_path, .{}) catch |err| {
+        const file = std.Io.Dir.openFileAbsolute(self.io, history_path, .{}) catch |err| {
             if (err == error.FileNotFound) {
                 std.debug.print("No history.db found, nothing to migrate.\n", .{});
                 return result;
             }
             return err;
         };
-        defer file.close();
+        defer file.close(self.io);
 
-        const content = try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024); // 10MB max
+        var reader_buf: [8192]u8 = undefined;
+        var file_reader = file.reader(self.io, &reader_buf);
+        const content = try file_reader.interface.allocRemaining(self.allocator, .limited(10 * 1024 * 1024)); // 10MB max
         defer self.allocator.free(content);
 
         var lines = std.mem.splitScalar(u8, content, '\n');
@@ -66,7 +77,7 @@ pub const Migrator = struct {
     }
 
     fn getHistoryDbPath(self: *Migrator) ![]const u8 {
-        const home_dir = std.process.getEnvVarOwned(self.allocator, "HOME") catch {
+        const home_dir = _getEnvVarOwned(self.allocator, "HOME") catch {
             return try std.fmt.allocPrint(self.allocator, "/tmp/llmlite_history.db", .{});
         };
         defer self.allocator.free(home_dir);

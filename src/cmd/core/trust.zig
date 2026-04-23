@@ -14,6 +14,17 @@
 //! - Content changes invalidate trust (re-review required)
 
 const std = @import("std");
+const time_compat = @import("time_compat");
+
+// Global Io instance set by cmd.zig dispatch.
+pub var g_io: std.Io = undefined;
+
+// Zig 0.16.0 compat: replacement for removed _getEnvVarOwned
+fn _getEnvVarOwned(allocator: std.mem.Allocator, key: [*:0]const u8) error{EnvironmentVariableNotFound, OutOfMemory}![]u8 {
+    const ptr = std.c.getenv(key) orelse return error.EnvironmentVariableNotFound;
+    const slice = std.mem.sliceTo(ptr, 0);
+    return allocator.dupe(u8, slice);
+}
 const fs = std.fs;
 
 pub const TrustStatus = enum {
@@ -37,7 +48,7 @@ var global_store: ?*TrustStore = null;
 
 /// Get the trust store path
 fn getStorePath(allocator: std.mem.Allocator) ![]const u8 {
-    const home_dir = std.process.getEnvVarOwned(allocator, "HOME") catch {
+    const home_dir = _getEnvVarOwned(allocator, "HOME") catch {
         return error.HomeNotFound;
     };
     defer allocator.free(home_dir);
@@ -53,12 +64,14 @@ pub fn loadStore(allocator: std.mem.Allocator) !TrustStore {
     const store_path = try getStorePath(allocator);
     defer allocator.free(store_path);
 
-    const file = fs.openFileAbsolute(store_path, .{ .mode = .read_only }) catch {
+    const file = std.Io.Dir.openFileAbsolute(g_io, store_path, .{}) catch {
         return TrustStore{ .trusted = std.StringHashMap(TrustEntry).init(allocator) };
     };
-    defer file.close();
+    defer file.close(g_io);
 
-    const content = try file.readToEndAlloc(allocator, 8192);
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_io, &reader_buf);
+    const content = try file_reader.interface.allocRemaining(allocator, .limited(8192));
     defer allocator.free(content);
 
     // Simple JSON parsing - just look for the sha256 values
@@ -88,7 +101,7 @@ pub fn loadStore(allocator: std.mem.Allocator) !TrustStore {
 
                 try store.trusted.put(path_value, .{
                     .sha256 = try allocator.dupe(u8, sha256_value),
-                    .trusted_at = std.time.timestamp(),
+                    .trusted_at = time_compat.timestamp(g_io),
                 });
             }
         }
@@ -104,7 +117,7 @@ pub fn saveStore(allocator: std.mem.Allocator, store: *TrustStore) !void {
 
     // Create directory if needed
     const data_dir = std.fs.path.dirname(store_path) orelse return error.InvalidPath;
-    try fs.makeDirAbsolute(data_dir);
+    try std.Io.Dir.createDirAbsolute(g_io, data_dir, .default_dir);
 
     // Build JSON manually
     var json = std.array_list.Managed(u8).init(allocator);
@@ -118,27 +131,33 @@ pub fn saveStore(allocator: std.mem.Allocator, store: *TrustStore) !void {
         if (!first) try json.appendSlice(",\n");
         first = false;
 
-        try json.writer().print("    \"{s}\": {{\n", .{entry.key_ptr.*});
-        try json.writer().print("      \"sha256\": \"{s}\",\n", .{entry.value_ptr.sha256});
-        try json.writer().print("      \"trusted_at\": {d}\n", .{entry.value_ptr.trusted_at});
+        const line1 = try std.fmt.allocPrint(allocator, "    \"{s}\": {{\n", .{entry.key_ptr.*});
+        defer allocator.free(line1);
+        try json.appendSlice(line1);
+        const line2 = try std.fmt.allocPrint(allocator, "      \"sha256\": \"{s}\",\n", .{entry.value_ptr.sha256});
+        defer allocator.free(line2);
+        try json.appendSlice(line2);
+        const line3 = try std.fmt.allocPrint(allocator, "      \"trusted_at\": {d}\n", .{entry.value_ptr.trusted_at});
+        defer allocator.free(line3);
+        try json.appendSlice(line3);
         try json.appendSlice("    }");
     }
 
     try json.appendSlice("\n  }\n}\n");
 
-    const file = try fs.createFileAbsolute(store_path, .{});
-    defer file.close();
-    try file.writeAll(json.items);
+    const file = try std.Io.Dir.createFileAbsolute(g_io, store_path, .{});
+    defer file.close(g_io);
+    try file.writeStreamingAll(g_io, json.items);
 }
 
 /// Check if a project-local filter file is trusted
 pub fn checkTrust(allocator: std.mem.Allocator, filter_path: []const u8) !TrustStatus {
     // Fast path: env var override for CI pipelines
-    if (std.process.getEnvVarOwned(allocator, "LLMLITE_TRUST_PROJECT_FILTERS")) |env_val| {
+    if (_getEnvVarOwned(allocator, "LLMLITE_TRUST_PROJECT_FILTERS")) |env_val| {
         defer allocator.free(env_val);
         if (std.mem.eql(u8, env_val, "1")) {
             // Check if we're in CI
-            if (std.process.getEnvVarOwned(allocator, "CI")) |_| {
+            if (_getEnvVarOwned(allocator, "CI")) |_| {
                 return .env_override;
             }
         }
@@ -165,8 +184,8 @@ pub fn checkTrust(allocator: std.mem.Allocator, filter_path: []const u8) !TrustS
 
 /// Compute SHA-256 hash of a file
 fn computeFileHash(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const file = try fs.openFileAbsolute(path, .{ .mode = .read_only });
-    defer file.close();
+    const file = try std.Io.Dir.openFileAbsolute(g_io, path, .{});
+    defer file.close(g_io);
 
     const Sha256 = std.crypto.hash.sha2.Sha256;
     var hasher = Sha256.init(.{});
@@ -174,7 +193,7 @@ fn computeFileHash(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
     var buffer: [buffer_size]u8 = undefined;
 
     while (true) {
-        const bytes_read = try file.read(&buffer);
+        const bytes_read = try file.readPositional(g_io, &.{&buffer}, 0);
         if (bytes_read == 0) break;
         hasher.update(buffer[0..bytes_read]);
     }
@@ -198,7 +217,7 @@ pub fn trustFilter(allocator: std.mem.Allocator, filter_path: []const u8) !void 
     // Add/update entry
     try store.trusted.put(try allocator.dupe(u8, filter_path), .{
         .sha256 = hash,
-        .trusted_at = std.time.timestamp(),
+        .trusted_at = time_compat.timestamp(g_io),
     });
 
     // Save store

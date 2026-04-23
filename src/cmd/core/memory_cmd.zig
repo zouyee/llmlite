@@ -18,7 +18,7 @@ const std = @import("std");
 const memory = @import("memory");
 const modes = @import("modes");
 
-pub fn dispatch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+pub fn dispatch(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         try printMemoryHelp();
         return 0;
@@ -27,27 +27,27 @@ pub fn dispatch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     const subcmd = args[0];
 
     if (std.mem.eql(u8, subcmd, "search") or std.mem.eql(u8, subcmd, "s")) {
-        return dispatchSearch(allocator, args[1..]);
+        return dispatchSearch(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "list") or std.mem.eql(u8, subcmd, "ls")) {
-        return dispatchList(allocator, args[1..]);
+        return dispatchList(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "show")) {
-        return dispatchShow(allocator, args[1..]);
+        return dispatchShow(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "timeline")) {
-        return dispatchTimeline(allocator, args[1..]);
+        return dispatchTimeline(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "stats")) {
-        return dispatchStats(allocator, args[1..]);
+        return dispatchStats(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "prune")) {
-        return dispatchPrune(allocator, args[1..]);
+        return dispatchPrune(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "session")) {
-        return dispatchSession(allocator, args[1..]);
+        return dispatchSession(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "migrate")) {
-        return dispatchMigrate(allocator, args[1..]);
+        return dispatchMigrate(allocator, io, home_dir, args[1..]);
     } else if (std.mem.eql(u8, subcmd, "mode")) {
-        return dispatchMode(allocator, args[1..]);
+        return dispatchMode(allocator, io, home_dir, args[1..]);
     } else {
         // Try parsing as ID for show command
         if (std.fmt.parseInt(u64, subcmd, 10)) |id| {
-            return dispatchShowById(allocator, id);
+            return dispatchShowById(allocator, io, home_dir, id);
         } else |_| {}
 
         std.debug.print("Unknown memory command: {s}\n", .{subcmd});
@@ -56,7 +56,7 @@ pub fn dispatch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchSearch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchSearch(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     var query: ?[]const u8 = null;
     var category: ?memory.MemoryCategory = null;
     var project: ?[]const u8 = null;
@@ -90,7 +90,7 @@ fn dispatchSearch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
         }
     }
 
-    var mem_db = try memory.MemoryDb.init(allocator);
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
     var searcher = memory.Searcher.init(&mem_db);
@@ -103,7 +103,7 @@ fn dispatchSearch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     };
 
     if (since_days) |days| {
-        filter.date_start = std.time.timestamp() - (@as(i64, days) * 86400);
+        filter.date_start = @import("time_compat").timestamp(io) - (@as(i64, days) * 86400);
     }
 
     const results = try searcher.search(filter);
@@ -138,18 +138,18 @@ fn dispatchSearch(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchList(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchList(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     // list is just search without a query
-    return dispatchSearch(allocator, args);
+    return dispatchSearch(allocator, io, home_dir, args);
 }
 
-fn dispatchShow(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchShow(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("Usage: memory show <id>...\n", .{});
         return 1;
     }
 
-    var mem_db = try memory.MemoryDb.init(allocator);
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
     for (args) |arg| {
@@ -212,16 +212,16 @@ fn dispatchShow(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchShowById(allocator: std.mem.Allocator, id: u64) !i32 {
+fn dispatchShowById(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, id: u64) !i32 {
     const arg = try std.fmt.allocPrint(allocator, "{d}", .{id});
     defer allocator.free(arg);
     const arg_z = try allocator.dupeZ(u8, arg);
     defer allocator.free(arg_z);
     const args = &[_][:0]u8{arg_z};
-    return dispatchShow(allocator, args);
+    return dispatchShow(allocator, io, home_dir, args);
 }
 
-fn dispatchTimeline(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchTimeline(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("Usage: memory timeline <id> [--before N] [--after N]\n", .{});
         return 1;
@@ -250,7 +250,7 @@ fn dispatchTimeline(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
         }
     }
 
-    var mem_db = try memory.MemoryDb.init(allocator);
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
     var searcher = memory.Searcher.init(&mem_db);
@@ -286,7 +286,7 @@ fn dispatchTimeline(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchStats(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchStats(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     var project: ?[]const u8 = null;
 
     var i: usize = 0;
@@ -299,7 +299,7 @@ fn dispatchStats(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
         }
     }
 
-    var mem_db = try memory.MemoryDb.init(allocator);
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
     const stats = try mem_db.getStatsByProject(project);
@@ -319,7 +319,7 @@ fn dispatchStats(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchPrune(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchPrune(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
     var before_days: ?u32 = null;
     var dry_run = false;
 
@@ -340,9 +340,9 @@ fn dispatchPrune(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
         return 1;
     }
 
-    const cutoff = std.time.timestamp() - (@as(i64, before_days.?) * 86400);
+    const cutoff = @import("time_compat").timestamp(io) - (@as(i64, before_days.?) * 86400);
 
-    var mem_db = try memory.MemoryDb.init(allocator);
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
     if (dry_run) {
@@ -358,8 +358,8 @@ fn dispatchPrune(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     return 0;
 }
 
-fn dispatchSession(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
-    var mem_db = try memory.MemoryDb.init(allocator);
+fn dispatchSession(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, args: []const [:0]const u8) !i32 {
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
     // Load config to get privacy mode
@@ -376,7 +376,7 @@ fn dispatchSession(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
         break :blk .normal;
     };
 
-    var session_mgr = memory.SessionManager.initWithPrivacy(allocator, &mem_db, privacy_mode);
+    var session_mgr = memory.SessionManager.initWithPrivacy(allocator, io, &mem_db, home_dir, privacy_mode);
     defer session_mgr.deinit();
 
     const session_cmd = if (args.len > 0) args[0] else "status";
@@ -423,11 +423,11 @@ fn dispatchSession(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
     }
 }
 
-fn dispatchMigrate(allocator: std.mem.Allocator, _: []const [:0]u8) !i32 {
-    var mem_db = try memory.MemoryDb.init(allocator);
+fn dispatchMigrate(allocator: std.mem.Allocator, io: std.Io, home_dir: []const u8, _: []const [:0]const u8) !i32 {
+    var mem_db = try memory.MemoryDb.init(allocator, io, home_dir);
     defer mem_db.deinit();
 
-    var migrator = memory.migrate.Migrator.init(allocator, &mem_db);
+    var migrator = memory.migrate.Migrator.init(allocator, &mem_db, io);
     const result = try migrator.migrate();
 
     std.debug.print("\n=== Migration Results ===\n", .{});
@@ -464,7 +464,7 @@ fn printMemoryHelp() !void {
 // Mode commands
 // ------------------------------------------------------------------
 
-fn dispatchMode(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchMode(allocator: std.mem.Allocator, _: std.Io, _: []const u8, args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         return dispatchModeShow(allocator);
     }
@@ -506,7 +506,7 @@ fn dispatchModeShow(allocator: std.mem.Allocator) !i32 {
     return 0;
 }
 
-fn dispatchModeSet(allocator: std.mem.Allocator, args: []const [:0]u8) !i32 {
+fn dispatchModeSet(allocator: std.mem.Allocator, args: []const [:0]const u8) !i32 {
     if (args.len == 0) {
         std.debug.print("Usage: llmlite memory mode set <code|infra|data|writing>\n", .{});
         return 1;

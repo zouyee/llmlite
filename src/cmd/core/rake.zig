@@ -20,7 +20,7 @@ pub fn filterRake(output: []const u8) []const u8 {
 
     while (lines.next()) |line| {
         if (count >= 30) {
-            std.fmt.format(result.writer(), "\n... +{d} more lines", .{count - 30}) catch return "";
+            result.print( "\n... +{d} more lines", .{count - 30}) catch return "";
             break;
         }
 

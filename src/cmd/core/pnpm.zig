@@ -74,9 +74,9 @@ fn extractPnpmListSummary(obj: *std.json.ObjectMap) []const u8 {
     }
 
     if (package_count > 0) {
-        std.fmt.format(result.writer(), "pnpm: {d} packages", .{package_count}) catch return "";
+        result.print( "pnpm: {d} packages", .{package_count}) catch return "";
         if (dep_count > 0) {
-            std.fmt.format(result.writer(), " ({d} prod, {d} dev)", .{ dep_count, dev_count }) catch return "";
+            result.print( " ({d} prod, {d} dev)", .{ dep_count, dev_count }) catch return "";
         }
         return result.toOwnedSlice() catch "";
     }
@@ -114,8 +114,8 @@ fn extractPnpmOutdatedSummary(arr: []json.JsonValue) []const u8 {
         return "pnpm: all packages up to date";
     }
 
-    std.fmt.format(result.writer(), "pnpm: {d} outdated packages\n", .{count}) catch return "";
-    std.fmt.format(result.writer(), "═══════════════════════════════════════\n", .{}) catch return "";
+    result.print( "pnpm: {d} outdated packages\n", .{count}) catch return "";
+    result.print( "═══════════════════════════════════════\n", .{}) catch return "";
 
     // Show first 5
     const show = @min(5, count);
@@ -124,12 +124,12 @@ fn extractPnpmOutdatedSummary(arr: []json.JsonValue) []const u8 {
             const name = json.getString(&item.object, "package") orelse "unknown";
             const current = json.getString(&item.object, "current") orelse "?";
             const latest = json.getString(&item.object, "latest") orelse "?";
-            std.fmt.format(result.writer(), "  {s}: {s} → {s}\n", .{ name, current, latest }) catch return "";
+            result.print( "  {s}: {s} → {s}\n", .{ name, current, latest }) catch return "";
         }
     }
 
     if (count > 5) {
-        std.fmt.format(result.writer(), "  ... +{d} more", .{count - 5}) catch return "";
+        result.print( "  ... +{d} more", .{count - 5}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";

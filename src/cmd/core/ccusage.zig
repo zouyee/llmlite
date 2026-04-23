@@ -128,12 +128,12 @@ fn parseJson(json_text: []const u8, granularity: Granularity) ![]CcusagePeriod {
     };
 
     // Find the array start for the granularity
-    const array_start = std.mem.indexOf(u8, json_text, "\"" ++ key ++ "\"") orelse {
+    const array_start = std.mem.find(u8, json_text, "\"" ++ key ++ "\"") orelse {
         return error.InvalidJson;
     };
     
     // Find opening bracket after the key
-    const bracket_pos = std.mem.indexOf(u8, json_text[array_start..], "[") orelse {
+    const bracket_pos = std.mem.find(u8, json_text[array_start..], "[") orelse {
         return error.InvalidJson;
     };
     const data_start = array_start + bracket_pos;
@@ -166,7 +166,7 @@ fn parseJson(json_text: []const u8, granularity: Granularity) ![]CcusagePeriod {
     var pos: usize = 0;
     while (pos < array_text.len) {
         // Find next object start
-        const obj_start = std.mem.indexOf(u8, array_text[pos..], "{") orelse break;
+        const obj_start = std.mem.find(u8, array_text[pos..], "{") orelse break;
         pos += obj_start;
 
         // Find matching close brace
@@ -218,11 +218,11 @@ fn parsePeriodObject(obj_text: []const u8, granularity: Granularity) !CcusagePer
 
 fn parseStringField(json: []const u8, field: []const u8) ![]const u8 {
     const search = "\"" ++ field ++ "\":\"";
-    const start = std.mem.indexOf(u8, json, search) orelse {
+    const start = std.mem.find(u8, json, search) orelse {
         return error.FieldNotFound;
     };
     const value_start = start + search.len;
-    const value_end = std.mem.indexOf(u8, json[value_start..], "\"") orelse {
+    const value_end = std.mem.find(u8, json[value_start..], "\"") orelse {
         return error.InvalidFormat;
     };
     return json[value_start..value_start+value_end];
@@ -243,7 +243,7 @@ fn parseMetrics(json: []const u8) !CcusageMetrics {
 
 fn parseIntField(json: []const u8, field: []const u8) !u64 {
     const search = "\"" ++ field ++ "\":";
-    const start = std.mem.indexOf(u8, json, search) orelse {
+    const start = std.mem.find(u8, json, search) orelse {
         return error.FieldNotFound;
     };
     const value_start = start + search.len;
@@ -266,7 +266,7 @@ fn parseOptionalIntField(json: []const u8, field: []const u8) u64 {
 
 fn parseFloatField(json: []const u8, field: []const u8) !f64 {
     const search = "\"" ++ field ++ "\":";
-    const start = std.mem.indexOf(u8, json, search) orelse {
+    const start = std.mem.find(u8, json, search) orelse {
         return error.FieldNotFound;
     };
     const value_start = start + search.len;

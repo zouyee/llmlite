@@ -31,15 +31,15 @@ fn filterRspecJson(output: []const u8) []const u8 {
     const pending = json.extractInteger(output, "pending_count") orelse 0;
 
     if (failures == 0) {
-        std.fmt.format(result.writer(), "rspec: {d} examples, {d} passed", .{ examples, examples - failures - pending }) catch return "";
+        result.print( "rspec: {d} examples, {d} passed", .{ examples, examples - failures - pending }) catch return "";
         if (pending > 0) {
-            std.fmt.format(result.writer(), ", {d} pending", .{pending}) catch return "";
+            result.print( ", {d} pending", .{pending}) catch return "";
         }
         return result.toOwnedSlice() catch "";
     }
 
     // Show failures
-    std.fmt.format(result.writer(), "rspec: {d} examples, {d} failures\n", .{ examples, failures }) catch return "";
+    result.print( "rspec: {d} examples, {d} failures\n", .{ examples, failures }) catch return "";
     result.appendSlice("═══════════════════════════════════════\n") catch return "";
 
     // Extract examples with failures
@@ -90,7 +90,7 @@ fn filterRspecJson(output: []const u8) []const u8 {
             const file_path = json.extractString(obj_text, "file_path") orelse "???";
             const line_number = json.extractInteger(obj_text, "line_number") orelse 0;
 
-            std.fmt.format(result.writer(), "FAIL: {s}\n  {s}:{d}\n", .{
+            result.print( "FAIL: {s}\n  {s}:{d}\n", .{
                 full_description, file_path, line_number,
             }) catch return {};
 
@@ -101,7 +101,7 @@ fn filterRspecJson(output: []const u8) []const u8 {
     }
 
     if (failures > 10) {
-        std.fmt.format(result.writer(), "... +{d} more failures\n", .{failures - 10}) catch return "";
+        result.print( "... +{d} more failures\n", .{failures - 10}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";

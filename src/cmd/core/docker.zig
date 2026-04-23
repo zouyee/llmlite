@@ -55,7 +55,7 @@ fn filterDockerPs(output: []const u8) []const u8 {
         }
 
         if (count >= 10) {
-            std.fmt.format(result.writer(), "\n... +{d} more containers", .{count - 10}) catch return "";
+            result.print( "\n... +{d} more containers", .{count - 10}) catch return "";
             break;
         }
 
@@ -75,7 +75,7 @@ fn filterDockerPs(output: []const u8) []const u8 {
 
         // Show: CONTAINER ID, IMAGE, STATUS, NAMES
         if (col_count >= 4) {
-            std.fmt.format(result.writer(), "{s} {s} {s} {s}\n", .{
+            result.print( "{s} {s} {s} {s}\n", .{
                 cols_array[0][0..@min(12, cols_array[0].len)],
                 cols_array[1][0..@min(20, cols_array[1].len)],
                 cols_array[2][0..@min(15, cols_array[2].len)],
@@ -115,7 +115,7 @@ fn filterDockerImages(output: []const u8) []const u8 {
         }
 
         if (count >= 10) {
-            std.fmt.format(result.writer(), "\n... +{d} more images", .{count - 10}) catch return "";
+            result.print( "\n... +{d} more images", .{count - 10}) catch return "";
             break;
         }
 
@@ -135,13 +135,13 @@ fn filterDockerImages(output: []const u8) []const u8 {
 
         // Show: REPOSITORY, TAG, SIZE, IMAGE ID
         if (col_count >= 3) {
-            std.fmt.format(result.writer(), "{s} {s} {s}", .{
+            result.print( "{s} {s} {s}", .{
                 cols_array[0][0..@min(25, cols_array[0].len)],
                 cols_array[1][0..@min(15, cols_array[1].len)],
                 cols_array[2][0..@min(15, cols_array[2].len)],
             }) catch return "";
             if (col_count >= 4) {
-                std.fmt.format(result.writer(), " {s}", .{cols_array[3][0..@min(12, cols_array[3].len)]}) catch return "";
+                result.print( " {s}", .{cols_array[3][0..@min(12, cols_array[3].len)]}) catch return "";
             }
             result.append('\n') catch {};
         }
@@ -168,7 +168,7 @@ fn filterDockerLogs(output: []const u8) []const u8 {
 
     while (lines.next()) |line| {
         if (count >= 50) {
-            std.fmt.format(result.writer(), "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 50)}) catch return "";
+            result.print( "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 50)}) catch return "";
             break;
         }
 
@@ -182,7 +182,7 @@ fn filterDockerLogs(output: []const u8) []const u8 {
         }
 
         if (repeat_count > 1) {
-            std.fmt.format(result.writer(), "... repeated {d} times\n", .{repeat_count}) catch return "";
+            result.print( "... repeated {d} times\n", .{repeat_count}) catch return "";
         }
 
         result.appendSlice(trimmed) catch {};
@@ -193,7 +193,7 @@ fn filterDockerLogs(output: []const u8) []const u8 {
     }
 
     if (repeat_count > 1) {
-        std.fmt.format(result.writer(), "... repeated {d} times\n", .{repeat_count}) catch return "";
+        result.print( "... repeated {d} times\n", .{repeat_count}) catch return "";
     }
 
     if (result.items.len == 0) {

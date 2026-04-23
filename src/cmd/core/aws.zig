@@ -109,15 +109,15 @@ fn filterAwsEc2Json(output: []const u8) []const u8 {
     var pos: usize = 0;
     while (pos < reservations.?.len) {
         const search = "\"InstanceId\":\"";
-        const idx = std.mem.indexOf(u8, reservations.?[pos..], search);
+        const idx = std.mem.find(u8, reservations.?[pos..], search);
         if (idx == null) break;
 
         pos += idx.? + search.len;
-        const end = std.mem.indexOf(u8, reservations.?[pos..], "\"") orelse break;
+        const end = std.mem.find(u8, reservations.?[pos..], "\"") orelse break;
         const instance_id = reservations.?[pos .. pos + end];
 
         if (instance_count < 10) {
-            std.fmt.format(result.writer(), "{s}\n", .{instance_id}) catch return "";
+            result.print( "{s}\n", .{instance_id}) catch return "";
         }
         instance_count += 1;
         pos += end;
@@ -128,7 +128,7 @@ fn filterAwsEc2Json(output: []const u8) []const u8 {
     }
 
     if (instance_count > 10) {
-        std.fmt.format(result.writer(), "... +{d} more instances\n", .{instance_count - 10}) catch return "";
+        result.print( "... +{d} more instances\n", .{instance_count - 10}) catch return "";
     }
 
     return result.toOwnedSlice() catch "";
@@ -147,14 +147,14 @@ fn filterAwsLambda(output: []const u8) []const u8 {
 
         while (pos < output.len and count < 20) {
             const search = "\"FunctionName\":\"";
-            const idx = std.mem.indexOf(u8, output[pos..], search);
+            const idx = std.mem.find(u8, output[pos..], search);
             if (idx == null) break;
 
             pos += idx.? + search.len;
-            const end = std.mem.indexOf(u8, output[pos..], "\"") orelse break;
+            const end = std.mem.find(u8, output[pos..], "\"") orelse break;
             const func_name = output[pos .. pos + end];
 
-            std.fmt.format(result.writer(), "{s}\n", .{func_name}) catch return "";
+            result.print( "{s}\n", .{func_name}) catch return "";
             count += 1;
             pos += end;
         }
@@ -226,7 +226,7 @@ fn filterAwsLogs(output: []const u8) []const u8 {
 
     while (lines.next()) |line| {
         if (count >= 50) {
-            std.fmt.format(result.writer(), "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 50)}) catch return "";
+            result.print( "\n... +{d} more lines", .{(std.mem.count(u8, output, &.{'\n'}) - 50)}) catch return "";
             break;
         }
 
@@ -240,7 +240,7 @@ fn filterAwsLogs(output: []const u8) []const u8 {
         }
 
         if (repeat_count > 1) {
-            std.fmt.format(result.writer(), "... repeated {d} times\n", .{repeat_count}) catch return "";
+            result.print( "... repeated {d} times\n", .{repeat_count}) catch return "";
         }
 
         result.appendSlice(trimmed[0..@min(150, trimmed.len)]) catch {};
@@ -251,7 +251,7 @@ fn filterAwsLogs(output: []const u8) []const u8 {
     }
 
     if (repeat_count > 1) {
-        std.fmt.format(result.writer(), "... repeated {d} times\n", .{repeat_count}) catch return "";
+        result.print( "... repeated {d} times\n", .{repeat_count}) catch return "";
     }
 
     if (result.items.len == 0) {
