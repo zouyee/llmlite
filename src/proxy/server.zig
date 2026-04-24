@@ -409,7 +409,8 @@ pub const Server = struct {
     fn streamRead(self: *Server, stream: std.Io.net.Stream, buf: []u8) !usize {
         var reader_buf: [1024]u8 = undefined;
         var reader = stream.reader(self.io, &reader_buf);
-        return reader.interface.readSliceShort(buf);
+        var data: [1][]u8 = .{buf};
+        return reader.interface.readVec(&data);
     }
 
     fn streamWriteAll(self: *Server, stream: std.Io.net.Stream, data: []const u8) !void {
@@ -559,15 +560,37 @@ pub const Server = struct {
         failure: void,
     };
 
+    /// Get provider API key from environment variable
+    fn getProviderApiKey(provider: types.ProviderType) []const u8 {
+        const env_name = switch (provider) {
+            .deepseek => "DEEPSEEK_API_KEY",
+            .openai => "OPENAI_API_KEY",
+            .anthropic => "ANTHROPIC_API_KEY",
+            .google => "GOOGLE_API_KEY",
+            .moonshot => "MOONSHOT_API_KEY",
+            .minimax => "MINIMAX_API_KEY",
+            .mistral => "MISTRAL_API_KEY",
+            .cohere => "COHERE_API_KEY",
+            .fireworks => "FIREWORKS_API_KEY",
+            .cerebras => "CEREBRAS_API_KEY",
+            .perplexity => "PERPLEXITY_API_KEY",
+            else => "",
+        };
+        if (env_name.len == 0) return "";
+        const cstr = std.c.getenv(env_name) orelse return "";
+        return std.mem.span(cstr);
+    }
+
     /// Make a lightweight probe request to a provider
     fn probeProvider(self: *Server, provider: types.ProviderType, endpoint: []const u8) ProbeResult {
         const provider_config = registry.getProviderConfig(provider);
+        const api_key = getProviderApiKey(provider);
 
         var probe_client = http.HttpClient.initWithAuthType(
             self.allocator,
             self.io,
             provider_config.base_url,
-            "",
+            api_key,
             null,
             5000, // 5 second timeout for probes
             provider_config.auth_type,
@@ -583,6 +606,8 @@ pub const Server = struct {
     }
 
     fn handleConnection(self: *Server, connection: std.Io.net.Stream) !void {
+        defer connection.close(self.io);
+
         var buf: [16384]u8 = undefined;
         const bytes_read = try self.streamRead(connection, &buf);
         if (bytes_read == 0) return;
@@ -603,6 +628,7 @@ pub const Server = struct {
             const metrics_text = self.metrics.prometheusMetrics(@intCast(time_compat.timestamp(self.io)));
             try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
             try self.streamWriteAll(connection, "Content-Type: text/plain\r\n");
+            try self.streamWriteAll(connection, "Connection: close\r\n");
             try self.streamWriteAll(connection, "\r\n");
             try self.streamWriteAll(connection, metrics_text);
         } else if (std.mem.startsWith(u8, request_text, "GET /metrics/latency")) {
@@ -756,6 +782,7 @@ pub const Server = struct {
 
         try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, response);
     }
@@ -849,6 +876,7 @@ pub const Server = struct {
 
         try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, response_body);
     }
@@ -956,13 +984,14 @@ pub const Server = struct {
 
     fn callProvider(self: *Server, route: Route, body: []const u8) ![]u8 {
         const provider_config = registry.getProviderConfig(route.provider);
+        const api_key = getProviderApiKey(route.provider);
 
         // Create provider HTTP client
         var provider_http = http.HttpClient.initWithAuthType(
             self.allocator,
             self.io,
             provider_config.base_url,
-            "",
+            api_key,
             null,
             30000,
             provider_config.auth_type,
@@ -1121,6 +1150,7 @@ pub const Server = struct {
         const json_body = error_handler.formatErrorJson(err, self.allocator) catch {
             try self.streamWriteAll(connection, "HTTP/1.1 500 Internal Server Error\r\n");
             try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+            try self.streamWriteAll(connection, "Connection: close\r\n");
             try self.streamWriteAll(connection, "\r\n");
             try self.streamWriteAll(connection, "{\"error\":{\"message\":\"Internal error\",\"type\":\"internal_error\"}}");
             return;
@@ -1131,6 +1161,7 @@ pub const Server = struct {
         const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} {s}\r\n", .{ err.status, status_text });
         try self.streamWriteAll(connection, status_line);
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, json_body);
     }
@@ -1140,6 +1171,7 @@ pub const Server = struct {
         const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} OK\r\n", .{status});
         try self.streamWriteAll(connection, status_line);
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, body);
     }
@@ -1192,6 +1224,7 @@ pub const Server = struct {
 
         try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, response);
     }

@@ -186,6 +186,7 @@ pub const PRESETS: []const ProviderPreset = &.{
         .auth_type = .bearer,
         .default_model = "deepseek-v4-flash",
         .supports = &.{ "chat", "embeddings", "streaming" },
+        .api_key_env = "DEEPSEEK_API_KEY",
         .is_official = true,
         .organization = "DeepSeek",
         .website = "https://www.deepseek.com",

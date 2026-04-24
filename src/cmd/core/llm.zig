@@ -372,6 +372,7 @@ fn callProxyApi(path: []const u8, method: std.http.Method, body: ?[]const u8) !?
 
     const extra_headers = &[_]std.http.Header{
         .{ .name = "Content-Type", .value = "application/json" },
+        .{ .name = "Authorization", .value = "Bearer sk-test-key" },
     };
 
     const response = client.fetch(.{
