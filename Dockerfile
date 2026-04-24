@@ -14,7 +14,9 @@ COPY build.zig.zon ./
 COPY deps/ ./deps/
 COPY src/ ./src/
 
-RUN zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
+# Ensure Zig cache subdirectories exist before build
+RUN mkdir -p .zig-cache/tmp .zig-cache/p zig-pkg && \
+    zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
 
 FROM scratch
 
@@ -31,7 +33,8 @@ RUN apk add --no-cache git vim
 WORKDIR /app
 
 COPY . .
-RUN zig build
+RUN mkdir -p .zig-cache/tmp .zig-cache/p zig-pkg && \
+    zig build
 
 CMD ["/bin/sh"]
 
@@ -39,4 +42,5 @@ FROM development AS test
 
 RUN test -f .env.test && cp .env.test .env || true
 
+RUN mkdir -p .zig-cache/tmp .zig-cache/p zig-pkg
 CMD ["zig", "build", "test"]
