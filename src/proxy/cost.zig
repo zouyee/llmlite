@@ -92,7 +92,9 @@ pub const CostTracker = struct {
         self.addPricing("moonshot", "moonshot-v1-32k", 0.12, 0.12);
         self.addPricing("moonshot", "moonshot-v1-128k", 0.90, 0.90);
 
-        // DeepSeek models
+        // DeepSeek models (V4: deepseek-chat/coder deprecated 2026-07-24, map to v4-flash)
+        self.addPricing("deepseek", "deepseek-v4-flash", 0.14, 0.28);
+        self.addPricing("deepseek", "deepseek-v4-pro", 1.74, 3.48);
         self.addPricing("deepseek", "deepseek-chat", 0.14, 0.28);
         self.addPricing("deepseek", "deepseek-coder", 0.14, 0.28);
 

@@ -642,7 +642,7 @@ pub const ProviderHandler = struct {
                 .provider_type = "deepseek",
                 .base_url = "https://api.deepseek.com",
                 .auth_type = "bearer",
-                .default_models = &.{ "deepseek-chat", "deepseek-coder" },
+                .default_models = &.{ "deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-coder" },
                 .features = &.{"chat"},
                 .website = "https://deepseek.com",
                 .description = "DeepSeek models",
@@ -683,7 +683,7 @@ pub const ProviderHandler = struct {
             .{ .id = "google", .name = "Google Gemini", .provider_type = "google", .base_url = "https://generativelanguage.googleapis.com", .auth_type = "api_key", .default_models = &.{"gemini-2.0-flash"}, .features = &.{"chat"}, .website = "https://ai.google.dev", .description = "Google" },
             .{ .id = "moonshot", .name = "Moonshot (Kimi)", .provider_type = "moonshot", .base_url = "https://api.moonshot.cn", .auth_type = "bearer", .default_models = &.{"moonshot-v1-8k"}, .features = &.{"chat"}, .website = "https://platform.moonshot.cn", .description = "Moonshot" },
             .{ .id = "minimax", .name = "Minimax", .provider_type = "minimax", .base_url = "https://api.minimax.chat", .auth_type = "bearer", .default_models = &.{"abab6-chat"}, .features = &.{"chat"}, .website = "https://www.minimax.chat", .description = "Minimax" },
-            .{ .id = "deepseek", .name = "DeepSeek", .provider_type = "deepseek", .base_url = "https://api.deepseek.com", .auth_type = "bearer", .default_models = &.{"deepseek-chat"}, .features = &.{"chat"}, .website = "https://deepseek.com", .description = "DeepSeek" },
+            .{ .id = "deepseek", .name = "DeepSeek", .provider_type = "deepseek", .base_url = "https://api.deepseek.com", .auth_type = "bearer", .default_models = &.{"deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"}, .features = &.{"chat"}, .website = "https://deepseek.com", .description = "DeepSeek V4" },
         };
 
         var found_preset: ?ProviderPreset = null;

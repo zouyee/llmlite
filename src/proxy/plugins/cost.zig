@@ -93,7 +93,9 @@ pub const MemoryCostTracker = struct {
         self.addPricing("google", "gemini-2.0-flash", 0.00, 0.00);
         self.addPricing("google", "gemini-1.5-flash", 0.075, 0.30);
 
-        // DeepSeek models
+        // DeepSeek models (V4: deepseek-chat/coder deprecated 2026-07-24, map to v4-flash)
+        self.addPricing("deepseek", "deepseek-v4-flash", 0.14, 0.28);
+        self.addPricing("deepseek", "deepseek-v4-pro", 1.74, 3.48);
         self.addPricing("deepseek", "deepseek-chat", 0.14, 0.28);
 
         // Mistral models

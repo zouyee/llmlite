@@ -854,7 +854,7 @@ pub const Server = struct {
     }
 
     fn handleListModels(self: *Server, connection: std.Io.net.Stream) !void {
-        const body = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-4o\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"openai\"},{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"anthropic\"},{\"id\":\"gemini-2.0-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"google\"},{\"id\":\"moonshot-v1-8k\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"kimi\"},{\"id\":\"abab6-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"minimax\"},{\"id\":\"deepseek-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}]}";
+        const body = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-4o\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"openai\"},{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"anthropic\"},{\"id\":\"gemini-2.0-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"google\"},{\"id\":\"moonshot-v1-8k\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"kimi\"},{\"id\":\"abab6-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"minimax\"},{\"id\":\"deepseek-v4-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"},{\"id\":\"deepseek-v4-pro\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}]}";
         try self.writeJsonResponse(connection, 200, body);
     }
 
@@ -1568,7 +1568,7 @@ pub const Server = struct {
             "{\"id\":\"google\",\"name\":\"Google Gemini\",\"provider_type\":\"google\",\"base_url\":\"https://generativelanguage.googleapis.com\",\"auth_type\":\"api_key\",\"default_models\":[\"gemini-2.0-flash\"],\"features\":[\"chat\",\"embeddings\"],\"website\":\"https://ai.google.dev\",\"description\":\"Google\"}," ++
             "{\"id\":\"moonshot\",\"name\":\"Moonshot (Kimi)\",\"provider_type\":\"moonshot\",\"base_url\":\"https://api.moonshot.cn\",\"auth_type\":\"bearer\",\"default_models\":[\"moonshot-v1-8k\"],\"features\":[\"chat\"],\"website\":\"https://platform.moonshot.cn\",\"description\":\"Moonshot\"}," ++
             "{\"id\":\"minimax\",\"name\":\"Minimax\",\"provider_type\":\"minimax\",\"base_url\":\"https://api.minimax.chat\",\"auth_type\":\"bearer\",\"default_models\":[\"abab6-chat\"],\"features\":[\"chat\",\"embeddings\",\"tts\"],\"website\":\"https://www.minimax.chat\",\"description\":\"Minimax\"}," ++
-            "{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"provider_type\":\"deepseek\",\"base_url\":\"https://api.deepseek.com\",\"auth_type\":\"bearer\",\"default_models\":[\"deepseek-chat\"],\"features\":[\"chat\"],\"website\":\"https://deepseek.com\",\"description\":\"DeepSeek\"}" ++
+            "{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"provider_type\":\"deepseek\",\"base_url\":\"https://api.deepseek.com\",\"auth_type\":\"bearer\",\"default_models\":[\"deepseek-v4-flash\",\"deepseek-v4-pro\",\"deepseek-chat\"],\"features\":[\"chat\"],\"website\":\"https://deepseek.com\",\"description\":\"DeepSeek V4 (Flash & Pro)\"" ++
             "]}";
         try self.writeJsonResponse(connection, 200, presets_response);
     }
@@ -1585,7 +1585,7 @@ pub const Server = struct {
         else if (std.mem.eql(u8, preset_id, "minimax"))
             "{\"id\":\"minimax\",\"name\":\"Minimax\",\"base_url\":\"https://api.minimax.chat\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"abab6-chat\",\"supports\":[\"chat\",\"embeddings\",\"tts\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
         else if (std.mem.eql(u8, preset_id, "deepseek"))
-            "{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"base_url\":\"https://api.deepseek.com\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"deepseek-chat\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
+            "{\"id\":\"deepseek\",\"name\":\"DeepSeek\",\"base_url\":\"https://api.deepseek.com\",\"auth_type\":\"bearer\",\"api_key\":null,\"default_model\":\"deepseek-v4-flash\",\"supports\":[\"chat\"],\"is_official\":true,\"enabled\":true,\"sort_order\":0,\"created_at\":0,\"updated_at\":0,\"metadata\":null}"
         else {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Preset not found\"}}");
             return;

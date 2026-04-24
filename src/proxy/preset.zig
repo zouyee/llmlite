@@ -184,12 +184,12 @@ pub const PRESETS: []const ProviderPreset = &.{
         .provider = .deepseek,
         .base_url = "https://api.deepseek.com/v1",
         .auth_type = .bearer,
-        .default_model = "deepseek-chat",
+        .default_model = "deepseek-v4-flash",
         .supports = &.{ "chat", "embeddings", "streaming" },
         .is_official = true,
         .organization = "DeepSeek",
         .website = "https://www.deepseek.com",
-        .description = "DeepSeek's efficient and capable models",
+        .description = "DeepSeek V4 models: Flash (fast, $0.14/$0.28) and Pro (deep reasoning, $1.74/$3.48)",
     },
 
     // ==================== OpenAI-Compatible Providers ====================
