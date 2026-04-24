@@ -9,6 +9,9 @@ RUN curl -L https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz |
 
 WORKDIR /app
 
+ENV ZIG_GLOBAL_CACHE_DIR=/app/.zig-cache
+ENV ZIG_LOCAL_CACHE_DIR=/app/.zig-cache
+
 COPY build.zig ./
 COPY build.zig.zon ./
 COPY deps/ ./deps/
@@ -34,7 +37,7 @@ WORKDIR /app
 
 COPY . .
 RUN mkdir -p .zig-cache/tmp .zig-cache/p zig-pkg && \
-    zig build
+    ZIG_GLOBAL_CACHE_DIR=/app/.zig-cache ZIG_LOCAL_CACHE_DIR=/app/.zig-cache zig build
 
 CMD ["/bin/sh"]
 
@@ -43,4 +46,6 @@ FROM development AS test
 RUN test -f .env.test && cp .env.test .env || true
 
 RUN mkdir -p .zig-cache/tmp .zig-cache/p zig-pkg
+ENV ZIG_GLOBAL_CACHE_DIR=/app/.zig-cache
+ENV ZIG_LOCAL_CACHE_DIR=/app/.zig-cache
 CMD ["zig", "build", "test"]
