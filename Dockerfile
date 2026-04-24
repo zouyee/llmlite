@@ -11,6 +11,7 @@ WORKDIR /app
 
 COPY build.zig ./
 COPY build.zig.zon ./
+COPY deps/ ./deps/
 COPY src/ ./src/
 
 RUN zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl
