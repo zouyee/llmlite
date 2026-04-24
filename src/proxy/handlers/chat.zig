@@ -92,6 +92,10 @@ pub const ProviderTarget = struct {
     model: []const u8,
 };
 
+pub const ThinkingConfig = struct {
+    type: []const u8,
+};
+
 pub const ProxyChatCompletionRequest = struct {
     model: []const u8,
     messages: []ProxyChatMessage,
@@ -101,6 +105,10 @@ pub const ProxyChatCompletionRequest = struct {
     max_tokens: ?u32 = null,
     n: ?u32 = null,
     stop: ?[]const u8 = null,
+    /// DeepSeek thinking mode: {"type": "enabled"}
+    thinking: ?ThinkingConfig = null,
+    /// DeepSeek reasoning effort: "low", "medium", or "high"
+    reasoning_effort: ?[]const u8 = null,
 };
 
 pub const ProxyChatMessage = struct {
@@ -147,6 +155,12 @@ fn openaiTransformRequest(allocator: std.mem.Allocator, req: *const ProxyChatCom
     }
     if (req.top_p) |v| {
         try std.fmt.format(result.writer(), ",\"top_p\":{d}", .{v});
+    }
+    if (req.thinking) |t| {
+        try std.fmt.format(result.writer(), ",\"thinking\":{{\"type\":\"{s}\"}}", .{t.type});
+    }
+    if (req.reasoning_effort) |r| {
+        try std.fmt.format(result.writer(), ",\"reasoning_effort\":\"{s}\"", .{r});
     }
 
     try result.appendSlice(allocator, "}");
@@ -356,7 +370,25 @@ fn convertToProxyResponse(allocator: std.mem.Allocator, completion: chat_pkg.Cha
             }
         }
 
-        try choices_json.appendSlice(allocator, "\"},\"finish_reason\":\"");
+        try choices_json.appendSlice(allocator, "\"");
+
+        // Include reasoning_content if present (DeepSeek thinking mode)
+        if (choice.message.reasoning_content) |r| {
+            try choices_json.appendSlice(allocator, ",\"reasoning_content\":\"");
+            for (r) |char| {
+                switch (char) {
+                    '"' => try choices_json.appendSlice(allocator, "\\\""),
+                    '\\' => try choices_json.appendSlice(allocator, "\\\\"),
+                    '\n' => try choices_json.appendSlice(allocator, "\\n"),
+                    '\r' => try choices_json.appendSlice(allocator, "\\r"),
+                    '\t' => try choices_json.appendSlice(allocator, "\\t"),
+                    else => try choices_json.append(allocator, char),
+                }
+            }
+            try choices_json.appendSlice(allocator, "\"");
+        }
+
+        try choices_json.appendSlice(allocator, "},\"finish_reason\":\"");
         try choices_json.appendSlice(allocator, choice.finish_reason);
         try choices_json.appendSlice(allocator, "\"}");
     }
