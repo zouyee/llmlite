@@ -9,6 +9,7 @@
 //! - Conditional keybinding hints per view
 
 const std = @import("std");
+const builtin = @import("builtin");
 const app = @import("app.zig");
 const input = @import("input.zig");
 
@@ -20,7 +21,8 @@ const KeyEvent = input.KeyEvent;
 // Terminal resize support
 var g_resize_pending: std.atomic.Value(bool) = .init(false);
 
-pub fn handleSigwinch(_: std.posix.SIG) callconv(.c) void {
+const SigType = if (builtin.os.tag == .windows) c_int else std.posix.SIG;
+pub fn handleSigwinch(_: SigType) callconv(.c) void {
     g_resize_pending.store(true, .monotonic);
 }
 
@@ -39,6 +41,10 @@ pub fn checkResize() bool {
 /// This avoids the busy-wait of the old implementation and properly handles
 /// raw mode input on macOS.
 pub fn run(app_state: *AppState, tty: anytype) !void {
+    if (builtin.os.tag == .windows) {
+        return error.NotSupported;
+    }
+
     var leftover_buf: [32]u8 = undefined;
     var leftover_len: usize = 0;
 

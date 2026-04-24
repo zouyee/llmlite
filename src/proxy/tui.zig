@@ -39,7 +39,7 @@ pub const checkResize = event.checkResize;
 /// Wrapper struct that maintains the old Tui API for proxy_main.zig
 pub const Tui = struct {
     state: AppState,
-    termios_backup: ?std.posix.termios = null,
+    termios_backup: ?if (builtin.os.tag == .windows) u8 else std.posix.termios = null,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) Tui {
         return .{
@@ -54,6 +54,13 @@ pub const Tui = struct {
 
     /// Enable raw mode for terminal input
     pub fn enableRawMode(self: *Tui, tty: anytype) !void {
+        if (builtin.os.tag == .windows) {
+            try tty.writeAll(Ansi.hide_cursor);
+            try tty.writeAll(Ansi.clear_screen);
+            try tty.writeAll(Ansi.home);
+            return;
+        }
+
         if (std.c.isatty(std.posix.STDIN_FILENO) == 0) {
             try tty.writeAll(Ansi.hide_cursor);
             try tty.writeAll(Ansi.clear_screen);
@@ -90,9 +97,11 @@ pub const Tui = struct {
 
     /// Disable raw mode and restore original terminal settings
     pub fn disableRawMode(self: *Tui, tty: anytype) void {
-        if (self.termios_backup) |original| {
-            std.posix.tcsetattr(std.posix.STDIN_FILENO, .NOW, original) catch {};
-            self.termios_backup = null;
+        if (builtin.os.tag != .windows) {
+            if (self.termios_backup) |original| {
+                std.posix.tcsetattr(std.posix.STDIN_FILENO, .NOW, original) catch {};
+                self.termios_backup = null;
+            }
         }
         tty.writeAll(Ansi.show_cursor) catch {};
     }
