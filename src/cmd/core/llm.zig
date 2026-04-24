@@ -80,19 +80,14 @@ fn printHelp() !void {
 // ============================================================================
 
 fn dispatchChat(args: []const [:0]const u8) !i32 {
-    if (args.len == 0) {
-        std.debug.print("llm chat: missing prompt\n", .{});
-        return 1;
-    }
-
-    const prompt: []const u8 = args[0];
     var model: []const u8 = DEFAULT_MODEL;
     var provider: ?[]const u8 = null;
     var system_msg: ?[]const u8 = null;
     var max_tokens: u32 = 1024;
     var temperature: f64 = 0.7;
+    var prompt: ?[]const u8 = null;
 
-    var i: usize = 1;
+    var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--model")) {
@@ -105,11 +100,21 @@ fn dispatchChat(args: []const [:0]const u8) !i32 {
             if (i + 1 < args.len) { max_tokens = std.fmt.parseInt(u32, args[i + 1], 10) catch 1024; i += 1; }
         } else if (std.mem.eql(u8, arg, "--temperature")) {
             if (i + 1 < args.len) { temperature = std.fmt.parseFloat(f64, args[i + 1]) catch 0.7; i += 1; }
+        } else {
+            // First non-flag argument is the prompt
+            if (prompt == null) {
+                prompt = arg;
+            }
         }
     }
 
+    if (prompt == null) {
+        std.debug.print("llm chat: missing prompt\n", .{});
+        return 1;
+    }
+
     // Build request body
-    const body = try buildChatRequest(prompt, model, provider, system_msg, max_tokens, temperature);
+    const body = try buildChatRequest(prompt.?, model, provider, system_msg, max_tokens, temperature);
     defer g_allocator.free(body);
 
     // Call proxy API
@@ -171,9 +176,10 @@ fn buildChatRequest(
 }
 
 fn printChatResponse(resp: []const u8) !void {
-    // Simple JSON extraction: find "content":"..." in choices[0].message
+    // Try to extract content from the response JSON
+    // Look for "content":"<value>" in choices[0].message
+    // Also handle "content":"" with reasoning_content for thinking models
     const choices_key = "\"choices\"";
-    const content_key = "\"content\"";
 
     const choices_idx = std.mem.find(u8, resp, choices_key) orelse {
         std.debug.print("{s}\n", .{resp});
@@ -181,41 +187,88 @@ fn printChatResponse(resp: []const u8) !void {
     };
 
     const after_choices = resp[choices_idx + choices_key.len ..];
-    const content_idx = std.mem.find(u8, after_choices, content_key) orelse {
-        std.debug.print("{s}\n", .{resp});
-        return;
-    };
 
-    const after_content = after_choices[content_idx + content_key.len ..];
-    const quote_start = std.mem.find(u8, after_content, "\"") orelse {
-        std.debug.print("{s}\n", .{resp});
-        return;
-    };
+    // Try to find content with a non-empty value first
+    const content = extractJsonStringValue(after_choices, "content");
+    const reasoning = extractJsonStringValue(after_choices, "reasoning_content");
 
-    const after_quote = after_content[quote_start + 1 ..];
-    const quote_end = std.mem.find(u8, after_quote, "\"");
-
-    if (quote_end) |end| {
-        const content = after_quote[0..end];
-        // Print unescaped content
-        var j: usize = 0;
-        while (j < content.len) : (j += 1) {
-            if (content[j] == '\\' and j + 1 < content.len) {
-                switch (content[j + 1]) {
-                    'n' => { std.debug.print("\n", .{}); j += 1; },
-                    't' => { std.debug.print("\t", .{}); j += 1; },
-                    'r' => { j += 1; },
-                    '\\' => { std.debug.print("\\", .{}); j += 1; },
-                    '"' => { std.debug.print("\"", .{}); j += 1; },
-                    else => std.debug.print("{c}", .{content[j]}),
-                }
-            } else {
-                std.debug.print("{c}", .{content[j]});
-            }
+    if (content) |c| {
+        if (c.len > 0) {
+            printUnescaped(c);
+            std.debug.print("\n", .{});
+            return;
         }
-        std.debug.print("\n", .{});
-    } else {
-        std.debug.print("{s}\n", .{resp});
+    }
+
+    // If content is empty, try reasoning_content (thinking models)
+    if (reasoning) |r| {
+        if (r.len > 0) {
+            printUnescaped(r);
+            std.debug.print("\n", .{});
+            return;
+        }
+    }
+
+    // Fallback: print raw response
+    if (content) |c| {
+        if (c.len == 0) {
+            std.debug.print("(empty response)\n", .{});
+            return;
+        }
+    }
+    std.debug.print("{s}\n", .{resp});
+}
+
+/// Extract a JSON string value for a given key, handling escape sequences properly
+fn extractJsonStringValue(json: []const u8, key: []const u8) ?[]const u8 {
+    // Build the search pattern: "key":"
+    var search_buf: [128]u8 = undefined;
+    const search = std.fmt.bufPrint(&search_buf, "\"{s}\":\"", .{key}) catch return null;
+
+    const key_idx = std.mem.find(u8, json, search) orelse return null;
+    const value_start = key_idx + search.len;
+
+    // Find the end of the string value, handling escape sequences
+    var i: usize = value_start;
+    while (i < json.len) : (i += 1) {
+        if (json[i] == '\\' and i + 1 < json.len) {
+            i += 1; // skip escaped character
+        } else if (json[i] == '"') {
+            return json[value_start..i];
+        }
+    }
+    return null;
+}
+
+fn printUnescaped(content: []const u8) void {
+    var j: usize = 0;
+    while (j < content.len) : (j += 1) {
+        if (content[j] == '\\' and j + 1 < content.len) {
+            switch (content[j + 1]) {
+                'n' => {
+                    std.debug.print("\n", .{});
+                    j += 1;
+                },
+                't' => {
+                    std.debug.print("\t", .{});
+                    j += 1;
+                },
+                'r' => {
+                    j += 1;
+                },
+                '\\' => {
+                    std.debug.print("\\", .{});
+                    j += 1;
+                },
+                '"' => {
+                    std.debug.print("\"", .{});
+                    j += 1;
+                },
+                else => std.debug.print("{c}", .{content[j]}),
+            }
+        } else {
+            std.debug.print("{c}", .{content[j]});
+        }
     }
 }
 
@@ -224,18 +277,13 @@ fn printChatResponse(resp: []const u8) !void {
 // ============================================================================
 
 fn dispatchComplete(args: []const [:0]const u8) !i32 {
-    if (args.len == 0) {
-        std.debug.print("llm complete: missing prompt\n", .{});
-        return 1;
-    }
-
-    const prompt: []const u8 = args[0];
     var model: []const u8 = DEFAULT_MODEL;
     var provider: ?[]const u8 = null;
     var max_tokens: u32 = 1024;
     var temperature: f64 = 0.7;
+    var prompt: ?[]const u8 = null;
 
-    var i: usize = 1;
+    var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--model")) {
@@ -246,11 +294,20 @@ fn dispatchComplete(args: []const [:0]const u8) !i32 {
             if (i + 1 < args.len) { max_tokens = std.fmt.parseInt(u32, args[i + 1], 10) catch 1024; i += 1; }
         } else if (std.mem.eql(u8, arg, "--temperature")) {
             if (i + 1 < args.len) { temperature = std.fmt.parseFloat(f64, args[i + 1]) catch 0.7; i += 1; }
+        } else {
+            if (prompt == null) {
+                prompt = arg;
+            }
         }
     }
 
+    if (prompt == null) {
+        std.debug.print("llm complete: missing prompt\n", .{});
+        return 1;
+    }
+
     // Complete is just chat with a single user message
-    const body = try buildChatRequest(prompt, model, provider, null, max_tokens, temperature);
+    const body = try buildChatRequest(prompt.?, model, provider, null, max_tokens, temperature);
     defer g_allocator.free(body);
 
     const response = try callProxyApi("/v1/chat/completions", .POST, body);
@@ -359,39 +416,58 @@ fn dispatchProviders() !i32 {
 // ============================================================================
 
 fn callProxyApi(path: []const u8, method: std.http.Method, body: ?[]const u8) !?[]const u8 {
-    const url = try std.fmt.allocPrint(g_allocator, "{s}{s}", .{ DEFAULT_PROXY_URL, path });
-    defer g_allocator.free(url);
+    // Use std.Io.net.Stream to match proxy's I/O backend
+    const address = try std.Io.net.IpAddress.parseIp4("127.0.0.1", 4000);
+    var stream = try address.connect(g_io, .{ .mode = .stream });
+    defer stream.close(g_io);
 
-    const uri = std.Uri.parse(url) catch return null;
+    // Build HTTP request
+    var req_buf: [4096]u8 = undefined;
+    var req_len: usize = 0;
+    req_len += (try std.fmt.bufPrint(req_buf[req_len..], "{s} {s} HTTP/1.1\r\n", .{ @tagName(method), path })).len;
+    req_len += (try std.fmt.bufPrint(req_buf[req_len..], "Host: localhost:4000\r\n", .{})).len;
+    req_len += (try std.fmt.bufPrint(req_buf[req_len..], "Content-Type: application/json\r\n", .{})).len;
+    req_len += (try std.fmt.bufPrint(req_buf[req_len..], "Authorization: Bearer sk-test-key\r\n", .{})).len;
+    if (body) |b| {
+        req_len += (try std.fmt.bufPrint(req_buf[req_len..], "Content-Length: {d}\r\n", .{b.len})).len;
+    }
+    req_len += (try std.fmt.bufPrint(req_buf[req_len..], "Connection: close\r\n\r\n", .{})).len;
+    if (body) |b| {
+        @memcpy(req_buf[req_len..][0..b.len], b);
+        req_len += b.len;
+    }
 
-    var client = std.http.Client{ .allocator = g_allocator, .io = g_io };
-    defer client.deinit();
+    // Send request
+    var wbuf: [4096]u8 = undefined;
+    var writer = stream.writer(g_io, &wbuf);
+    try writer.interface.writeAll(req_buf[0..req_len]);
+    try writer.interface.flush();
 
-    var response_writer = std.Io.Writer.Allocating.init(g_allocator);
-    defer response_writer.deinit();
+    // Read response
+    var rbuf: [4096]u8 = undefined;
+    var reader = stream.reader(g_io, &rbuf);
+    var resp_parts = std.array_list.Managed(u8).init(g_allocator);
+    defer resp_parts.deinit();
+    while (true) {
+        var buf: [4096]u8 = undefined;
+        const n = reader.interface.readSliceShort(buf[0..]) catch break;
+        if (n == 0) break;
+        try resp_parts.appendSlice(buf[0..n]);
+    }
+    const response_text = resp_parts.items;
 
-    const extra_headers = &[_]std.http.Header{
-        .{ .name = "Content-Type", .value = "application/json" },
-        .{ .name = "Authorization", .value = "Bearer sk-test-key" },
-    };
-
-    const response = client.fetch(.{
-        .location = .{ .uri = uri },
-        .method = method,
-        .extra_headers = extra_headers,
-        .response_writer = &response_writer.writer,
-        .payload = body,
-    }) catch return null;
-
-    if (response.status != .ok) {
-        const err_body = response_writer.written();
-        if (err_body.len > 0) {
-            std.debug.print("Proxy error (HTTP {}): {s}\n", .{ response.status, err_body });
-        }
+    // Parse status line
+    const status_end = std.mem.find(u8, response_text, "\r\n") orelse return null;
+    const status_line = response_text[0..status_end];
+    if (!std.mem.startsWith(u8, status_line, "HTTP/1.1 200")) {
+        std.debug.print("Proxy error: {s}\n", .{status_line});
         return null;
     }
 
-    const resp_body = response_writer.written();
+    // Find body
+    const body_start = std.mem.find(u8, response_text, "\r\n\r\n") orelse return null;
+    const resp_body = response_text[body_start + 4 ..];
+
     if (resp_body.len == 0) return null;
     return try g_allocator.dupe(u8, resp_body);
 }

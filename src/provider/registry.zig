@@ -27,7 +27,7 @@ const PROVIDER_CONFIGS: []const struct { provider: ProviderType, config: Provide
         },
     },
     .{ .provider = .moonshot, .config = ProviderConfig{
-        .base_url = "https://api.moonshot.cn/v1",
+        .base_url = "https://api.kimi.com/coding/v1",
         .auth_type = .bearer,
     } },
     .{ .provider = .minimax, .config = ProviderConfig{
@@ -35,7 +35,7 @@ const PROVIDER_CONFIGS: []const struct { provider: ProviderType, config: Provide
         .auth_type = .bearer,
     } },
     .{ .provider = .deepseek, .config = ProviderConfig{
-        .base_url = "https://api.deepseek.com/v1",
+        .base_url = "https://api.deepseek.com",
         .auth_type = .bearer,
     } },
     .{ .provider = .cohere, .config = ProviderConfig{

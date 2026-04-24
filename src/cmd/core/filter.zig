@@ -95,7 +95,7 @@ pub fn filter(
 
     const filtered_len = filtered.len;
     const reduction_pct = if (original_len > 0)
-        @as(f64, @floatFromInt(original_len - filtered_len)) / @as(f64, @floatFromInt(original_len)) * 100.0
+        @as(f64, @floatFromInt(@as(i64, @intCast(original_len)) - @as(i64, @intCast(filtered_len)))) / @as(f64, @floatFromInt(original_len)) * 100.0
     else
         0.0;
 

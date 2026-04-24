@@ -66,7 +66,8 @@ pub fn main(init: std.process.Init) !void {
     const command = args[idx];
     const cmd_args = args[idx + 1 ..];
 
-    const exit_code = try cmd.dispatch(allocator, io, command, cmd_args, verbose, ultra_compact);
+    const argv0 = if (args.len > 0) args[0] else null;
+    const exit_code = try cmd.dispatch(allocator, io, command, cmd_args, verbose, ultra_compact, argv0);
 
     std.process.exit(@as(u8, @intCast(exit_code & 0xFF)));
 }

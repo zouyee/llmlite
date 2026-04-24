@@ -58,6 +58,13 @@ pub fn normalizeError(err: anyerror, provider_code: ?[]const u8) NormalizedError
             .provider_code = provider_code,
             .status = 401,
         },
+        error.AuthenticationError => .{
+            .code = .authentication_error,
+            .message = "Provider authentication failed",
+            .reason = "The upstream provider rejected the API key. Please check your provider API key configuration.",
+            .provider_code = provider_code,
+            .status = 401,
+        },
         error.RateLimitExceeded => .{
             .code = .rate_limit_exceeded,
             .message = "Rate limit exceeded",

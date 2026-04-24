@@ -782,7 +782,8 @@ pub fn installOpenClawHook(allocator: std.mem.Allocator, verbose: bool) !void {
     std.debug.print("\nOpenClaw integration installed.\n", .{});
 }
 
-pub fn installKiroHook(allocator: std.mem.Allocator, verbose: bool) !void {
+pub fn installKiroHook(allocator: std.mem.Allocator, verbose: bool, executable_path: ?[]const u8) !void {
+    _ = executable_path;
     // Kiro uses ~/.kiro/hooks/ for hook scripts (similar to Claude Code)
     const hooks_dir = try getKiroHooksDir(allocator);
     defer allocator.free(hooks_dir);

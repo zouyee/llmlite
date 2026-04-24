@@ -8,6 +8,7 @@ var global_verbose: u8 = 0;
 var global_ultra_compact: bool = false;
 var g_cmd_allocator: std.mem.Allocator = std.heap.page_allocator;
 var g_cmd_io: std.Io = undefined;
+pub var g_cmd_executable_path: ?[]const u8 = null;
 
 pub fn dispatch(
     allocator: std.mem.Allocator,
@@ -16,13 +17,35 @@ pub fn dispatch(
     args: []const [:0]const u8,
     verbose: u8,
     ultra_compact: bool,
+    argv0: ?[]const u8,
 ) !i32 {
     g_cmd_allocator = allocator;
     g_cmd_io = io;
     core.g_io = io;
     core.hook.g_io = io;
+    core.config.g_io = io;
+    core.memory.utils.g_io = io;
+    core.gain.g_io = io;
     global_verbose = verbose;
     global_ultra_compact = ultra_compact;
+
+    // Resolve executable path to absolute for hook installation
+    if (argv0) |a0| {
+        if (g_cmd_executable_path == null) {
+            if (std.fs.path.isAbsolute(a0)) {
+                g_cmd_executable_path = try allocator.dupe(u8, a0);
+            } else {
+                const cwd = std.process.currentPathAlloc(io, allocator) catch null;
+                if (cwd) |c| {
+                    defer allocator.free(c);
+                    const resolved = std.fs.path.resolve(allocator, &.{ c, a0 }) catch null;
+                    if (resolved) |r| {
+                        g_cmd_executable_path = r;
+                    }
+                }
+            }
+        }
+    }
 
     if (verbose > 0) {
         std.log.info("dispatching command: {s}", .{command});
@@ -213,40 +236,41 @@ fn dispatchGit(args: []const [:0]const u8) !i32 {
 
     if (std.mem.eql(u8, subcmd, "status")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "status" }, "git status", "git status", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = if (global_ultra_compact) .ultra_compact else .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "diff")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "diff" }, "git diff", "git diff", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "log")) {
-        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "log" }, "git log", "git log", .{
-            .verbose = global_verbose,
-            .strategy = .git_log,
+        // --oneline -20 is already compact; no post-filter needed
+        return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "log", "--oneline", "-20" }, "git log", "git log", .{
+            .io = g_cmd_io, .verbose = global_verbose,
+            .strategy = .none,
         });
     } else if (std.mem.eql(u8, subcmd, "add")) {
         return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "add" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "commit")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "commit" }, "git commit", "git commit", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "push")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "push" }, "git push", "git push", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "pull")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "pull" }, "git pull", "git pull", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "branch")) {
         // RTK-style: compact branch listing with current branch marked
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "branch" }, "git branch", "git branch", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "checkout")) {
@@ -254,7 +278,7 @@ fn dispatchGit(args: []const [:0]const u8) !i32 {
         return core.runner.runPassthrough(g_cmd_allocator, &.{ "git", "checkout" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "fetch")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "fetch" }, "git fetch", "git fetch", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "stash")) {
@@ -282,57 +306,57 @@ fn dispatchGit(args: []const [:0]const u8) !i32 {
         });
     } else if (std.mem.eql(u8, subcmd, "show")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "show" }, "git show", "git show", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "rebase")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "rebase" }, "git rebase", "git rebase", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "merge")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "merge" }, "git merge", "git merge", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "reset")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "reset" }, "git reset", "git reset", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "restore")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "restore" }, "git restore", "git restore", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "bisect")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "bisect" }, "git bisect", "git bisect", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "blame")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "blame" }, "git blame", "git blame", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "clean")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "clean" }, "git clean", "git clean", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "cherry-pick")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "cherry-pick" }, "git cherry-pick", "git cherry-pick", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "revert")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "revert" }, "git revert", "git revert", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "tag")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "tag" }, "git tag", "git tag", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "submodule")) {
@@ -341,42 +365,42 @@ fn dispatchGit(args: []const [:0]const u8) !i32 {
         argv[0] = "git";
         for (args, 1..) |arg, i| argv[i] = arg;
         return core.runner.runFiltered(g_cmd_allocator, argv, "git submodule", "git submodule", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "describe")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "describe" }, "git describe", "git describe", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "shortlog")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "shortlog" }, "git shortlog", "git shortlog", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "reflog")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "reflog" }, "git reflog", "git reflog", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "remote")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "remote" }, "git remote", "git remote", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "ls-files")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "ls-files" }, "git ls-files", "git ls-files", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "ls-tree")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "ls-tree" }, "git ls-tree", "git ls-tree", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "grep")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "git", "grep" }, "git grep", "git grep", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "stash")) {
@@ -386,7 +410,7 @@ fn dispatchGit(args: []const [:0]const u8) !i32 {
         argv[0] = "git";
         for (args, 1..) |arg, i| argv[i] = arg;
         return core.runner.runFiltered(g_cmd_allocator, argv, "git stash", "git stash", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -409,90 +433,90 @@ fn dispatchCargo(args: []const [:0]const u8) !i32 {
 
     if (std.mem.eql(u8, subcmd, "test")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "test" }, "cargo test", "cargo test", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "build" }, "cargo build", "cargo build", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "clippy")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "clippy" }, "cargo clippy", "cargo clippy", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, subcmd, "check")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "check" }, "cargo check", "cargo check", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "nextest")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "nextest", "run" }, "cargo nextest", "cargo nextest run", .{
             .tee_label = "cargo-nextest",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "bench")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "bench" }, "cargo bench", "cargo bench", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "tree")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "tree" }, "cargo tree", "cargo tree", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .tree_compression,
         });
     } else if (std.mem.eql(u8, subcmd, "search")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "search" }, "cargo search", "cargo search", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "install")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "install" }, "cargo install", "cargo install", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "uninstall")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "uninstall" }, "cargo uninstall", "cargo uninstall", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "doc")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "doc" }, "cargo doc", "cargo doc", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "publish")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "publish" }, "cargo publish", "cargo publish", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "update")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "update" }, "cargo update", "cargo update", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "clean")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "clean" }, "cargo clean", "cargo clean", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "fmt")) {
         return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "fmt" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "fix")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "fix" }, "cargo fix", "cargo fix", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "add")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "add" }, "cargo add", "cargo add", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "remove")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "remove" }, "cargo remove", "cargo remove", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "generate-lockfile")) {
@@ -501,13 +525,13 @@ fn dispatchCargo(args: []const [:0]const u8) !i32 {
         return core.runner.runPassthrough(g_cmd_allocator, &.{ "cargo", "metadata" }, global_verbose, g_cmd_io);
     } else if (std.mem.eql(u8, subcmd, "package")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "package" }, "cargo package", "cargo package", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "report")) {
         // cargo report (future, new in 1.74+)
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "report" }, "cargo report", "cargo report", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -535,19 +559,19 @@ fn dispatchNpm(args: []const [:0]const u8) !i32 {
         // For test, use the detected package manager's test runner
         switch (pm) {
             .pnpm => return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "test" }, "pnpm test", "npm test", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
             .yarn => return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "test" }, "yarn test", "npm test", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
             .bun => return core.runner.runFiltered(g_cmd_allocator, &.{ "bun", "test" }, "bun test", "npm test", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
             else => return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "test" }, "npm test", "npm test", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .failure_focus,
             }),
         }
@@ -555,15 +579,15 @@ fn dispatchNpm(args: []const [:0]const u8) !i32 {
         // npm run <script> - detect package manager
         switch (pm) {
             .pnpm => return core.runner.runFiltered(g_cmd_allocator, &.{"pnpm"}, "pnpm", "npm run", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .errors_only,
             }),
             .yarn => return core.runner.runFiltered(g_cmd_allocator, &.{"yarn"}, "yarn", "npm run", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .errors_only,
             }),
             .bun => return core.runner.runFiltered(g_cmd_allocator, &.{"bun"}, "bun", "npm run", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .errors_only,
             }),
             else => {
@@ -579,25 +603,25 @@ fn dispatchNpm(args: []const [:0]const u8) !i32 {
         }
     } else if (std.mem.eql(u8, subcmd, "install")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "install" }, "npm install", "npm install", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .progress_strip,
         });
     } else if (std.mem.eql(u8, subcmd, "list")) {
         switch (pm) {
             .pnpm => return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list" }, "pnpm list", "npm list", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
             .yarn => return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "list" }, "yarn list", "npm list", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
             .bun => return core.runner.runFiltered(g_cmd_allocator, &.{ "bun", "pm", "ls" }, "bun pm ls", "npm list", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
             else => return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "list" }, "npm list", "npm list", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .tree_compression,
             }),
         }
@@ -610,7 +634,7 @@ fn dispatchNpm(args: []const [:0]const u8) !i32 {
 fn dispatchPytest(args: []const [:0]const u8) !i32 {
     _ = args;
     return core.runner.runFiltered(g_cmd_allocator, &.{"pytest"}, "pytest", "pytest", .{
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .state_machine,
     });
 }
@@ -625,42 +649,42 @@ fn dispatchDocker(args: []const [:0]const u8) !i32 {
 
     if (std.mem.eql(u8, subcmd, "ps")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "ps" }, "docker ps", "docker ps", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "images")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "images" }, "docker images", "docker images", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "logs")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "logs" }, "docker logs", "docker logs", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .deduplication,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "build" }, "docker build", "docker build", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "run")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "run" }, "docker run", "docker run", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "pull")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "pull" }, "docker pull", "docker pull", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "push")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "push" }, "docker push", "docker push", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "inspect")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "inspect" }, "docker inspect", "docker inspect", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -678,12 +702,12 @@ fn dispatchKubectl(args: []const [:0]const u8) !i32 {
 
     if (std.mem.eql(u8, subcmd, "get")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "get" }, "kubectl get", "kubectl get", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "logs")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "logs" }, "kubectl logs", "kubectl logs", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .deduplication,
         });
     } else if (std.mem.eql(u8, subcmd, "pods")) {
@@ -712,47 +736,47 @@ fn dispatchKubectl(args: []const [:0]const u8) !i32 {
         });
     } else if (std.mem.eql(u8, subcmd, "describe")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "describe" }, "kubectl describe", "kubectl describe", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "apply")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "apply" }, "kubectl apply", "kubectl apply", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "delete")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "delete" }, "kubectl delete", "kubectl delete", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "top")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "top" }, "kubectl top", "kubectl top", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "exec")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "exec" }, "kubectl exec", "kubectl exec", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "rollout")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "rollout" }, "kubectl rollout", "kubectl rollout", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "config")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "config" }, "kubectl config", "kubectl config", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "port-forward")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "port-forward" }, "kubectl port-forward", "kubectl port-forward", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "scale")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "kubectl", "scale" }, "kubectl scale", "kubectl scale", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -839,7 +863,7 @@ fn dispatchInit(args: []const [:0]const u8) !i32 {
             .windsurf => try core.hook.installWindsurfHook(g_cmd_allocator, true),
             .cline => try core.hook.installClineHook(g_cmd_allocator, true),
             .codex => try core.hook.installCodexHook(g_cmd_allocator, true),
-            .kiro => try core.hook.installKiroHook(g_cmd_allocator, true),
+            .kiro => try core.hook.installKiroHook(g_cmd_allocator, true, g_cmd_executable_path),
             else => {
                 std.debug.print("Hook not supported for this agent.\n", .{});
                 return 1;
@@ -1041,22 +1065,22 @@ fn dispatchLint(args: []const [:0]const u8) !i32 {
         // Auto-detect linter
         if (core.utils.fileExists(g_cmd_io, "biome.json") or core.utils.fileExists(g_cmd_io, "biome.jsonc")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome check", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .grouping,
             });
         } else if (core.utils.fileExists(g_cmd_io, ".eslintrc.js") or core.utils.fileExists(g_cmd_io, ".eslintrc.json") or core.utils.fileExists(g_cmd_io, "eslint.config.js")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint", "." }, "eslint", "eslint", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .grouping,
             });
         } else if (core.utils.fileExists(g_cmd_io, "ruff.toml")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff check", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .grouping,
             });
         } else if (core.utils.fileExists(g_cmd_io, ".prettierrc") or core.utils.fileExists(g_cmd_io, ".prettierrc.json")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .errors_only,
             });
         } else {
@@ -1071,27 +1095,27 @@ fn dispatchLint(args: []const [:0]const u8) !i32 {
 
     if (std.mem.eql(u8, linter, "eslint")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint" }, "eslint", "eslint", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, linter, "biome")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "biome", "check", "." }, "biome check", "biome", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, linter, "ruff")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "ruff", "check", "." }, "ruff check", "ruff", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, linter, "prettier")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier", "--check", "." }, "prettier check", "prettier", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, linter, "tsc")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "tsc", "--noEmit" }, "tsc", "tsc", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else {
@@ -1112,33 +1136,33 @@ fn dispatchGo(args: []const [:0]const u8) !i32 {
     if (std.mem.eql(u8, subcmd, "test")) {
         // Go test with NDJSON output - use ndjson_stream filter
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "test" }, "go test", "go test", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .ndjson_stream,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "build" }, "go build", "go build", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "vet")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "vet" }, "go vet", "go vet", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "fmt")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "fmt" }, "go fmt", "go fmt", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "mod")) {
         // go mod tidy, download, etc
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "mod" }, "go mod", "go mod", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "get")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "get" }, "go get", "go get", .{
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .progress_strip,
         });
     } else {
@@ -1217,7 +1241,7 @@ fn dispatchHook(args: []const [:0]const u8) !i32 {
             .codex => try core.hook.installCodexHook(g_cmd_allocator, verbose),
             .zsh => try core.hook.installZshHook(g_cmd_allocator, verbose),
             .fish => try core.hook.installFishHook(g_cmd_allocator, verbose),
-            .kiro => try core.hook.installKiroHook(g_cmd_allocator, verbose),
+            .kiro => try core.hook.installKiroHook(g_cmd_allocator, verbose, g_cmd_executable_path),
             .copilot, .openclaw => {
                 std.debug.print("Hook installation not yet supported for {s}.\n", .{agent orelse "claude_code"});
                 return 1;
@@ -1237,9 +1261,9 @@ fn dispatchLs(args: []const [:0]const u8) !i32 {
     // Default to current directory, or use first argument as path
     const path = if (args.len > 0) args[0] else ".";
 
-    // Use ls -R for recursive listing
+    // Non-recursive listing (avoids exploding through .zig-cache, node_modules, .git)
     const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
-        .argv = &.{ "ls", "-R", "-l", path },
+        .argv = &.{ "ls", "-la", path },
     }) catch {
         std.debug.print("ls: failed to list directory\n", .{});
         return 1;
@@ -1356,10 +1380,35 @@ fn dispatchFind(args: []const [:0]const u8) !i32 {
         }
     }
 
-    // Run find with the specified arguments
-    // Use find . -type f as base
+    // Build find argv with cache/build directory exclusions
+    var argv = std.array_list.Managed([]const u8).init(g_cmd_allocator);
+    defer argv.deinit();
+    try argv.append("find");
+    try argv.append(path);
+    // Exclude common cache/build directories to prevent token explosion
+    const excluded = [_][]const u8{
+        ".git", ".zig-cache", "zig-out", "zig-pkg",
+        "node_modules", "target", "dist", "build",
+        ".venv", "venv", "__pycache__", ".pytest_cache",
+        "coverage", ".next", ".nuxt", ".output",
+        "bin", "obj", ".gradle", ".idea", ".vscode",
+    };
+    for (excluded) |dir| {
+        try argv.append("-not");
+        try argv.append("-path");
+        const pattern = try std.fmt.allocPrint(g_cmd_allocator, "*/{s}/*", .{dir});
+        defer g_cmd_allocator.free(pattern);
+        try argv.append(pattern);
+    }
+    if (name_pattern) |np| {
+        try argv.append("-name");
+        try argv.append(np);
+    }
+    try argv.append("-type");
+    try argv.append(find_type orelse "f");
+
     const result = std.process.run(g_cmd_allocator, g_cmd_io, .{
-        .argv = &.{ "find", path, "-type", find_type orelse "f" },
+        .argv = argv.items,
     }) catch {
         std.debug.print("find: failed to execute\n", .{});
         return 1;
@@ -1368,12 +1417,6 @@ fn dispatchFind(args: []const [:0]const u8) !i32 {
     std.debug.print("{s}", .{result.stdout});
     if (result.stderr.len > 0) {
         std.debug.print("{s}", .{result.stderr});
-    }
-
-    // Filter by name if specified (post-filter)
-    if (name_pattern) |np| {
-        // Just print that name filtering isn't fully implemented
-        _ = np;
     }
 
     return switch (result.term) {
@@ -1791,7 +1834,7 @@ fn dispatchVitest(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "vitest", "vitest run", .{
         .tee_label = "vitest",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .state_machine,
     });
 }
@@ -1801,7 +1844,7 @@ fn dispatchGolangciLint(args: []const [:0]const u8) !i32 {
     _ = args; // unused
     return core.runner.runFiltered(g_cmd_allocator, &.{ "golangci-lint", "run", "--out-format=json" }, "golangci-lint", "golangci-lint run", .{
         .tee_label = "golangci-lint",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .json_dual,
     });
 }
@@ -1820,7 +1863,7 @@ fn dispatchCurl(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "curl", url, .{
         .tee_label = "curl",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .progress_strip,
     });
 }
@@ -1843,7 +1886,7 @@ fn dispatchAws(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "aws", cmd_str, .{
         .tee_label = "aws",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .stats,
     });
 }
@@ -1859,19 +1902,19 @@ fn dispatchDeps(args: []const [:0]const u8) !i32 {
         if (core.utils.fileExists(g_cmd_io, "pnpm-lock.yaml")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list", "--depth=0" }, "deps", "pnpm list", .{
                 .tee_label = "deps",
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .stats,
             });
         } else if (core.utils.fileExists(g_cmd_io, "yarn.lock")) {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "yarn", "list", "--depth=0" }, "deps", "yarn list", .{
                 .tee_label = "deps",
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .stats,
             });
         } else {
             return core.runner.runFiltered(g_cmd_allocator, &.{ "npm", "list", "--depth=0" }, "deps", "npm list", .{
                 .tee_label = "deps",
-                .verbose = global_verbose,
+                .io = g_cmd_io, .verbose = global_verbose,
                 .strategy = .stats,
             });
         }
@@ -1881,7 +1924,7 @@ fn dispatchDeps(args: []const [:0]const u8) !i32 {
     if (core.utils.fileExists(g_cmd_io, "Cargo.toml")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "cargo", "tree", "--depth=1" }, "deps", "cargo tree", .{
             .tee_label = "deps",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .tree_compression,
         });
     }
@@ -1890,7 +1933,7 @@ fn dispatchDeps(args: []const [:0]const u8) !i32 {
     if (core.utils.fileExists(g_cmd_io, "go.mod")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "list", "-m", "all" }, "deps", "go list -m all", .{
             .tee_label = "deps",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     }
@@ -1914,7 +1957,7 @@ fn dispatchPlaywright(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "playwright", "playwright test", .{
         .tee_label = "playwright",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .failure_focus,
     });
 }
@@ -1927,7 +1970,7 @@ fn dispatchRake(args: []const [:0]const u8) !i32 {
         &.{ "rake", args[0] };
     return core.runner.runFiltered(g_cmd_allocator, argv, "rake", "rake", .{
         .tee_label = "rake",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .failure_focus,
     });
 }
@@ -1938,7 +1981,7 @@ fn dispatchRspec(args: []const [:0]const u8) !i32 {
     const argv: []const []const u8 = &.{ "bundle", "exec", "rspec" };
     return core.runner.runFiltered(g_cmd_allocator, argv, "rspec", "rspec", .{
         .tee_label = "rspec",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .json_dual,
     });
 }
@@ -1949,7 +1992,7 @@ fn dispatchRubocop(args: []const [:0]const u8) !i32 {
     const argv: []const []const u8 = &.{ "bundle", "exec", "rubocop" };
     return core.runner.runFiltered(g_cmd_allocator, argv, "rubocop", "rubocop", .{
         .tee_label = "rubocop",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .json_dual,
     });
 }
@@ -1967,7 +2010,7 @@ fn dispatchBundle(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "bundle", "bundle", .{
         .tee_label = "bundle",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .deduplication,
     });
 }
@@ -1991,7 +2034,7 @@ fn dispatchPip(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "pip", "pip", .{
         .tee_label = "pip",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .structure_only,
     });
 }
@@ -2009,7 +2052,7 @@ fn dispatchWget(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "wget", url, .{
         .tee_label = "wget",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .progress_strip,
     });
 }
@@ -2027,7 +2070,7 @@ fn dispatchPrettier(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "prettier", "prettier", .{
         .tee_label = "prettier",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .grouping,
     });
 }
@@ -2054,7 +2097,7 @@ fn dispatchUv(args: []const [:0]const u8) !i32 {
 
     return core.runner.runFiltered(g_cmd_allocator, argv, "uv", "uv", .{
         .tee_label = "uv",
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
         .strategy = .structure_only,
     });
 }
@@ -2871,43 +2914,43 @@ fn dispatchPnpm(args: []const [:0]const u8) !i32 {
     if (std.mem.eql(u8, subcmd, "list")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "list", "--depth=0" }, "pnpm list", "pnpm list", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .tree_compression,
         });
     } else if (std.mem.eql(u8, subcmd, "outdated")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "outdated" }, "pnpm outdated", "pnpm outdated", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "install")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "install" }, "pnpm install", "pnpm install", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .progress_strip,
         });
     } else if (std.mem.eql(u8, subcmd, "build")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "build" }, "pnpm build", "pnpm build", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "test")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "test" }, "pnpm test", "pnpm test", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "dev")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "dev" }, "pnpm dev", "pnpm dev", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .none,
         });
     } else if (std.mem.eql(u8, subcmd, "typecheck")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "pnpm", "typecheck" }, "pnpm typecheck", "pnpm typecheck", .{
             .tee_label = "pnpm",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else {
@@ -2931,37 +2974,37 @@ fn dispatchDotnet(args: []const [:0]const u8) !i32 {
     if (std.mem.eql(u8, subcmd, "build")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "build" }, "dotnet build", "dotnet build", .{
             .tee_label = "dotnet",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .errors_only,
         });
     } else if (std.mem.eql(u8, subcmd, "test")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "test" }, "dotnet test", "dotnet test", .{
             .tee_label = "dotnet",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else if (std.mem.eql(u8, subcmd, "restore")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "restore" }, "dotnet restore", "dotnet restore", .{
             .tee_label = "dotnet",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "format")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "format" }, "dotnet format", "dotnet format", .{
             .tee_label = "dotnet",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "run")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "run" }, "dotnet run", "dotnet run", .{
             .tee_label = "dotnet",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "publish")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "dotnet", "publish" }, "dotnet publish", "dotnet publish", .{
             .tee_label = "dotnet",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -2986,7 +3029,7 @@ fn dispatchCompose(args: []const [:0]const u8) !i32 {
     if (std.mem.eql(u8, subcmd, "ps")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "compose", "ps" }, "compose ps", "docker compose ps", .{
             .tee_label = "compose",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "logs")) {
@@ -3029,7 +3072,7 @@ fn dispatchCompose(args: []const [:0]const u8) !i32 {
     } else if (std.mem.eql(u8, subcmd, "down")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "docker", "compose", "down" }, "compose down", "docker compose down", .{
             .tee_label = "compose",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -3107,19 +3150,19 @@ fn dispatchGt(args: []const [:0]const u8) !i32 {
     } else if (std.mem.eql(u8, subcmd, "sync")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "gt", "sync" }, "gt sync", "gt sync", .{
             .tee_label = "gt",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "restack")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "gt", "restack" }, "gt restack", "gt restack", .{
             .tee_label = "gt",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "create")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "gt", "create" }, "gt create", "gt create", .{
             .tee_label = "gt",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else if (std.mem.eql(u8, subcmd, "branch")) {
@@ -3155,19 +3198,19 @@ fn dispatchNpx(args: []const [:0]const u8) !i32 {
     if (std.mem.eql(u8, cmd, "tsc")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "tsc" }, "tsc", "npx tsc", .{
             .tee_label = "tsc",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, cmd, "eslint")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "eslint" }, "eslint", "npx eslint", .{
             .tee_label = "eslint",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, cmd, "prettier")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "prettier" }, "prettier", "npx prettier", .{
             .tee_label = "prettier",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .grouping,
         });
     } else if (std.mem.eql(u8, cmd, "prisma")) {
@@ -3185,13 +3228,13 @@ fn dispatchNpx(args: []const [:0]const u8) !i32 {
     } else if (std.mem.eql(u8, cmd, "vitest")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "vitest" }, "vitest", "npx vitest", .{
             .tee_label = "vitest",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .state_machine,
         });
     } else if (std.mem.eql(u8, cmd, "playwright")) {
         return core.runner.runFiltered(g_cmd_allocator, &.{ "npx", "playwright" }, "playwright", "npx playwright", .{
             .tee_label = "playwright",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .failure_focus,
         });
     } else {
@@ -3301,7 +3344,7 @@ fn dispatchFormat(args: []const [:0]const u8) !i32 {
         // Use gofmt/go fmt for Go projects
         return core.runner.runFiltered(g_cmd_allocator, &.{ "go", "fmt" }, "go fmt", "format", .{
             .tee_label = "gofmt",
-            .verbose = global_verbose,
+            .io = g_cmd_io, .verbose = global_verbose,
             .strategy = .stats,
         });
     } else {
@@ -3474,7 +3517,7 @@ fn dispatchTerraform(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "terraform", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3488,7 +3531,7 @@ fn dispatchHelm(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "helm", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3502,7 +3545,7 @@ fn dispatchGcloud(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "gcloud", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3516,7 +3559,7 @@ fn dispatchAnsiblePlaybook(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "ansible-playbook", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3530,7 +3573,7 @@ fn dispatchMake(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "make", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3544,7 +3587,7 @@ fn dispatchMix(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "mix", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3558,7 +3601,7 @@ fn dispatchPreCommit(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "pre-commit", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3572,7 +3615,7 @@ fn dispatchShellcheck(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "shellcheck", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3586,7 +3629,7 @@ fn dispatchHadolint(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "hadolint", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3600,7 +3643,7 @@ fn dispatchGradle(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "gradle", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3614,7 +3657,7 @@ fn dispatchMvn(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "mvn", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3628,7 +3671,7 @@ fn dispatchSwift(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "swift", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3642,7 +3685,7 @@ fn dispatchJust(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "just", raw_args, .{
         .strategy = .stats,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3656,7 +3699,7 @@ fn dispatchMise(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "mise", raw_args, .{
         .strategy = .stats,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3670,7 +3713,7 @@ fn dispatchTask(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "task", raw_args, .{
         .strategy = .stats,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3684,7 +3727,7 @@ fn dispatchJj(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "jj", raw_args, .{
         .strategy = .stats,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3698,7 +3741,7 @@ fn dispatchRuff(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "ruff", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3712,7 +3755,7 @@ fn dispatchBiome(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "biome", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3726,7 +3769,7 @@ fn dispatchEslint(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "eslint", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 
@@ -3740,7 +3783,7 @@ fn dispatchTsc(args: []const [:0]const u8) !i32 {
     defer g_cmd_allocator.free(raw_args);
     return core.runner.runFiltered(g_cmd_allocator, argv, "tsc", raw_args, .{
         .strategy = .errors_only,
-        .verbose = global_verbose,
+        .io = g_cmd_io, .verbose = global_verbose,
     });
 }
 

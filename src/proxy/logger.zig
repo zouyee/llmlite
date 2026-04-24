@@ -187,9 +187,11 @@ pub const MetricsCollector = struct {
 
     /// Get Prometheus-formatted metrics
     pub fn prometheusMetrics(self: *const MetricsCollector, uptime_seconds: u64) []const u8 {
-        // Format metrics into a static buffer
-        var buf: [512]u8 = undefined;
-        const result = std.fmt.bufPrint(&buf, "# HELP llmlite_requests_total Total requests\n# TYPE llmlite_requests_total counter\nllmlite_requests_total {d}\n# HELP llmlite_requests_success Successful requests\n# TYPE llmlite_requests_success counter\nllmlite_requests_success {d}\n# HELP llmlite_requests_error Failed requests\n# TYPE llmlite_requests_error counter\nllmlite_requests_error {d}\n# HELP llmlite_latency_ms Request latency sum in milliseconds\n# TYPE llmlite_latency_ms counter\nllmlite_latency_ms_sum {d}\n# HELP llmlite_tokens_total Tokens processed\n# TYPE llmlite_tokens_total counter\nllmlite_tokens_total {d}\n# HELP llmlite_uptime_seconds Proxy uptime in seconds\n# TYPE llmlite_uptime_seconds gauge\nllmlite_uptime_seconds {d}\n", .{
+        // Use a threadlocal static buffer so the returned slice remains valid
+        const S = struct {
+            threadlocal var buf: [2048]u8 = undefined;
+        };
+        const result = std.fmt.bufPrint(&S.buf, "# HELP llmlite_requests_total Total requests\n# TYPE llmlite_requests_total counter\nllmlite_requests_total {d}\n# HELP llmlite_requests_success Successful requests\n# TYPE llmlite_requests_success counter\nllmlite_requests_success {d}\n# HELP llmlite_requests_error Failed requests\n# TYPE llmlite_requests_error counter\nllmlite_requests_error {d}\n# HELP llmlite_latency_ms Request latency sum in milliseconds\n# TYPE llmlite_latency_ms counter\nllmlite_latency_ms_sum {d}\n# HELP llmlite_tokens_total Tokens processed\n# TYPE llmlite_tokens_total counter\nllmlite_tokens_total {d}\n# HELP llmlite_uptime_seconds Proxy uptime in seconds\n# TYPE llmlite_uptime_seconds gauge\nllmlite_uptime_seconds {d}\n", .{
             self.requests_total,
             self.requests_success,
             self.requests_error,

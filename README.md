@@ -19,7 +19,7 @@ llmlite is a **zero-dependency, edge-ready LLM toolkit** written in Zig, consist
 
 - **llmlite-proxy** — A production-grade AI gateway and edge router in a 672KB binary. Provides OpenAI-compatible API endpoints with virtual key management, multi-provider routing with automatic failover, circuit breaker, latency-based health tracking (P50/P95/P99), connection pooling, rate limiting, cost tracking, team/project multi-tenancy, simple & semantic caching, hot-reload configuration, and a plugin system. Designed as a drop-in backend for AI agents — any tool that speaks the OpenAI API (including [Hermes Agent](https://github.com/NousResearch/Hermes-Agent), Claude Code, Cursor, Copilot) can route through llmlite-proxy to gain multi-provider failover, spend control, and edge deployment with zero code changes.
 
-- **llmlite-cmd** — A CLI command proxy that intercepts developer tool output (git, cargo, npm, pytest, docker, kubectl, and 50+ more) and applies intelligent filtering strategies to reduce LLM token consumption by 60–90%. Includes SQLite-based savings tracking, shell hook integration (bash/zsh), TDD cycle detection, a `learn` module that detects recurring CLI mistakes from command history, and a **CLI Memory** system (inspired by claude-mem) that records, categorizes, and retrieves command executions with full-text search. When `llmlite-proxy` is running, cmd automatically reports token savings to the proxy for centralized analytics.
+- **llmlite-cmd** — A CLI command proxy that intercepts developer tool output (git, cargo, npm, pytest, docker, kubectl, and 50+ more) and applies intelligent filtering strategies to reduce LLM token consumption by 60–90%. Includes SQLite-based savings tracking, shell hook integration (bash/zsh), [**Kiro IDE/kiro-cli integration**](docs/kiro-integration.md), TDD cycle detection, a `learn` module that detects recurring CLI mistakes from command history, and a **CLI Memory** system (inspired by claude-mem) that records, categorizes, and retrieves command executions with full-text search. When `llmlite-proxy` is running, cmd automatically reports token savings to the proxy for centralized analytics.
 
 Unlike Python-based solutions (LiteLLM ~50MB, vLLM Semantic Router requires K8s/Docker), llmlite delivers:
 
@@ -390,7 +390,8 @@ llmlite-cmd is a command-line proxy that intercepts developer commands and filte
 # Install shell hook
 llmlite-cmd init -g
 
-# Usage examples
+# Kiro IDE / kiro-cli integration
+# See docs/kiro-integration.md for full setup
 llmlite-cmd git status      # 80% token reduction
 llmlite-cmd cargo test      # 90% token reduction
 llmlite-cmd npm test         # 90% token reduction
@@ -445,6 +446,13 @@ Supported command categories:
 - **Go**: test, build, vet
 - **System**: ls, tree, cat, grep, find
 - **More**: eslint, tsc, prettier, prisma, playwright, rake, rspec, rubocop, dotnet, aws, curl, nextjs
+
+### Kiro Integration
+
+llmlite integrates with both [Kiro IDE](https://kiro.dev) (VS Code extension) and `kiro-cli` (terminal agent) via `preToolUse` hooks. When Kiro is about to execute a shell command, llmlite suggests a token-optimized alternative — reducing context window usage by 60–99%.
+
+- **kiro-cli**: Fully supported via agent-level hooks. See [docs/kiro-integration.md](docs/kiro-integration.md) for setup.
+- **Kiro IDE**: Project-level hook included (`.kiro/hooks/llmlite.kiro.hook`). Functional but awaiting upstream fix for stdin passthrough ([Kiro#7500](https://github.com/kirodotdev/Kiro/issues/7500)).
 
 ## MCP Server
 
@@ -595,6 +603,7 @@ docker-compose up llmlite-proxy
 - [LiteLLM Alignment](docs/litellm-alignment.md) — Competitive analysis
 - [Provider Usage Modes](docs/provider-usage-modes.md) — Usage patterns & competitive analysis
 - [GUI Migration Plan](docs/gui-migration-plan.md) — Web UI development plan
+- [Kiro Integration](docs/kiro-integration.md) — Kiro IDE & kiro-cli hook setup
 - [MCP Integration](docs/mcp.md) — MCP server documentation
 - [Chinese Docs](docs/zh/README.md) — Chinese README
 - [Changelog](CHANGELOG.md) — Version history

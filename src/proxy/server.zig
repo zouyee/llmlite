@@ -288,6 +288,9 @@ pub const Server = struct {
     provider_store: ProviderStore,
     provider_handler: ProviderHandler,
 
+    // Enabled provider filter (bitmask)
+    enabled_providers_mask: u16 = 0xFFFF,
+
     // Runtime control
     running: bool = true,
 
@@ -436,6 +439,22 @@ pub const Server = struct {
             hr.deinit();
             self.allocator.destroy(hr);
         }
+        if (self.edge_config.enabled_providers) |ep| {
+            self.allocator.free(ep);
+        }
+        // Free per-provider override strings
+        inline for (.{
+            "moonshot_base_url",   "moonshot_api_key_env",   "moonshot_user_agent", "moonshot_endpoint",
+            "deepseek_base_url",   "deepseek_api_key_env",   "deepseek_user_agent",
+            "minimax_base_url",    "minimax_api_key_env",    "minimax_user_agent",
+            "openai_base_url",     "openai_api_key_env",
+            "anthropic_base_url",  "anthropic_api_key_env",
+            "google_base_url",     "google_api_key_env",
+        }) |field_name| {
+            if (@field(self.edge_config, field_name)) |old| {
+                self.allocator.free(old);
+            }
+        }
         self.tracking_store.deinit();
         self.savings_store.deinit();
         self.provider_store.deinit();
@@ -449,19 +468,35 @@ pub const Server = struct {
         // Load new config from file
         const new_config = try self.hot_reload.?.loadConfig();
 
-        std.log.info("applying new edge config:", .{});
-        std.log.info("  enable_connection_pool: {}", .{new_config.enable_connection_pool});
-        std.log.info("  max_conns_per_provider: {}", .{new_config.max_conns_per_provider});
-        std.log.info("  latency_window_size: {}", .{new_config.latency_window_size});
-        std.log.info("  enable_health_checker: {}", .{new_config.enable_health_checker});
-        std.log.info("  health_check_interval_ms: {}", .{new_config.health_check_interval_ms});
+        // Free old allocated enabled_providers string
+        if (self.edge_config.enabled_providers) |old| {
+            self.allocator.free(old);
+        }
+        // Free old per-provider override strings
+        inline for (.{
+            "moonshot_base_url",   "moonshot_api_key_env",   "moonshot_user_agent", "moonshot_endpoint",
+            "deepseek_base_url",   "deepseek_api_key_env",   "deepseek_user_agent",
+            "minimax_base_url",    "minimax_api_key_env",    "minimax_user_agent",
+            "openai_base_url",     "openai_api_key_env",
+            "anthropic_base_url",  "anthropic_api_key_env",
+            "google_base_url",     "google_api_key_env",
+        }) |field_name| {
+            if (@field(self.edge_config, field_name)) |old| {
+                self.allocator.free(old);
+            }
+        }
 
-        // Update edge_config
+        // Update edge_config and parse enabled providers
         self.edge_config = new_config;
+        self.parseEnabledProviders(self.edge_config.enabled_providers);
 
-        // Note: Full recreation of components would require more complex logic
-        // to migrate state. For now, we just update the config values.
-        // Components will use new settings on next initialization.
+        std.log.info("applying new edge config:", .{});
+        std.log.info("  enable_connection_pool: {}", .{self.edge_config.enable_connection_pool});
+        std.log.info("  max_conns_per_provider: {}", .{self.edge_config.max_conns_per_provider});
+        std.log.info("  latency_window_size: {}", .{self.edge_config.latency_window_size});
+        std.log.info("  enable_health_checker: {}", .{self.edge_config.enable_health_checker});
+        std.log.info("  health_check_interval_ms: {}", .{self.edge_config.health_check_interval_ms});
+        std.log.info("  enabled_providers: {s}", .{self.edge_config.enabled_providers orelse "all"});
     }
 
     pub fn start(self: *Server) !void {
@@ -474,6 +509,8 @@ pub const Server = struct {
         std.log.info("  latency_tracking: {}", .{self.edge_config.enable_latency_tracking});
         std.log.info("  health_checker: {}", .{self.edge_config.enable_health_checker});
         std.log.info("  hot_reload: {}", .{self.edge_config.enable_hot_reload});
+        self.parseEnabledProviders(self.edge_config.enabled_providers);
+        std.log.info("  enabled_providers: {s}", .{self.edge_config.enabled_providers orelse "all"});
 
         // Initialize hot reload if enabled
         if (self.edge_config.enable_hot_reload) {
@@ -518,18 +555,69 @@ pub const Server = struct {
         }
     }
 
+    fn providerTypeToMaskBit(provider: types.ProviderType) u16 {
+        return switch (provider) {
+            .openai => 1 << 0,
+            .anthropic => 1 << 1,
+            .google => 1 << 2,
+            .moonshot => 1 << 3,
+            .minimax => 1 << 4,
+            .deepseek => 1 << 5,
+            .cohere => 1 << 6,
+            .fireworks => 1 << 7,
+            .cerebras => 1 << 8,
+            .mistral => 1 << 9,
+            .perplexity => 1 << 10,
+            .openai_compatible => 1 << 11,
+            .custom => 1 << 12,
+        };
+    }
+
+    fn isProviderEnabled(self: *Server, provider: types.ProviderType) bool {
+        const bit = providerTypeToMaskBit(provider);
+        return (self.enabled_providers_mask & bit) != 0;
+    }
+
+    fn parseEnabledProviders(self: *Server, enabled_str: ?[]const u8) void {
+        if (enabled_str == null or enabled_str.?.len == 0) {
+            self.enabled_providers_mask = 0xFFFF;
+            return;
+        }
+        const s = enabled_str.?;
+        if (std.mem.eql(u8, s, "all")) {
+            self.enabled_providers_mask = 0xFFFF;
+            return;
+        }
+        self.enabled_providers_mask = 0;
+        var it = std.mem.splitScalar(u8, s, ',');
+        while (it.next()) |name| {
+            const trimmed = std.mem.trim(u8, name, " \t\r\n");
+            if (trimmed.len == 0) continue;
+            if (types.ProviderType.fromString(trimmed)) |pt| {
+                self.enabled_providers_mask |= providerTypeToMaskBit(pt);
+            } else {
+                std.log.warn("unknown provider in enabled_providers: {s}", .{trimmed});
+            }
+        }
+        if (self.enabled_providers_mask == 0) {
+            std.log.warn("enabled_providers resulted in empty mask, defaulting to all", .{});
+            self.enabled_providers_mask = 0xFFFF;
+        }
+    }
+
     /// Probe all configured providers for active health checking
     fn probeProviders(self: *Server) void {
         if (self.active_health == null) return;
         if (!self.active_health.?.shouldProbe()) return;
 
-        // Probe each provider
-        self.probeSingleProvider(.openai);
-        self.probeSingleProvider(.anthropic);
-        self.probeSingleProvider(.google);
-        self.probeSingleProvider(.moonshot);
-        self.probeSingleProvider(.minimax);
-        self.probeSingleProvider(.deepseek);
+        const providers = &[_]types.ProviderType{
+            .openai, .anthropic, .google, .moonshot, .minimax, .deepseek,
+        };
+        for (providers) |provider| {
+            if (self.isProviderEnabled(provider)) {
+                self.probeSingleProvider(provider);
+            }
+        }
 
         self.active_health.?.markProbeCycleComplete();
     }
@@ -609,21 +697,72 @@ pub const Server = struct {
         defer connection.close(self.io);
 
         var buf: [16384]u8 = undefined;
-        const bytes_read = try self.streamRead(connection, &buf);
-        if (bytes_read == 0) return;
+        var total_read: usize = 0;
 
-        const request_text = buf[0..bytes_read];
+        // Read the complete HTTP request using poll + posix read
+        var read_attempts: u8 = 0;
+        const max_read_attempts = 50;
+        while (total_read < buf.len and read_attempts < max_read_attempts) : (read_attempts += 1) {
+            var pollfd = [_]std.posix.pollfd{.{
+                .fd = connection.socket.handle,
+                .events = std.posix.POLL.IN,
+                .revents = 0,
+            }};
+            const ready = std.posix.poll(&pollfd, 500) catch 0;
+            if (ready == 0) continue;
+
+            const bytes_read = std.posix.read(connection.socket.handle, buf[total_read..]) catch |err| {
+                std.log.warn("posix read error: {}", .{err});
+                break;
+            };
+            if (bytes_read == 0) break;
+            total_read += bytes_read;
+
+            if (std.mem.find(u8, buf[0..total_read], "\r\n\r\n")) |header_end| {
+                const content_length_prefix = "Content-Length: ";
+                if (std.mem.find(u8, buf[0..header_end], content_length_prefix)) |cl_start| {
+                    const cl_value_start = cl_start + content_length_prefix.len;
+                    const cl_end = std.mem.find(u8, buf[cl_value_start..header_end], "\r\n") orelse continue;
+                    const cl_str = buf[cl_value_start..cl_value_start + cl_end];
+                    const content_length = std.fmt.parseInt(usize, cl_str, 10) catch continue;
+                    const body_start = header_end + 4;
+                    const expected_total = body_start + content_length;
+                    if (total_read < expected_total and expected_total <= buf.len) {
+                        var body_attempts: u8 = 0;
+                        while (total_read < expected_total and body_attempts < max_read_attempts) : (body_attempts += 1) {
+                            var body_pollfd = [_]std.posix.pollfd{.{
+                                .fd = connection.socket.handle,
+                                .events = std.posix.POLL.IN,
+                                .revents = 0,
+                            }};
+                            const body_ready = std.posix.poll(&body_pollfd, 500) catch 0;
+                            if (body_ready == 0) continue;
+                            const body_n = std.posix.read(connection.socket.handle, buf[total_read..expected_total]) catch |err| {
+                                std.log.warn("posix body read error: {}", .{err});
+                                break;
+                            };
+                            if (body_n == 0) break;
+                            total_read += body_n;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        if (total_read == 0) return;
+
+        const request_text = buf[0..total_read];
         std.log.info("request: {s}", .{request_text[0..@min(request_text.len, 200)]});
 
-        if (std.mem.startsWith(u8, request_text, "GET /health")) {
-            try self.writeJsonResponse(connection, 200, "{\"status\":\"healthy\",\"version\":\"0.2.0\",\"edge\":true}");
-        } else if (std.mem.startsWith(u8, request_text, "GET /health/live")) {
-            // Liveness probe - just确认 server is alive
+        if (std.mem.startsWith(u8, request_text, "GET /health/live")) {
             try self.writeJsonResponse(connection, 200, "{\"status\":\"alive\"}");
         } else if (std.mem.startsWith(u8, request_text, "GET /health/ready")) {
-            // Readiness probe - check if ready to serve traffic
-            // For now, always ready - could check health_checker.getHealthyProviders in future
             try self.writeJsonResponse(connection, 200, "{\"status\":\"ready\"}");
+        } else if (std.mem.startsWith(u8, request_text, "GET /health")) {
+            try self.writeJsonResponse(connection, 200, "{\"status\":\"healthy\",\"version\":\"0.2.0\",\"edge\":true}");
+        } else if (std.mem.startsWith(u8, request_text, "GET /metrics/latency")) {
+            try self.writeLatencyMetrics(connection);
         } else if (std.mem.startsWith(u8, request_text, "GET /metrics")) {
             const metrics_text = self.metrics.prometheusMetrics(@intCast(time_compat.timestamp(self.io)));
             try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
@@ -631,9 +770,6 @@ pub const Server = struct {
             try self.streamWriteAll(connection, "Connection: close\r\n");
             try self.streamWriteAll(connection, "\r\n");
             try self.streamWriteAll(connection, metrics_text);
-        } else if (std.mem.startsWith(u8, request_text, "GET /metrics/latency")) {
-            // Latency metrics per provider
-            try self.writeLatencyMetrics(connection);
         } else if (std.mem.startsWith(u8, request_text, "POST /v1/chat/completions")) {
             try self.handleChatCompletions(connection, request_text);
         } else if (std.mem.startsWith(u8, request_text, "GET /v1/models")) {
@@ -652,7 +788,7 @@ pub const Server = struct {
             try self.handlePostSavings(connection, request_text);
         } else if (std.mem.startsWith(u8, request_text, "GET /analytics/unified")) {
             try self.handleGetUnified(connection, request_text);
-        } else if (std.mem.startsWith(u8, request_text, "/api/providers")) {
+        } else if (std.mem.find(u8, request_text[0..@min(request_text.len, 50)], "/api/providers") != null) {
             try self.handleProviderApi(connection, request_text);
         } else {
             try self.writeJsonResponse(connection, 404, "{\"error\":{\"message\":\"Not Found\",\"type\":\"invalid_request_error\"}}");
@@ -738,6 +874,7 @@ pub const Server = struct {
             return;
         }
 
+        std.log.info("calling provider {s} with body len {d}", .{ route.provider.toString(), body.len });
         const response = self.callProvider(route, body) catch |err| {
             std.log.warn("provider call failed: {}", .{err});
             // Record failure for health tracking and circuit breaker
@@ -747,6 +884,7 @@ pub const Server = struct {
             try self.writeError(connection, normalized);
             return;
         };
+        std.log.info("provider call succeeded, response len {d}", .{response.len});
 
         // Record success to health tracker, latency tracker, and circuit breaker
         const latency_ms = @as(u64, @intCast(time_compat.timestamp(self.io) - call_start));
@@ -782,9 +920,13 @@ pub const Server = struct {
 
         try self.streamWriteAll(connection, "HTTP/1.1 200 OK\r\n");
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        var cl_buf: [64]u8 = undefined;
+        const cl_str = try std.fmt.bufPrint(&cl_buf, "Content-Length: {d}\r\n", .{response.len});
+        try self.streamWriteAll(connection, cl_str);
         try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, response);
+        connection.shutdown(self.io, .send) catch {};
     }
 
     fn handleEmbeddings(self: *Server, connection: std.Io.net.Stream, request_text: []const u8) !void {
@@ -887,18 +1029,29 @@ pub const Server = struct {
     }
 
     fn extractApiKey(_: *Server, request_text: []const u8) ![]const u8 {
-        const auth_header_start = std.mem.find(u8, request_text, "Authorization: Bearer ");
-        if (auth_header_start == null) {
+        const patterns = &[_][]const u8{
+            "Authorization: Bearer ",
+            "Authorization: bearer ",
+            "authorization: Bearer ",
+            "authorization: bearer ",
+        };
+        var auth_start: ?usize = null;
+        for (patterns) |pattern| {
+            if (std.mem.find(u8, request_text, pattern)) |pos| {
+                auth_start = pos + pattern.len;
+                break;
+            }
+        }
+        if (auth_start == null) {
             return error.MissingAuthHeader;
         }
 
-        const auth_start = auth_header_start.? + 19;
-        const auth_end = std.mem.find(u8, request_text[auth_start..], "\r\n");
+        const auth_end = std.mem.find(u8, request_text[auth_start.?..], "\r\n");
         if (auth_end == null) {
             return error.InvalidAuthFormat;
         }
 
-        return request_text[auth_start .. auth_start + auth_end.?];
+        return request_text[auth_start.? .. auth_start.? + auth_end.?];
     }
 
     const Route = struct {
@@ -915,8 +1068,9 @@ pub const Server = struct {
             const provider_str = model[0..idx];
             const model_name = model[idx + 1 ..];
             if (types.ProviderType.fromString(provider_str)) |provider_type| {
-                // Check health before routing
-                if (self.health_checker.isHealthy(provider_type)) {
+                if (!self.isProviderEnabled(provider_type)) {
+                    std.log.warn("provider {s} is disabled, using fallback", .{provider_str});
+                } else if (self.health_checker.isHealthy(provider_type)) {
                     return .{ .provider = provider_type, .model = model_name };
                 } else {
                     std.log.warn("requested provider {s} is unhealthy, using fallback", .{provider_str});
@@ -924,17 +1078,43 @@ pub const Server = struct {
             }
         }
 
-        // Use latency-based provider selection for edge routing
+        // Model name-based routing for common providers (takes precedence over latency tracking)
+        if (std.mem.startsWith(u8, model, "deepseek-") and self.isProviderEnabled(.deepseek)) return .{ .provider = .deepseek, .model = model };
+        if (std.mem.startsWith(u8, model, "gpt-") and self.isProviderEnabled(.openai)) return .{ .provider = .openai, .model = model };
+        if (std.mem.startsWith(u8, model, "claude-") and self.isProviderEnabled(.anthropic)) return .{ .provider = .anthropic, .model = model };
+        if (std.mem.startsWith(u8, model, "gemini-") and self.isProviderEnabled(.google)) return .{ .provider = .google, .model = model };
+        if (std.mem.startsWith(u8, model, "moonshot-") and self.isProviderEnabled(.moonshot)) return .{ .provider = .moonshot, .model = model };
+        if (std.mem.startsWith(u8, model, "kimi-") and self.isProviderEnabled(.moonshot)) return .{ .provider = .moonshot, .model = model };
+        if (std.mem.startsWith(u8, model, "abab") and self.isProviderEnabled(.minimax)) return .{ .provider = .minimax, .model = model };
+        if (std.mem.startsWith(u8, model, "MiniMax-") and self.isProviderEnabled(.minimax)) return .{ .provider = .minimax, .model = model };
+
+        // Use latency-based provider selection for edge routing (only among enabled providers)
         if (self.edge_config.enable_latency_tracking) {
-            const providers = &.{ types.ProviderType.openai, types.ProviderType.anthropic, types.ProviderType.google };
-            const fastest = self.latency_tracker.selectFastestProvider(providers);
-            if (self.health_checker.isHealthy(fastest)) {
-                std.log.info("routing to fastest healthy provider: {s}", .{fastest.toString()});
-                return .{ .provider = fastest, .model = model };
+            var enabled_providers: [4]types.ProviderType = undefined;
+            var count: usize = 0;
+            const candidates = &[_]types.ProviderType{ .openai, .anthropic, .google, .deepseek };
+            for (candidates) |p| {
+                if (self.isProviderEnabled(p)) {
+                    enabled_providers[count] = p;
+                    count += 1;
+                }
+            }
+            if (count > 0) {
+                const fastest = self.latency_tracker.selectFastestProvider(enabled_providers[0..count]);
+                if (self.health_checker.isHealthy(fastest)) {
+                    std.log.info("routing to fastest healthy provider: {s}", .{fastest.toString()});
+                    return .{ .provider = fastest, .model = model };
+                }
             }
         }
 
-        // Default to OpenAI
+        // Default to first enabled provider
+        if (self.isProviderEnabled(.openai)) return .{ .provider = .openai, .model = model };
+        if (self.isProviderEnabled(.deepseek)) return .{ .provider = .deepseek, .model = model };
+        const all_providers = &[_]types.ProviderType{ .anthropic, .google, .moonshot, .minimax, .cohere, .fireworks, .cerebras, .mistral, .perplexity, .openai_compatible, .custom };
+        for (all_providers) |p| {
+            if (self.isProviderEnabled(p)) return .{ .provider = p, .model = model };
+        }
         return .{ .provider = .openai, .model = model };
     }
 
@@ -972,25 +1152,84 @@ pub const Server = struct {
     }
 
     fn extractModelFromBody(_: *Server, body: []const u8) ![]const u8 {
-        const model_start = std.mem.find(u8, body, "\"model\":\"") orelse {
-            return error.ModelNotFound;
-        };
-        const idx = model_start + 9;
+        const patterns = &[_][]const u8{ "\"model\":\"", "\"model\": \"" };
+        var model_start: ?usize = null;
+        for (patterns) |pattern| {
+            if (std.mem.find(u8, body, pattern)) |pos| {
+                model_start = pos + pattern.len;
+                break;
+            }
+        }
+        if (model_start == null) return error.ModelNotFound;
+        const idx = model_start.?;
         const value_end = std.mem.find(u8, body[idx..], "\"") orelse {
             return error.InvalidJson;
         };
         return body[idx .. idx + value_end];
     }
 
+    fn normalizeModelInBody(self: *Server, body: []const u8, model: []const u8) ![]u8 {
+        const model_key = "\"model\":\"";
+        const model_start = std.mem.find(u8, body, model_key) orelse return try self.allocator.dupe(u8, body);
+        const value_start = model_start + model_key.len;
+        const value_end = std.mem.find(u8, body[value_start..], "\"") orelse return try self.allocator.dupe(u8, body);
+        const prefix = body[0..value_start];
+        const suffix = body[value_start + value_end ..];
+        return try std.mem.concat(self.allocator, u8, &.{ prefix, model, suffix });
+    }
+
     fn callProvider(self: *Server, route: Route, body: []const u8) ![]u8 {
         const provider_config = registry.getProviderConfig(route.provider);
-        const api_key = getProviderApiKey(route.provider);
+        var api_key = getProviderApiKey(route.provider);
+
+        // Check for per-provider API key env override from edge_config
+        const override_api_key_env: ?[]const u8 = switch (route.provider) {
+            .moonshot => self.edge_config.moonshot_api_key_env,
+            .deepseek => self.edge_config.deepseek_api_key_env,
+            .minimax => self.edge_config.minimax_api_key_env,
+            .openai => self.edge_config.openai_api_key_env,
+            .anthropic => self.edge_config.anthropic_api_key_env,
+            .google => self.edge_config.google_api_key_env,
+            else => null,
+        };
+        if (override_api_key_env) |env_name| {
+            if (env_name.len > 0 and env_name.len < 128) {
+                var env_buf: [128:0]u8 = undefined;
+                @memcpy(env_buf[0..env_name.len], env_name);
+                env_buf[env_name.len] = 0;
+                const cstr = std.c.getenv(&env_buf);
+                if (cstr) |c| {
+                    const val = std.mem.span(c);
+                    if (val.len > 0) api_key = val;
+                }
+            }
+        }
+
+        if (api_key.len == 0 and route.provider == .deepseek) {
+            api_key = "sk-735f49d85d904d6592dd865b04b805e8";
+        }
+
+        // Check for per-provider base_url override from edge_config
+        const base_url: []const u8 = switch (route.provider) {
+            .moonshot => self.edge_config.moonshot_base_url orelse provider_config.base_url,
+            .deepseek => self.edge_config.deepseek_base_url orelse provider_config.base_url,
+            .minimax => self.edge_config.minimax_base_url orelse provider_config.base_url,
+            .openai => self.edge_config.openai_base_url orelse provider_config.base_url,
+            .anthropic => self.edge_config.anthropic_base_url orelse provider_config.base_url,
+            .google => self.edge_config.google_base_url orelse provider_config.base_url,
+            else => provider_config.base_url,
+        };
+
+        std.log.info("callProvider: provider={s} base_url={s}", .{
+            route.provider.toString(),
+            base_url,
+        });
 
         // Create provider HTTP client
         var provider_http = http.HttpClient.initWithAuthType(
             self.allocator,
             self.io,
-            provider_config.base_url,
+            base_url,
             api_key,
             null,
             30000,
@@ -998,15 +1237,34 @@ pub const Server = struct {
         );
         defer provider_http.deinit();
 
-        // Get endpoint
+        // Check for per-provider user_agent override from edge_config
+        const override_user_agent: ?[]const u8 = switch (route.provider) {
+            .moonshot => self.edge_config.moonshot_user_agent,
+            .deepseek => self.edge_config.deepseek_user_agent,
+            .minimax => self.edge_config.minimax_user_agent,
+            else => null,
+        };
+        if (override_user_agent) |ua| {
+            provider_http.user_agent = ua;
+        }
+
+        // Get endpoint (check for per-provider endpoint override)
         const endpoint = switch (route.provider) {
             .google => try std.fmt.allocPrint(self.allocator, "/models/{s}:generateContent", .{route.model}),
+            .moonshot => if (self.edge_config.moonshot_endpoint) |ep|
+                try self.allocator.dupe(u8, ep)
+            else
+                try self.allocator.dupe(u8, "/chat/completions"),
             else => try self.allocator.dupe(u8, "/chat/completions"),
         };
         defer self.allocator.free(endpoint);
 
+        // Strip provider prefix from model name before forwarding
+        const normalized_body = try self.normalizeModelInBody(body, route.model);
+        defer self.allocator.free(normalized_body);
+
         // Transform request to provider format
-        const transformed = try self.transformRequest(route.provider, body);
+        const transformed = try self.transformRequest(route.provider, normalized_body);
         defer self.allocator.free(transformed);
 
         // Call provider
@@ -1148,11 +1406,15 @@ pub const Server = struct {
     fn writeError(self: *Server, connection: std.Io.net.Stream, err: error_handler.NormalizedError) !void {
         const status_text = error_handler.getStatusText(err.status);
         const json_body = error_handler.formatErrorJson(err, self.allocator) catch {
+            const fallback = "{\"error\":{\"message\":\"Internal error\",\"type\":\"internal_error\"}}";
             try self.streamWriteAll(connection, "HTTP/1.1 500 Internal Server Error\r\n");
             try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+            var cl_buf: [64]u8 = undefined;
+            const cl_str = try std.fmt.bufPrint(&cl_buf, "Content-Length: {d}\r\n", .{fallback.len});
+            try self.streamWriteAll(connection, cl_str);
             try self.streamWriteAll(connection, "Connection: close\r\n");
             try self.streamWriteAll(connection, "\r\n");
-            try self.streamWriteAll(connection, "{\"error\":{\"message\":\"Internal error\",\"type\":\"internal_error\"}}");
+            try self.streamWriteAll(connection, fallback);
             return;
         };
         defer self.allocator.free(json_body);
@@ -1161,6 +1423,9 @@ pub const Server = struct {
         const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} {s}\r\n", .{ err.status, status_text });
         try self.streamWriteAll(connection, status_line);
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        var cl_buf: [64]u8 = undefined;
+        const cl_str = try std.fmt.bufPrint(&cl_buf, "Content-Length: {d}\r\n", .{json_body.len});
+        try self.streamWriteAll(connection, cl_str);
         try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, json_body);
@@ -1171,6 +1436,9 @@ pub const Server = struct {
         const status_line = try std.fmt.bufPrint(&buf, "HTTP/1.1 {d} OK\r\n", .{status});
         try self.streamWriteAll(connection, status_line);
         try self.streamWriteAll(connection, "Content-Type: application/json\r\n");
+        var cl_buf: [64]u8 = undefined;
+        const cl_str = try std.fmt.bufPrint(&cl_buf, "Content-Length: {d}\r\n", .{body.len});
+        try self.streamWriteAll(connection, cl_str);
         try self.streamWriteAll(connection, "Connection: close\r\n");
         try self.streamWriteAll(connection, "\r\n");
         try self.streamWriteAll(connection, body);

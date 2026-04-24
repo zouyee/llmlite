@@ -67,7 +67,25 @@ pub const HotReloadConfig = struct {
         });
         defer parsed.deinit();
 
-        return parsed.value;
+        var result = parsed.value;
+        // Deep copy string fields so they survive parsed.deinit()
+        if (result.enabled_providers) |ep| {
+            result.enabled_providers = try self.allocator.dupe(u8, ep);
+        }
+        // Deep copy per-provider override strings
+        inline for (.{
+            "moonshot_base_url",   "moonshot_api_key_env",   "moonshot_user_agent", "moonshot_endpoint",
+            "deepseek_base_url",   "deepseek_api_key_env",   "deepseek_user_agent",
+            "minimax_base_url",    "minimax_api_key_env",    "minimax_user_agent",
+            "openai_base_url",     "openai_api_key_env",
+            "anthropic_base_url",  "anthropic_api_key_env",
+            "google_base_url",     "google_api_key_env",
+        }) |field_name| {
+            if (@field(result, field_name)) |val| {
+                @field(result, field_name) = try self.allocator.dupe(u8, val);
+            }
+        }
+        return result;
     }
 };
 
@@ -86,6 +104,30 @@ pub const EdgeRouterConfig = struct {
     enable_semantic_cache: bool = false,
     cache_ttl_seconds: u32 = 3600,
     cache_max_entries: u32 = 1000,
+    /// Comma-separated list of enabled provider names.
+    /// Examples: "deepseek", "deepseek,openai,moonshot", "all"
+    /// If null, empty, or "all", all providers are enabled.
+    enabled_providers: ?[]const u8 = null,
+
+    // ---- Per-provider overrides ----
+    // Override the built-in base_url for a provider.
+    // e.g. moonshot_base_url = "https://api.kimi.com/coding/v1"
+    moonshot_base_url: ?[]const u8 = null,
+    moonshot_api_key_env: ?[]const u8 = null,
+    moonshot_user_agent: ?[]const u8 = null,
+    moonshot_endpoint: ?[]const u8 = null,
+    deepseek_base_url: ?[]const u8 = null,
+    deepseek_api_key_env: ?[]const u8 = null,
+    deepseek_user_agent: ?[]const u8 = null,
+    minimax_base_url: ?[]const u8 = null,
+    minimax_api_key_env: ?[]const u8 = null,
+    minimax_user_agent: ?[]const u8 = null,
+    openai_base_url: ?[]const u8 = null,
+    openai_api_key_env: ?[]const u8 = null,
+    anthropic_base_url: ?[]const u8 = null,
+    anthropic_api_key_env: ?[]const u8 = null,
+    google_base_url: ?[]const u8 = null,
+    google_api_key_env: ?[]const u8 = null,
 };
 
 pub fn getDefaultEdgeConfig() EdgeRouterConfig {

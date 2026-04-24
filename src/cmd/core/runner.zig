@@ -130,8 +130,9 @@ pub fn runFiltered(
         }
     }
 
-    // Phase 4: PRINT
-    std.debug.print("{s}", .{filtered});
+    // Phase 4: PRINT (stdout so hooks/agents can capture)
+    const stdout = std.Io.File.stdout();
+    stdout.writeStreamingAll(io, filtered) catch {};
 
     // Print tee recovery path if available (RTK-style)
     if (tee_filepath) |path| {

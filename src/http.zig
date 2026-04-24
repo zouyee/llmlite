@@ -52,6 +52,8 @@ pub const HttpClient = struct {
     auth_header: ?[]u8 = null,
     /// Reusable HTTP client for connection pooling
     client: Http.Client,
+    /// Optional User-Agent header for upstream requests
+    user_agent: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, base_url: []const u8, api_key: []const u8, organization: ?[]const u8, timeout_ms: u32) HttpClient {
         return .{
@@ -135,19 +137,25 @@ pub const HttpClient = struct {
 
         const uri = Uri.parse(url) catch return error.InvalidUrl;
 
-        var headers: [2]Http.Header = undefined;
+        var headers: [3]Http.Header = undefined;
         var header_count: usize = 0;
 
         switch (self.auth_type) {
             .bearer => {
-                headers[0] = .{ .name = "Authorization", .value = self.auth_header.? };
-                headers[1] = .{ .name = "Content-Type", .value = content_type };
-                header_count = 2;
+                headers[header_count] = .{ .name = "Authorization", .value = self.auth_header.? };
+                header_count += 1;
+                headers[header_count] = .{ .name = "Content-Type", .value = content_type };
+                header_count += 1;
             },
             .api_key => {
-                headers[0] = .{ .name = "Content-Type", .value = content_type };
-                header_count = 1;
+                headers[header_count] = .{ .name = "Content-Type", .value = content_type };
+                header_count += 1;
             },
+        }
+
+        if (self.user_agent) |ua| {
+            // User-Agent is set via fetch headers.user_agent, not extra_headers
+            _ = ua;
         }
 
         const http_method: Http.Method = if (std.mem.eql(u8, method, "GET"))
@@ -166,13 +174,19 @@ pub const HttpClient = struct {
         var response_writer = std.Io.Writer.Allocating.init(self.allocator);
         defer response_writer.deinit();
 
-        const fetch_result = self.client.fetch(.{
+        var fetch_options = Http.Client.FetchOptions{
             .location = .{ .uri = uri },
             .method = http_method,
             .payload = if (body.len > 0) body else null,
             .response_writer = &response_writer.writer,
             .extra_headers = headers[0..header_count],
-        }) catch |e| {
+        };
+        // Override the default User-Agent header if custom one is set
+        if (self.user_agent) |ua| {
+            fetch_options.headers.user_agent = .{ .override = ua };
+        }
+
+        const fetch_result = self.client.fetch(fetch_options) catch |e| {
             if (e == error.HttpContentEncodingUnsupported) {
                 return error.InvalidResponse;
             }
@@ -180,6 +194,15 @@ pub const HttpClient = struct {
         };
 
         const status_code = @intFromEnum(fetch_result.status);
+
+        if (status_code >= 400) {
+            std.log.warn("HTTP {d} from {s}{s}: {s}", .{
+                status_code,
+                self.base_url,
+                path,
+                if (response_writer.written().len > 0) response_writer.written()[0..@min(response_writer.written().len, 200)] else "(empty)",
+            });
+        }
 
         if (status_code == 401) return error.AuthenticationError;
         if (status_code == 429) return error.RateLimitError;
