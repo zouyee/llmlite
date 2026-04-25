@@ -674,10 +674,27 @@ pub const Server = struct {
         const provider_config = registry.getProviderConfig(provider);
         const api_key = getProviderApiKey(provider);
 
+        // Use override base_url if configured
+        const base_url: []const u8 = switch (provider) {
+            .moonshot => self.edge_config.moonshot_base_url orelse provider_config.base_url,
+            .deepseek => self.edge_config.deepseek_base_url orelse provider_config.base_url,
+            .minimax => self.edge_config.minimax_base_url orelse provider_config.base_url,
+            .openai => self.edge_config.openai_base_url orelse provider_config.base_url,
+            .anthropic => self.edge_config.anthropic_base_url orelse provider_config.base_url,
+            .google => self.edge_config.google_base_url orelse provider_config.base_url,
+            else => provider_config.base_url,
+        };
+
+        // Adjust probe endpoint: if base_url already ends with /v1, strip /v1 prefix from endpoint
+        var adjusted_endpoint = endpoint;
+        if (std.mem.endsWith(u8, base_url, "/v1") and std.mem.startsWith(u8, endpoint, "/v1")) {
+            adjusted_endpoint = endpoint[3..]; // skip "/v1"
+        }
+
         var probe_client = http.HttpClient.initWithAuthType(
             self.allocator,
             self.io,
-            provider_config.base_url,
+            base_url,
             api_key,
             null,
             5000, // 5 second timeout for probes
@@ -685,8 +702,19 @@ pub const Server = struct {
         );
         defer probe_client.deinit();
 
+        // Set User-Agent override for probes too
+        const override_user_agent: ?[]const u8 = switch (provider) {
+            .moonshot => self.edge_config.moonshot_user_agent,
+            .deepseek => self.edge_config.deepseek_user_agent,
+            .minimax => self.edge_config.minimax_user_agent,
+            else => null,
+        };
+        if (override_user_agent) |ua| {
+            probe_client.user_agent = ua;
+        }
+
         // For probe, we just check if the endpoint responds (not actual data)
-        const response = probe_client.get(endpoint) catch return .failure;
+        const response = probe_client.get(adjusted_endpoint) catch return .failure;
         defer self.allocator.free(response);
 
         // Any response (even error) means provider is reachable
@@ -1024,7 +1052,17 @@ pub const Server = struct {
     }
 
     fn handleListModels(self: *Server, connection: std.Io.net.Stream) !void {
-        const body = "{\"object\":\"list\",\"data\":[{\"id\":\"gpt-4o\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"openai\"},{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"anthropic\"},{\"id\":\"gemini-2.0-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"google\"},{\"id\":\"moonshot-v1-8k\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"kimi\"},{\"id\":\"abab6-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"minimax\"},{\"id\":\"deepseek-v4-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"},{\"id\":\"deepseek-v4-pro\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}]}";
+        const body = "{\"object\":\"list\",\"data\":[" ++
+            "{\"id\":\"gpt-4o\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"openai\"}," ++
+            "{\"id\":\"claude-3-5-sonnet\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"anthropic\"}," ++
+            "{\"id\":\"gemini-2.0-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"google\"}," ++
+            "{\"id\":\"kimi-for-coding\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"moonshot\"}," ++
+            "{\"id\":\"moonshot-v1-8k\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"moonshot\"}," ++
+            "{\"id\":\"MiniMax-M2\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"minimax\"}," ++
+            "{\"id\":\"deepseek-chat\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}," ++
+            "{\"id\":\"deepseek-v4-flash\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}," ++
+            "{\"id\":\"deepseek-v4-pro\",\"object\":\"model\",\"created\":1234567890,\"owned_by\":\"deepseek\"}" ++
+            "]}";
         try self.writeJsonResponse(connection, 200, body);
     }
 
@@ -1272,14 +1310,46 @@ pub const Server = struct {
     }
 
     fn callEmbeddingsProvider(self: *Server, route: Route, body: []const u8, api_key: []const u8) ![]u8 {
+        _ = api_key; // virtual key, not used for provider auth
         const provider_config = registry.getProviderConfig(route.provider);
+        var provider_api_key = getProviderApiKey(route.provider);
+
+        // Check for per-provider API key env override from edge_config
+        const override_api_key_env: ?[]const u8 = switch (route.provider) {
+            .moonshot => self.edge_config.moonshot_api_key_env,
+            .deepseek => self.edge_config.deepseek_api_key_env,
+            .minimax => self.edge_config.minimax_api_key_env,
+            .openai => self.edge_config.openai_api_key_env,
+            .anthropic => self.edge_config.anthropic_api_key_env,
+            .google => self.edge_config.google_api_key_env,
+            else => null,
+        };
+        if (override_api_key_env) |env_name| {
+            if (env_name.len > 0 and env_name.len < 128) {
+                var env_buf: [128:0]u8 = undefined;
+                @memcpy(env_buf[0..env_name.len], env_name);
+                env_buf[env_name.len] = 0;
+                const cstr = std.c.getenv(&env_buf);
+                if (cstr) |c| {
+                    const val = std.mem.span(c);
+                    if (val.len > 0) provider_api_key = val;
+                }
+            }
+        }
+
+        // Check for per-provider base_url override from edge_config
+        const base_url: []const u8 = switch (route.provider) {
+            .deepseek => self.edge_config.deepseek_base_url orelse provider_config.base_url,
+            .openai => self.edge_config.openai_base_url orelse provider_config.base_url,
+            else => provider_config.base_url,
+        };
 
         // Create provider HTTP client
         var provider_http = http.HttpClient.initWithAuthType(
             self.allocator,
             self.io,
-            provider_config.base_url,
-            api_key,
+            base_url,
+            provider_api_key,
             null,
             30000,
             provider_config.auth_type,

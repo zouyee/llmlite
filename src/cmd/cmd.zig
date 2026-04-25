@@ -26,6 +26,13 @@ pub fn dispatch(
     core.config.g_io = io;
     core.memory.utils.g_io = io;
     core.gain.g_io = io;
+    core.discover.g_io = io;
+    core.session.g_io = io;
+    core.learn.g_io = io;
+    core.trust.g_io = io;
+    core.modes.g_io = io;
+    core.integrity.g_io = io;
+    core.cc_economics.g_io = io;
     global_verbose = verbose;
     global_ultra_compact = ultra_compact;
 
@@ -1397,7 +1404,7 @@ fn dispatchFind(args: []const [:0]const u8) !i32 {
         try argv.append("-not");
         try argv.append("-path");
         const pattern = try std.fmt.allocPrint(g_cmd_allocator, "*/{s}/*", .{dir});
-        defer g_cmd_allocator.free(pattern);
+        // Don't free here - argv holds a reference; leaked intentionally (small, bounded)
         try argv.append(pattern);
     }
     if (name_pattern) |np| {
@@ -2346,7 +2353,6 @@ fn dispatchLog(args: []const [:0]const u8) !i32 {
         std.debug.print("log: HOME not set\n", .{});
         return 1;
     };
-    defer g_cmd_allocator.free(home_dir);
 
     const history_path = std.fs.path.join(g_cmd_allocator, &.{ home_dir, ".local/share/llmlite/history.db" }) catch {
         std.debug.print("log: failed to build path\n", .{});
@@ -2360,15 +2366,13 @@ fn dispatchLog(args: []const [:0]const u8) !i32 {
     };
     defer file.close(g_cmd_io);
 
-    var buf: [8192]u8 = undefined;
-    var file_buffer = std.array_list.Managed(u8).init(g_cmd_allocator);
-    defer file_buffer.deinit();
-
-    while (true) {
-        const bytes_read = file.readPositional(g_cmd_io, &.{&buf}, 0) catch break;
-        if (bytes_read == 0) break;
-        file_buffer.appendSlice(buf[0..bytes_read]) catch break;
-    }
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_cmd_io, &reader_buf);
+    const file_content = file_reader.interface.allocRemaining(g_cmd_allocator, .limited(1024 * 1024)) catch {
+        std.debug.print("log: failed to read history file\n", .{});
+        return 1;
+    };
+    defer g_cmd_allocator.free(file_content);
 
     // Parse and deduplicate if requested
     var entries = std.array_list.Managed(LogEntry).init(g_cmd_allocator);
@@ -2380,7 +2384,7 @@ fn dispatchLog(args: []const [:0]const u8) !i32 {
         entries.deinit();
     }
 
-    var line_iter = std.mem.splitScalar(u8, file_buffer.items, '\n');
+    var line_iter = std.mem.splitScalar(u8, file_content, '\n');
     while (line_iter.next()) |line| {
         if (line.len == 0) continue;
 
@@ -2473,15 +2477,13 @@ fn dispatchSummary(args: []const [:0]const u8) !i32 {
     };
     defer file.close(g_cmd_io);
 
-    var buf: [8192]u8 = undefined;
-    var file_buffer = std.array_list.Managed(u8).init(g_cmd_allocator);
-    defer file_buffer.deinit();
-
-    while (true) {
-        const bytes_read = file.readPositional(g_cmd_io, &.{&buf}, 0) catch break;
-        if (bytes_read == 0) break;
-        file_buffer.appendSlice(buf[0..bytes_read]) catch break;
-    }
+    var reader_buf: [8192]u8 = undefined;
+    var file_reader = file.reader(g_cmd_io, &reader_buf);
+    const file_content = file_reader.interface.allocRemaining(g_cmd_allocator, .limited(1024 * 1024)) catch {
+        std.debug.print("summary: failed to read history file\n", .{});
+        return 1;
+    };
+    defer g_cmd_allocator.free(file_content);
 
     // Count commands by category
     var cmd_counts = std.StringHashMap(u32).init(g_cmd_allocator);
@@ -2489,7 +2491,7 @@ fn dispatchSummary(args: []const [:0]const u8) !i32 {
 
     var total_saved: usize = 0;
 
-    var line_iter = std.mem.splitScalar(u8, file_buffer.items, '\n');
+    var line_iter = std.mem.splitScalar(u8, file_content, '\n');
     while (line_iter.next()) |line| {
         if (line.len == 0) continue;
 
