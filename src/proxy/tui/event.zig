@@ -44,7 +44,10 @@ pub fn run(app_state: *AppState, tty: anytype) !void {
     if (builtin.os.tag == .windows) {
         return error.NotSupported;
     }
+    return runPosix(app_state, tty);
+}
 
+fn runPosix(app_state: *AppState, tty: anytype) !void {
     var leftover_buf: [32]u8 = undefined;
     var leftover_len: usize = 0;
 

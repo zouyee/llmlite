@@ -4,6 +4,7 @@
 //! health checking, connection pooling. Streaming support is simplified.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 // Zig 0.16.0 compat: managed StringArrayHashMap wrapper
 fn StringArrayHashMap(comptime V: type) type {
@@ -727,22 +728,31 @@ pub const Server = struct {
         var buf: [16384]u8 = undefined;
         var total_read: usize = 0;
 
-        // Read the complete HTTP request using poll + posix read
+        // Read the complete HTTP request using poll + posix read (POSIX only)
         var read_attempts: u8 = 0;
         const max_read_attempts = 50;
+        const is_windows = comptime builtin.os.tag == .windows;
         while (total_read < buf.len and read_attempts < max_read_attempts) : (read_attempts += 1) {
-            var pollfd = [_]std.posix.pollfd{.{
-                .fd = connection.socket.handle,
-                .events = std.posix.POLL.IN,
-                .revents = 0,
-            }};
-            const ready = std.posix.poll(&pollfd, 500) catch 0;
-            if (ready == 0) continue;
+            if (!is_windows) {
+                var pollfd = [_]std.posix.pollfd{.{
+                    .fd = connection.socket.handle,
+                    .events = std.posix.POLL.IN,
+                    .revents = 0,
+                }};
+                const ready = std.posix.poll(&pollfd, 500) catch 0;
+                if (ready == 0) continue;
+            }
 
-            const bytes_read = std.posix.read(connection.socket.handle, buf[total_read..]) catch |err| {
-                std.log.warn("posix read error: {}", .{err});
-                break;
-            };
+            const bytes_read = if (is_windows)
+                self.streamRead(connection, buf[total_read..]) catch |err| {
+                    std.log.warn("stream read error: {}", .{err});
+                    break;
+                }
+            else
+                std.posix.read(connection.socket.handle, buf[total_read..]) catch |err| {
+                    std.log.warn("posix read error: {}", .{err});
+                    break;
+                };
             if (bytes_read == 0) break;
             total_read += bytes_read;
 
@@ -758,17 +768,25 @@ pub const Server = struct {
                     if (total_read < expected_total and expected_total <= buf.len) {
                         var body_attempts: u8 = 0;
                         while (total_read < expected_total and body_attempts < max_read_attempts) : (body_attempts += 1) {
-                            var body_pollfd = [_]std.posix.pollfd{.{
-                                .fd = connection.socket.handle,
-                                .events = std.posix.POLL.IN,
-                                .revents = 0,
-                            }};
-                            const body_ready = std.posix.poll(&body_pollfd, 500) catch 0;
-                            if (body_ready == 0) continue;
-                            const body_n = std.posix.read(connection.socket.handle, buf[total_read..expected_total]) catch |err| {
-                                std.log.warn("posix body read error: {}", .{err});
-                                break;
-                            };
+                            if (!is_windows) {
+                                var body_pollfd = [_]std.posix.pollfd{.{
+                                    .fd = connection.socket.handle,
+                                    .events = std.posix.POLL.IN,
+                                    .revents = 0,
+                                }};
+                                const body_ready = std.posix.poll(&body_pollfd, 500) catch 0;
+                                if (body_ready == 0) continue;
+                            }
+                            const body_n = if (is_windows)
+                                self.streamRead(connection, buf[total_read..expected_total]) catch |err| {
+                                    std.log.warn("posix body read error: {}", .{err});
+                                    break;
+                                }
+                            else
+                                std.posix.read(connection.socket.handle, buf[total_read..expected_total]) catch |err| {
+                                    std.log.warn("posix body read error: {}", .{err});
+                                    break;
+                                };
                             if (body_n == 0) break;
                             total_read += body_n;
                         }
